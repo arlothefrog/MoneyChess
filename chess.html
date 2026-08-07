@@ -1466,6 +1466,8 @@ function isTargetable(r, c, kind) {
   if (kind === "enemyPawn") return p && p.type==="P" && p.color !== state.turn;
   if (kind === "enemyPiece") return p && p.color !== state.turn;
   if (kind === "ownPiece") return p && p.color === state.turn;
+  if (kind === "confuse") return p && p.color !== state.turn && !state.confused.some(x => x.r===r && x.c===c);
+  if (kind === "piratify") return p && p.color === state.turn && !state.piratify.some(x => x.r===r && x.c===c);
   if (kind === "anyEmpty") return !p;
   if (kind === "dispelable") {
     if (state.blocked.some(b => b.r===r && b.c===c)) return true;
@@ -1497,7 +1499,9 @@ function updateStatus() {
   if (state.targetMode) {
     const msgs = {
       enemyPawn: "click an enemy pawn to snipe",
-      enemyPiece: state.targetMode.asConfuse ? "click an enemy piece to confuse" : "click an enemy piece to put to sleep",
+      enemyPiece: "click an enemy piece to put to sleep",
+      confuse: "click an enemy piece to confuse (cannot re-target a confused piece)",
+      piratify: "click one of your pieces to piratify it (cannot re-target a piratified piece)",
       anyEmpty: "click any empty square to block",
       dispelable: "click a wall / sleeping / confused / bountied / piratified piece to dispel",
       pushable: "click a piece to push it back 3 squares",
@@ -1821,10 +1825,10 @@ function castSpell(slotIndex) {
       spellPrecast();
       break;
     case "confuse":
-      state.targetMode = { kind: "enemyPiece", spellId: id, asConfuse: true };
+      state.targetMode = { kind: "confuse", spellId: id };
       break;
     case "piratify":
-      state.targetMode = { kind: "ownPiece", spellId: id };
+      state.targetMode = { kind: "piratify", spellId: id };
       break;
   }
   state.selected = null;
@@ -1954,16 +1958,23 @@ function handleTargetClick(r, c) {
   } else if (tm.kind === "enemyPiece") {
     const p = state.board[r][c];
     if (!p || p.color === state.turn) { render(); return; }
-    if (tm.asConfuse) {
-      state.confused.push({ r, c });
-      finishSpell(`${state.turn==="w"?"W":"B"}:Confusion@${sqName(r,c)}`);
-    } else {
-      state.sleeping.push({ r, c, owner: state.turn, rem: 2 });
-      finishSpell(`${state.turn==="w"?"W":"B"}:Sleep@${sqName(r,c)}`);
-    }
+    state.sleeping.push({ r, c, owner: state.turn, rem: 2 });
+    finishSpell(`${state.turn==="w"?"W":"B"}:Sleep@${sqName(r,c)}`);
+  } else if (tm.kind === "confuse") {
+    const p = state.board[r][c];
+    if (!p || p.color === state.turn) { render(); return; }
+    if (state.confused.some(x => x.r===r && x.c===c)) { render(); return; }
+    state.confused.push({ r, c });
+    finishSpell(`${state.turn==="w"?"W":"B"}:Confusion@${sqName(r,c)}`);
   } else if (tm.kind === "ownPiece") {
     const p = state.board[r][c];
     if (!p || p.color !== state.turn) { render(); return; }
+    state.piratify.push({ r, c });
+    finishSpell(`${state.turn==="w"?"W":"B"}:Piratify@${sqName(r,c)}`);
+  } else if (tm.kind === "piratify") {
+    const p = state.board[r][c];
+    if (!p || p.color !== state.turn) { render(); return; }
+    if (state.piratify.some(x => x.r===r && x.c===c)) { render(); return; }
     state.piratify.push({ r, c });
     finishSpell(`${state.turn==="w"?"W":"B"}:Piratify@${sqName(r,c)}`);
   } else if (tm.kind === "dispelable") {
