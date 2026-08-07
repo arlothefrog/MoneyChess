@@ -138,6 +138,19 @@
   .shop-card .glyph { font-size: 34px; line-height: 1; }
   .shop-card .price { font-size: 0.8rem; color: #ffd24a; margin-top: 2px; }
   .shop-card .empty { color: #8aa; font-size: 0.7rem; }
+  .shop-mod {
+    display: inline-block;
+    font-size: 0.6rem;
+    font-weight: 700;
+    letter-spacing: 1px;
+    padding: 1px 5px;
+    border-radius: 6px;
+    margin-top: 4px;
+  }
+  .shop-mod.mod-golden { color: #3a2f00; background: #ffd700; }
+  .shop-mod.mod-free { color: #04320a; background: #35e06a; }
+  .shop-mod.mod-pricier { color: #5a1b00; background: #ff9a4a; }
+  .shop-card.golden { border-color: #ffd700; box-shadow: 0 0 8px 1px rgba(255,215,0,0.55); }
 
   #shopWrap { display: flex; flex-direction: column; align-items: center; }
   #shopTitle { font-size: 0.85rem; letter-spacing: 1px; margin-bottom: 4px; color: #9ab; }
@@ -330,7 +343,7 @@
     align-items: center;
     justify-content: center;
   }
-  .piece.centaur svg, .glyph.centaur svg {
+  .piece.centaur img, .glyph.centaur img {
     width: 1.25em;
     height: 1.25em;
     display: block;
@@ -351,6 +364,23 @@
     line-height: 1;
     pointer-events: none;
     z-index: 2;
+  }
+  /* Golden piece: gold diagonal stripes + a glint */
+  .piece.golden {
+    position: relative;
+    display: inline-block;
+  }
+  .piece.golden::after {
+    content: "";
+    position: absolute;
+    inset: -18%;
+    background: repeating-linear-gradient(45deg,
+      rgba(255, 215, 0, 0.0) 0 3px,
+      rgba(255, 215, 0, 0.65) 3px 7px);
+    mix-blend-mode: screen;
+    pointer-events: none;
+    z-index: 1;
+    border-radius: 50%;
   }
 .square .halo {
     position: absolute;
@@ -408,14 +438,7 @@ const GLYPH = {
   P:"\u265F", N:"\u265E", B:"\u265D", R:"\u265C", Q:"\u265B", K:"\u265A", C:"\ud83d\udc2b", G:"\ud83e\udd97", D:"\u265F", A:"\u265E", S:"\u265F", H:"\u265E"
 };
 
-const CENTAUR_SVG = `<svg viewBox="0 0 100 100" fill="currentColor">
-  <circle cx="50" cy="62" r="30"/>
-  <path d="M28 26 33 40 38 27 42 40 47 27 51 38 55 27 58 40 62 27 66 42H28L28 42Z" transform="translate(4 -6)"/>
-  <rect x="28" y="42" width="40" height="6" rx="1" transform="translate(4 -6)"/>
-  <circle cx="33" cy="23" r="3" transform="translate(0 -4)"/>
-  <circle cx="49" cy="18" r="3" transform="translate(0 -4)"/>
-  <circle cx="66" cy="25" r="3" transform="translate(0 -4)"/>
-</svg>`;
+const CENTAUR_SVG = `<img src="data:image/gif;base64,R0lGODlhMgAyAJH/AP///zMzM8DAwAAAACH5BAEAAAIALAAAAAAyADIAQAL/lI+py+3fxoA0SYCzzjKE8Q3biEnQhXkByW7qZj6q1440q1byXZO5DgwKg7EhRYJMHlDFpFOH8vFw01GRcVv1bDbPtTLzJKq1nxEUcqrXnY/xDRey4/Av3YBs5WFRq13RR6WVMbP1hyDSNfjSwghz1LG1xYhEQSYJMOgSEMRpkBVWOCn25vnpKGlWqolJaHoHGysLezjLMGdbUZt7O8G7pGRRKTwsFwhQ2Weyp1F8kqgnUnjMBykZmUnt96Dtyurds6vt+K2B2uwbAZ3CE9ZItgucednqGH9w3qqInL4zr/9v0z0EouqVm9fJU7tQ8+ixewUGFESHmyACUSUg3zuLGUYKYsI4RGMqjgkBborjhY1KJyl/uXypoAAAOw==">`;
 
 const BOARD_EL = document.getElementById("board");
 const STATUS_EL = document.getElementById("status");
@@ -467,6 +490,7 @@ function initialState() {
     shopTurns: 0,          // turns since shop last refreshed (refreshes every 5)
     placementMode: false,
     placementPiece: null,   // piece type to place
+    placementMod: null,     // shop modifier of the piece being placed (golden/free/pricier/normal)
     placementIsSpell: false,  // spell-based placement doesn't end turn
     placementSpellId: null,
     pendingRefillShopSlot: null,  // shop slot whose next piece rolls only after placement
@@ -487,12 +511,28 @@ const PIECE_VALUE = { P:1, N:3, B:3, R:5, Q:9, C:2, G:1, D:1, A:12, S:1, H:6 };
 // Uniform-random pool: each piece type is equally likely
 const SHOP_POOL = ["P","N","B","R","Q","C","G","D","S","H"];
 
+// Roll a shop modifier: 5% golden, 5% free, 5% pricier (+1$), 85% normal.
+function rollShopMod() {
+  const r = Math.random();
+  if (r < 0.05) return "golden";    // gold stripes; +$1 each time it captures
+  if (r < 0.10) return "free";      // shows/costs $0
+  if (r < 0.15) return "pricier";   // costs +$1 more
+  return "normal";
+}
 function randomShopPiece() {
-  return SHOP_POOL[Math.floor(Math.random() * SHOP_POOL.length)];
+  return { p: SHOP_POOL[Math.floor(Math.random() * SHOP_POOL.length)], mod: rollShopMod() };
 }
 
 function refillShop() {
   while (state.shop.length < 3) state.shop.push(randomShopPiece());
+}
+
+// Effective shop price for an entry, honoring free / pricier modifiers.
+function shopPrice(e) {
+  const base = PIECE_VALUE[e.p];
+  if (e.mod === "free") return 0;
+  if (e.mod === "pricier") return base + 1;
+  return base;
 }
 
 // Called whenever a turn ends: every 5 turns the shop and spells refresh.
@@ -529,7 +569,7 @@ function randomSpell() { return SPELL_POOL[Math.floor(Math.random()*SPELL_POOL.l
 function refillSpells() { state.spells = []; for (let i=0;i<3;i++) state.spells.push(randomSpell()); }
 
 function cloneBoard(b) {
-  return b.map(row => row.map(p => p ? {type:p.type, color:p.color, bounty:p.bounty||null} : null));
+  return b.map(row => row.map(p => p ? {type:p.type, color:p.color, bounty:p.bounty||null, golden:p.golden||false} : null));
 }
 function cloneStateForHistory(s) {
   return {
@@ -547,6 +587,7 @@ function cloneStateForHistory(s) {
     shopTurns: s.shopTurns,
     placementMode: s.placementMode,
     placementPiece: s.placementPiece,
+    placementMod: s.placementMod,
     placementIsSpell: s.placementIsSpell,
     placementSpellId: s.placementSpellId,
     pendingRefillShopSlot: s.pendingRefillShopSlot,
@@ -892,7 +933,7 @@ function simulateMove(s, fr, fc, move) {
   board[fr][fc] = null;
   board[move.r][move.c] = move.promotion && move.promoteTo
     ? {type: move.promoteTo, color: p.color}
-    : {type: p.type, color: p.color, bounty: p.bounty || null};
+    : {type: p.type, color: p.color, bounty: p.bounty || null, golden: p.golden || false};
   // Castling: move rook
   if (move.castle === "K") {
     board[move.r][5] = board[move.r][7];
@@ -953,6 +994,8 @@ function makeMove(fr, fc, move, promoteTo) {
     if (cap && cap.bounty) applyBountyIfAny(cap);   // +$1 to bounty owner (stacks)
     // Plunder: a plundering piece earns +$1 for every capture
     if (state.piratify.some(x => x.r===fr && x.c===fc)) state.money[p.color] += 2;
+    // Golden piece: earns +$1 for each capture it makes
+    if (p.golden) state.money[p.color] += 1;
   }
   // A confused piece that gets captured loses its confusion
   if (captured) state.confused = state.confused.filter(x => !(x.r===move.r && x.c===move.c));
@@ -1097,6 +1140,8 @@ function render() {
         if (p.type === "A") span.classList.add("amazon");
         // Piratified piece gets a pirate marker
         if (state.piratify.some(x => x.r===r && x.c===c)) span.classList.add("piratifyed");
+        // Golden piece gets gold stripes
+        if (p.golden) span.classList.add("golden");
         sq.appendChild(span);
         if (p.bounty) {
           const halo = document.createElement("div");
@@ -1236,7 +1281,7 @@ function applyMove(snap, fr, fc, move, promoteTo) {
   board[fr][fc] = null;
   board[move.r][move.c] = move.promotion && promoteTo
     ? {type: promoteTo, color: p.color, bounty: p.bounty||null}
-    : {type: p.type, color: p.color, bounty: p.bounty||null};
+    : {type: p.type, color: p.color, bounty: p.bounty||null, golden: p.golden||false};
   if (move.castle === "K") { board[move.r][5] = board[move.r][7]; board[move.r][7] = null; }
   else if (move.castle === "Q") { board[move.r][3] = board[move.r][0]; board[move.r][0] = null; }
   if (p.type === "K") { if (p.color === "w") {castling.wK=false; castling.wQ=false;} else {castling.bK=false; castling.bQ=false;} }
@@ -1379,9 +1424,10 @@ function aiMove() {
 function aiConsiderBuy(me) {
   if (state.spellUsedThisTurn || state.placementMode) return null;
   for (let i=0;i<3;i++) {
-    const piece = state.shop[i];
-    if (!piece) continue;
-    const cost = PIECE_VALUE[piece];
+    const e = state.shop[i];
+    if (!e) continue;
+    const piece = e.p;
+    const cost = shopPrice(e);
     if (state.money[me] < cost) continue;
     // Buy strong pieces (Q/R) about 35% of the time, others rarely
     const chance = (piece === "Q") ? 0.35 : (piece === "R") ? 0.25 : (piece === "N" || piece === "B") ? 0.10 : 0.05;
@@ -1460,7 +1506,10 @@ function updateStatus() {
     if (state.placementIsSpell) {
       STATUS_EL.textContent = `${who}: place the spawned pawn on your side`;
     } else {
-      STATUS_EL.textContent = `${who}: place the ${state.placementPiece} on your side ($${PIECE_VALUE[state.placementPiece]} paid)`;
+      const paid = state.placementMod && state.placementMod !== "normal"
+        ? (state.placementMod === "free" ? 0 : PIECE_VALUE[state.placementPiece] + 1)
+        : PIECE_VALUE[state.placementPiece];
+      STATUS_EL.textContent = `${who}: place the ${state.placementPiece} on your side ($${paid} paid)`;
     }
     return;
   }
@@ -1496,18 +1545,23 @@ function renderShop() {
   const shop = document.getElementById("shop");
   shop.innerHTML = "";
   for (let i=0;i<3;i++) {
-    const piece = state.shop[i];
+    const e = state.shop[i];
     const card = document.createElement("div");
     card.className = "shop-card";
-    if (!piece) {
+    if (!e) {
       card.innerHTML = '<div class="empty">—</div>';
     } else {
-      const cost = PIECE_VALUE[piece];
+      const piece = e.p;
+      const cost = shopPrice(e);
       const CAN = canCast() && state.money[state.turn] >= cost;
       const glyphHTML = piece === "H"
         ? `<div class="glyph centaur" style="color:#1a1a1a">${CENTAUR_SVG}</div>`
         : `<div class="glyph${piece==="D" ? " dpawn" : ""}${piece==="A" ? " amazon" : ""}${piece==="S" ? " soldier" : ""}">${GLYPH[piece]}</div>`;
-      card.innerHTML = `${glyphHTML}<div class="price">$${cost}</div>`;
+      const modLabel = e.mod === "golden" ? '<span class="shop-mod mod-golden">GOLD</span>'
+        : e.mod === "free" ? '<span class="shop-mod mod-free">FREE</span>'
+        : e.mod === "pricier" ? '<span class="shop-mod mod-pricier">+$1</span>' : "";
+      card.innerHTML = `${glyphHTML}${modLabel}<div class="price">$${cost}</div>`;
+      if (e.mod === "golden") card.classList.add("golden");
       card.classList.toggle("disabled", !CAN);
       if (CAN) card.addEventListener("click", () => buyPiece(i));
     }
@@ -1611,19 +1665,23 @@ function isPlaceable(r, c, color) {
 }
 
 function buyPiece(slotIndex) {
-  if (state.gameOver || state.placementMode || state.targetMode || pendingPromotion || state.spellUsedThisTurn) return;
+const gameOver = state.gameOver, placementMode = state.placementMode, targetMode = state.targetMode, pp = pendingPromotion, sus = state.spellUsedThisTurn;
+  if (gameOver || placementMode || targetMode || pp || sus) return;
   state.gameStarted = true;
-  const piece = state.shop[slotIndex];
-  if (!piece) return;
-  const cost = PIECE_VALUE[piece];
+  const e = state.shop[slotIndex];
+  if (!e) return;
+  const piece = e.p;
+  const cost = shopPrice(e);
   if (state.money[state.turn] < cost) return;
   state.history.push(cloneStateForHistory(state));
   state.money[state.turn] -= cost;
   // Keep the bought piece shown in its shop slot until it's actually placed;
   // the next piece is only rolled/visible after placement completes.
   state.pendingRefillShopSlot = slotIndex;
+
   state.placementMode = true;
   state.placementPiece = piece;
+  state.placementMod = e.mod;
   state.placementIsSpell = false;
   state.placementSpellId = null;
   state.selected = null;
@@ -1633,11 +1691,13 @@ function buyPiece(slotIndex) {
 
 function placePiece(r, c) {
   const color = state.turn;
-  state.board[r][c] = { type: state.placementPiece, color };
+  const mod = state.placementMod || "normal";
+  state.board[r][c] = { type: state.placementPiece, color, golden: mod === "golden" };
   const placedType = state.placementPiece;
   const wasSpell = state.placementIsSpell;
   state.placementMode = false;
   state.placementPiece = null;
+  state.placementMod = null;
   state.placementIsSpell = false;
   state.placementSpellId = null;
   state.selected = null;
@@ -1722,6 +1782,7 @@ function castSpell(slotIndex) {
     case "spawnPawn":
       state.placementMode = true;
       state.placementPiece = "P";
+      state.placementMod = null;
       state.placementIsSpell = true;
       state.placementSpellId = "spawnPawn";
       break;
@@ -1957,6 +2018,7 @@ function cancelPlacement() {
       state.shopTurns = prev.shopTurns;
       state.placementMode = prev.placementMode;
       state.placementPiece = prev.placementPiece;
+      state.placementMod = prev.placementMod;
       state.placementIsSpell = prev.placementIsSpell;
       state.placementSpellId = prev.placementSpellId;
       state.pendingRefillShopSlot = prev.pendingRefillShopSlot;
@@ -1994,6 +2056,7 @@ state.confused = prev.confused.map(b=>({...b}));
   state.shopTurns = prev.shopTurns;
   state.placementMode = false;
   state.placementPiece = null;
+  state.placementMod = null;
   state.placementIsSpell = false;
   state.placementSpellId = null;
   state.selected = null;
