@@ -1176,7 +1176,7 @@ function render() {
           span.textContent = GLYPH[p.type];
         }
         // Camel & grasshopper use emoji that ignore text-color; tint them by side.
-        if (p.type === "C" || p.type === "G") {
+        if (p.type === "C" || p.type === "G" || p.type === "M") {
           span.classList.add(p.color === "w" ? "tint-white" : "tint-black");
         }
         // Soldier: pawn wearing a helmet
