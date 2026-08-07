@@ -1176,8 +1176,12 @@ function render() {
           span.textContent = GLYPH[p.type];
         }
         // Camel & grasshopper use emoji that ignore text-color; tint them by side.
-        if (p.type === "C" || p.type === "G" || p.type === "M") {
+        if (p.type === "C" || p.type === "G") {
           span.classList.add(p.color === "w" ? "tint-white" : "tint-black");
+        }
+        // Rat: tint white on white's team only; keep the normal emoji on black's team.
+        if (p.type === "M" && p.color === "w") {
+          span.classList.add("tint-white");
         }
         // Soldier: pawn wearing a helmet
         if (p.type === "S") span.classList.add("soldier");
