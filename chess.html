@@ -735,12 +735,20 @@ function pseudoMoves(board, r, c, castling, epTarget, blocked) {
     }
   }
   else if (p.type === "T") {
-    // Cat: moves 1 square in any of the 8 directions, and can also
-    // capture an enemy up to 2 squares away in those directions (leaps).
+    // Cat: moves 1 square in any of the 8 directions, can capture an enemy
+    // up to 2 squares away in those directions (leaps), and can capture on
+    // knight squares (but cannot move there).
     const dirs = [[-1,-1],[-1,1],[1,-1],[1,1],[-1,0],[1,0],[0,-1],[0,1]];
     for (const [dr,dc] of dirs) {
       add(r+dr, c+dc);
       const rr = r+dr*2, cc = c+dc*2;
+      if (!inBounds(rr,cc) || blk.has(rr+","+cc)) continue;
+      const t = board[rr][cc];
+      if (t && t.color !== color) moves.push({r:rr, c:cc});
+    }
+    const noff = [[-2,-1],[-2,1],[-1,-2],[-1,2],[1,-2],[1,2],[2,-1],[2,1]];
+    for (const [dr,dc] of noff) {
+      const rr = r+dr, cc = c+dc;
       if (!inBounds(rr,cc) || blk.has(rr+","+cc)) continue;
       const t = board[rr][cc];
       if (t && t.color !== color) moves.push({r:rr, c:cc});
@@ -1510,7 +1518,8 @@ function isTargetable(r, c, kind) {
     if (state.confused.some(x => x.r===r && x.c===c)) return true;
     if (p && p.bounty) return true;
     if (state.piratify.some(x => x.r===r && x.c===c)) return true;
-  // Cat: attacks 1 or 2 squares in each of the 8 directions (leaps).
+  // Cat: attacks 1 or 2 squares in each of the 8 directions (leaps), plus
+  // attacks knight squares (capture-only reach).
   for (const [dr,dc] of [[-1,-1],[-1,1],[1,-1],[1,1],[-1,0],[1,0],[0,-1],[0,1]]) {
     for (let step=1; step<=2; step++) {
       const rr=r+dr*step, cc=c+dc*step;
@@ -1518,6 +1527,12 @@ function isTargetable(r, c, kind) {
       const t=board[rr][cc];
       if (t) { if (t.color===attackerColor && t.type==="T") return true; break; }
     }
+  }
+  for (const [dr,dc] of [[-2,-1],[-2,1],[-1,-2],[-1,2],[1,-2],[1,2],[2,-1],[2,1]]) {
+    const rr=r+dr, cc=c+dc;
+    if (!inBounds(rr,cc)) continue;
+    const t=board[rr][cc];
+    if (t && t.color===attackerColor && t.type==="T") return true;
   }
   return false;
 }
