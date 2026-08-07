@@ -905,6 +905,22 @@ function squareAttacked(board, r, c, attackerColor) {
       rr+=dr; cc+=dc;
     }
   }
+  // Cat: attacks 1 or 2 squares in each of the 8 directions (leaps over
+  // the intervening square), plus attacks knight squares (capture-only reach).
+  for (const [dr,dc] of [[-1,-1],[-1,1],[1,-1],[1,1],[-1,0],[1,0],[0,-1],[0,1]]) {
+    for (let step=1; step<=2; step++) {
+      const rr=r+dr*step, cc=c+dc*step;
+      if (!inBounds(rr,cc)) break;
+      const t=board[rr][cc];
+      if (t) { if (t.color===attackerColor && t.type==="T") return true; break; }
+    }
+  }
+  for (const [dr,dc] of [[-2,-1],[-2,1],[-1,-2],[-1,2],[1,-2],[1,2],[2,-1],[2,1]]) {
+    const rr=r+dr, cc=c+dc;
+    if (!inBounds(rr,cc)) continue;
+    const t=board[rr][cc];
+    if (t && t.color===attackerColor && t.type==="T") return true;
+  }
   // Rat: attacks up to 2 squares in any of the 8 directions (cannot jump).
   for (const [dr,dc] of [[-1,-1],[-1,1],[1,-1],[1,1],[-1,0],[1,0],[0,-1],[0,1]]) {
     for (let step=1; step<=2; step++) {
@@ -1510,24 +1526,8 @@ function isTargetable(r, c, kind) {
     if (state.confused.some(x => x.r===r && x.c===c)) return true;
     if (p && p.bounty) return true;
     if (state.piratify.some(x => x.r===r && x.c===c)) return true;
-  // Cat: attacks 1 or 2 squares in each of the 8 directions (leaps), plus
-  // attacks knight squares (capture-only reach).
-  for (const [dr,dc] of [[-1,-1],[-1,1],[1,-1],[1,1],[-1,0],[1,0],[0,-1],[0,1]]) {
-    for (let step=1; step<=2; step++) {
-      const rr=r+dr*step, cc=c+dc*step;
-      if (!inBounds(rr,cc)) break;
-      const t=board[rr][cc];
-      if (t) { if (t.color===attackerColor && t.type==="T") return true; break; }
-    }
+    return false;
   }
-  for (const [dr,dc] of [[-2,-1],[-2,1],[-1,-2],[-1,2],[1,-2],[1,2],[2,-1],[2,1]]) {
-    const rr=r+dr, cc=c+dc;
-    if (!inBounds(rr,cc)) continue;
-    const t=board[rr][cc];
-    if (t && t.color===attackerColor && t.type==="T") return true;
-  }
-  return false;
-}
   if (kind === "pushable") {
     // any piece (including a sleeping one) that can move backward at least 1 square
     if (!p) return false;
@@ -1565,9 +1565,9 @@ function updateStatus() {
     if (state.placementIsSpell) {
       STATUS_EL.textContent = `${who}: place the spawned pawn on your side`;
     } else {
-      const paid = state.placementMod && state.placementMod !== "normal"
-        ? (state.placementMod === "free" ? 0 : PIECE_VALUE[state.placementPiece] + 1)
-        : PIECE_VALUE[state.placementPiece];
+      const paid = state.placementMod === "pricier"
+        ? PIECE_VALUE[state.placementPiece] + 1
+        : state.placementMod === "free" ? 0 : PIECE_VALUE[state.placementPiece];
       STATUS_EL.textContent = `${who}: place the ${state.placementPiece} on your side ($${paid} paid)`;
     }
     return;
@@ -1591,7 +1591,7 @@ function renderSpells() {
       card.innerHTML = '<div class="sname">—</div>';
     } else {
       const sp = SPELLS[id];
-      const CAN = canCast() && state.money[state.turn] >= sp.cost;
+      const CAN = canCast() && (state.freeCast || state.money[state.turn] >= sp.cost);
       card.innerHTML = `<div class="sname">${sp.name}</div><div class="sglyph">${sp.glyph}</div><div class="sprice">$${sp.cost}</div>`;
       card.classList.toggle("disabled", !CAN);
       if (CAN) card.addEventListener("click", () => castSpell(i));
