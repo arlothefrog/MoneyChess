@@ -349,6 +349,10 @@
     display: block;
     filter: drop-shadow(0 1px 1px rgba(0,0,0,0.5));
   }
+  /* Black-side centaurs get inverted colors to match the side */
+  .piece.centaur[data-side="b"] img {
+    filter: invert(1) drop-shadow(0 1px 1px rgba(0,0,0,0.5));
+  }
   /* Pirate marker for a piratifyed piece */
   .piece.piratifyed {
     position: relative;
@@ -512,7 +516,7 @@ const SHOP_POOL = ["P","N","B","R","Q","C","G","D","S","H"];
 // Roll a shop modifier: 5% golden, 5% free, 5% pricier (+1$), 85% normal.
 function rollShopMod() {
   const r = Math.random();
-  if (r < 0.05) return "golden";    // gold stripes; +$1 each time it captures
+  if (r < 0.05) return "golden";    // gold tile surround; +$1 each time it captures
   if (r < 0.10) return "free";      // shows/costs $0
   if (r < 0.15) return "pricier";   // costs +$1 more
   return "normal";
@@ -1120,8 +1124,10 @@ function render() {
         const pc = p.color === "w" ? "#ffffff" : "#1a1a1a";
         span.style.color = pc;
         if (p.type === "H") {
-          // Centaur: inline SVG colored by currentColor so it tints like the piece
+          // Centaur: inline GIF. Its art has fixed colors, so on the
+          // black side we invert it (white becomes black, black becomes white).
           span.classList.add("centaur");
+          span.dataset.side = p.color;
           span.innerHTML = CENTAUR_SVG;
         } else {
           span.textContent = GLYPH[p.type];
