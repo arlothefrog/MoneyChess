@@ -277,6 +277,7 @@
   }
   .piece.tint-white { filter: grayscale(100%) brightness(2.2); }
   .piece.tint-black { filter: grayscale(100%) brightness(0.25); }
+  .piece.cat-black { filter: grayscale(100%) brightness(0.55); }
   .piece.dpawn, .glyph.dpawn {
     position: relative;
   }
@@ -1182,6 +1183,10 @@ function render() {
         // Rat: tint white on white's team only; keep the normal emoji on black's team.
         if (p.type === "M" && p.color === "w") {
           span.classList.add("tint-white");
+        }
+        // Cat: turns its orange/yellow fur into dark gray on black's team.
+        if (p.type === "T" && p.color === "b") {
+          span.classList.add("cat-black");
         }
         // Soldier: pawn wearing a helmet
         if (p.type === "S") span.classList.add("soldier");
