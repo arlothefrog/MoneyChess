@@ -794,24 +794,7 @@ function pseudoMoves(board, r, c, castling, epTarget, blocked) {
     if (r === rank && c === 4) {
       const kRight = color==="w" ? castling.wK : castling.bK;
       const qRight = color==="w" ? castling.wQ : castling.bQ;
-      // Centaur (knight + king)
-  const hnoff = [[-2,-1],[-2,1],[-1,-2],[-1,2],[1,-2],[1,2],[2,-1],[2,1]];
-  for (const [dr,dc] of hnoff) {
-    const rr=r+dr, cc=c+dc;
-    if (inBounds(rr,cc)) {
-      const t=board[rr][cc];
-      if (t && t.color===attackerColor && t.type==="H") return true;
-    }
-  }
-  for (let dr=-1; dr<=1; dr++) for (let dc=-1; dc<=1; dc++) {
-    if (dr===0&&dc===0) continue;
-    const rr=r+dr, cc=c+dc;
-    if (inBounds(rr,cc)) {
-      const t=board[rr][cc];
-      if (t && t.color===attackerColor && t.type==="H") return true;
-    }
-  }
-  // King side: squares 5,6 empty, rook at 7
+      // King side: squares 5,6 empty, rook at 7
       if (kRight && !board[rank][5] && !board[rank][6] && !blk.has(rank+",5") && !blk.has(rank+",6") && board[rank][7] && board[rank][7].type==="R" && board[rank][7].color===color) {
         if (!squareAttacked(board, rank, 4, opp(color)) &&
             !squareAttacked(board, rank, 5, opp(color)) &&
