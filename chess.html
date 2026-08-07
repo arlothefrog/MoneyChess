@@ -432,12 +432,12 @@
 
 // ---- Piece representation: {type, color} where type in P,N,B,R,Q,K and color in 'w','b' ----
 const PIECE_GLYPH = {
-  wP:"\u2659", wN:"\u2658", wB:"\u2655", wR:"\u2656", wQ:"\u2655", wK:"\u2654", wC:"\ud83d\udc2b", wG:"\ud83e\udd97", wM:"\ud83d\udc00",
-  bP:"\u265F", bN:"\u265E", bB:"\u265D", bR:"\u265E", bQ:"\u265B", bK:"\u265A", bC:"\ud83d\udc2b", bG:"\ud83e\udd97", bM:"\ud83d\udc00"
+  wP:"\u2659", wN:"\u2658", wB:"\u2655", wR:"\u2656", wQ:"\u2655", wK:"\u2654", wC:"\ud83d\udc2b", wG:"\ud83e\udd97", wM:"\ud83d\udc00", wT:"\ud83d\udc31",
+  bP:"\u265F", bN:"\u265E", bB:"\u265D", bR:"\u265E", bQ:"\u265B", bK:"\u265A", bC:"\ud83d\udc2b", bG:"\ud83e\udd97", bM:"\ud83d\udc00", bT:"\ud83d\udc31"
 };
 // Fix discrepancies (use filled glyphs for both colors via text-color; we use standard unicode):
 const GLYPH = {
-  P:"\u265F", N:"\u265E", B:"\u265D", R:"\u265C", Q:"\u265B", K:"\u265A", C:"\ud83d\udc2b", G:"\ud83e\udd97", D:"\u265F", A:"\u265E", S:"\u265F", H:"\u265E", M:"\ud83d\udc00"
+  P:"\u265F", N:"\u265E", B:"\u265D", R:"\u265C", Q:"\u265B", K:"\u265A", C:"\ud83d\udc2b", G:"\ud83e\udd97", D:"\u265F", A:"\u265E", S:"\u265F", H:"\u265E", M:"\ud83d\udc00", T:"\ud83d\udc31"
 };
 
 const CENTAUR_SVG = `<img src="data:image/gif;base64,R0lGODlhMgAyAJH/AP///zMzM8DAwAAAACH5BAEAAAIALAAAAAAyADIAQAL/lI+py+3fxoA0SYCzzjKE8Q3biEnQhXkByW7qZj6q1440q1byXZO5DgwKg7EhRYJMHlDFpFOH8vFw01GRcVv1bDbPtTLzJKq1nxEUcqrXnY/xDRey4/Av3YBs5WFRq13RR6WVMbP1hyDSNfjSwghz1LG1xYhEQSYJMOgSEMRpkBVWOCn25vnpKGlWqolJaHoHGysLezjLMGdbUZt7O8G7pGRRKTwsFwhQ2Weyp1F8kqgnUnjMBykZmUnt96Dtyurds6vt+K2B2uwbAZ3CE9ZItgucednqGH9w3qqInL4zr/9v0z0EouqVm9fJU7tQ8+ixewUGFESHmyACUSUg3zuLGUYKYsI4RGMqjgkBborjhY1KJyl/uXypoAAAOw==">`;
@@ -509,9 +509,9 @@ function initialState() {
   };
 }
 
-const PIECE_VALUE = { P:1, N:3, B:3, R:5, Q:9, C:2, G:1, D:1, A:12, S:1, H:6, M:6 };
+const PIECE_VALUE = { P:1, N:3, B:3, R:5, Q:9, C:2, G:1, D:1, A:12, S:1, H:6, M:4, T:6 };
 // Uniform-random pool: each piece type is equally likely
-const SHOP_POOL = ["P","N","B","R","Q","C","G","D","S","H","M"];
+const SHOP_POOL = ["P","N","B","R","Q","C","G","D","S","H","M","T"];
 
 // Roll a shop modifier: 5% golden, 5% free, 5% pricier (+1$), 85% normal.
 function rollShopMod() {
@@ -734,12 +734,24 @@ function pseudoMoves(board, r, c, castling, epTarget, blocked) {
       add(r+dr,c+dc);
     }
   }
+  else if (p.type === "T") {
+    // Cat: moves 1 square in any of the 8 directions, and can also
+    // capture an enemy up to 2 squares away in those directions (leaps).
+    const dirs = [[-1,-1],[-1,1],[1,-1],[1,1],[-1,0],[1,0],[0,-1],[0,1]];
+    for (const [dr,dc] of dirs) {
+      add(r+dr, c+dc);
+      const rr = r+dr*2, cc = c+dc*2;
+      if (!inBounds(rr,cc) || blk.has(rr+","+cc)) continue;
+      const t = board[rr][cc];
+      if (t && t.color !== color) moves.push({r:rr, c:cc});
+    }
+  }
   else if (p.type === "M") {
-    // Rat: moves up to 3 squares horizontally, vertically, or diagonally
+    // Rat: moves up to 2 squares horizontally, vertically, or diagonally
     // (a short-range slider like a mini-queen). Cannot jump over pieces.
     const dirs = [[-1,-1],[-1,1],[1,-1],[1,1],[-1,0],[1,0],[0,-1],[0,1]];
     for (const [dr,dc] of dirs) {
-      for (let step=1; step<=3; step++) {
+      for (let step=1; step<=2; step++) {
         const rr=r+dr*step, cc=c+dc*step;
         if (!inBounds(rr,cc) || blk.has(rr+","+cc)) break;
         const t = board[rr][cc];
@@ -901,9 +913,9 @@ function squareAttacked(board, r, c, attackerColor) {
       rr+=dr; cc+=dc;
     }
   }
-  // Rat: attacks up to 3 squares in any of the 8 directions (cannot jump).
+  // Rat: attacks up to 2 squares in any of the 8 directions (cannot jump).
   for (const [dr,dc] of [[-1,-1],[-1,1],[1,-1],[1,1],[-1,0],[1,0],[0,-1],[0,1]]) {
-    for (let step=1; step<=3; step++) {
+    for (let step=1; step<=2; step++) {
       const rr=r+dr*step, cc=c+dc*step;
       if (!inBounds(rr,cc)) break;
       const t=board[rr][cc];
@@ -1498,8 +1510,17 @@ function isTargetable(r, c, kind) {
     if (state.confused.some(x => x.r===r && x.c===c)) return true;
     if (p && p.bounty) return true;
     if (state.piratify.some(x => x.r===r && x.c===c)) return true;
-    return false;
+  // Cat: attacks 1 or 2 squares in each of the 8 directions (leaps).
+  for (const [dr,dc] of [[-1,-1],[-1,1],[1,-1],[1,1],[-1,0],[1,0],[0,-1],[0,1]]) {
+    for (let step=1; step<=2; step++) {
+      const rr=r+dr*step, cc=c+dc*step;
+      if (!inBounds(rr,cc)) break;
+      const t=board[rr][cc];
+      if (t) { if (t.color===attackerColor && t.type==="T") return true; break; }
+    }
   }
+  return false;
+}
   if (kind === "pushable") {
     // any piece (including a sleeping one) that can move backward at least 1 square
     if (!p) return false;
