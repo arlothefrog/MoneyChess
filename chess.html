@@ -151,7 +151,9 @@
   .shop-mod.mod-free { color: #04320a; background: #35e06a; }
   .shop-mod.mod-pricier { color: #5a1b00; background: #ff9a4a; }
   .shop-mod.mod-discount { color: #001f47; background: #6fc0ff; }
+  .shop-mod.mod-platinum { color: #2b2b33; background: #e6e8ea; }
   .shop-card.golden { border-color: #ffd700; box-shadow: 0 0 8px 1px rgba(255,215,0,0.55); }
+  .shop-card.platinum { border-color: #e6e8ea; box-shadow: 0 0 8px 1px rgba(230,232,234,0.6); }
 
   #shopWrap { display: flex; flex-direction: column; align-items: center; }
   #shopTitle { font-size: 0.85rem; letter-spacing: 1px; margin-bottom: 4px; color: #9ab; }
@@ -386,6 +388,20 @@
     pointer-events: none;
     z-index: 2;
   }
+  .square.platinum {
+    position: relative;
+    z-index: 1;
+  }
+  .square.platinum::before {
+    content: "";
+    position: absolute;
+    inset: 0;
+    border-radius: inherit;
+    border: 3px solid #e6e8ea;
+    box-shadow: 0 0 10px 2px rgba(230, 232, 234, 0.6), inset 0 0 10px 2px rgba(230, 232, 234, 0.35);
+    pointer-events: none;
+    z-index: 2;
+  }
 .square .halo {
     position: absolute;
     inset: 4px;
@@ -515,13 +531,15 @@ const PIECE_VALUE = { P:1, N:3, B:3, R:5, Q:9, C:2, G:1, D:1, A:12, S:1, H:7, M:
 // Uniform-random pool: each piece type is equally likely
 const SHOP_POOL = ["P","N","B","R","Q","C","G","D","S","H","M","T"];
 
-// Roll a shop modifier: 5% golden, 5% free, 5% pricier (+1$), 5% discount (-1$), 80% normal.
+// Roll a shop modifier: golden 99/2000 (4.95%), platinum 1/2000 (0.05%),
+// free 5%, pricier (+1$) 5%, discount (-1$) 5%, normal 80%.
 function rollShopMod() {
   const r = Math.random();
-  if (r < 0.05) return "golden";    // gold tile surround; +$1 each time it captures
-  if (r < 0.10) return "free";      // shows/costs $0
-  if (r < 0.15) return "pricier";   // costs +$1 more
-  if (r < 0.20) return "discount";  // costs $1 less
+  if (r < 0.0495) return "golden";    // gold tile surround; +$1 each time it captures
+  if (r < 0.05) return "platinum";    // platinum tile surround; +$3 each time it captures
+  if (r < 0.10) return "free";        // shows/costs $0
+  if (r < 0.15) return "pricier";     // costs +$1 more
+  if (r < 0.20) return "discount";    // costs $1 less
   return "normal";
 }
 function randomShopPiece() {
@@ -574,7 +592,7 @@ function randomSpell() { return SPELL_POOL[Math.floor(Math.random()*SPELL_POOL.l
 function refillSpells() { state.spells = []; for (let i=0;i<3;i++) state.spells.push(randomSpell()); }
 
 function cloneBoard(b) {
-  return b.map(row => row.map(p => p ? {type:p.type, color:p.color, bounty:p.bounty||null, golden:p.golden||false} : null));
+  return b.map(row => row.map(p => p ? {type:p.type, color:p.color, bounty:p.bounty||null, golden:p.golden||false, platinum:p.platinum||false} : null));
 }
 function cloneStateForHistory(s) {
   return {
@@ -980,7 +998,7 @@ function simulateMove(s, fr, fc, move) {
   board[fr][fc] = null;
   board[move.r][move.c] = move.promotion && move.promoteTo
     ? {type: move.promoteTo, color: p.color}
-    : {type: p.type, color: p.color, bounty: p.bounty || null, golden: p.golden || false};
+    : {type: p.type, color: p.color, bounty: p.bounty || null, golden: p.golden || false, platinum: p.platinum || false};
   // Castling: move rook
   if (move.castle === "K") {
     board[move.r][5] = board[move.r][7];
@@ -1043,6 +1061,8 @@ function makeMove(fr, fc, move, promoteTo) {
     if (state.piratify.some(x => x.r===fr && x.c===fc)) state.money[p.color] += 2;
     // Golden piece: earns +$1 for each capture it makes
     if (p.golden) state.money[p.color] += 1;
+    // Platinum piece: earns +$3 for each capture it makes
+    if (p.platinum) state.money[p.color] += 3;
   }
   // A confused piece that gets captured loses its confusion
   if (captured) state.confused = state.confused.filter(x => !(x.r===move.r && x.c===move.c));
@@ -1199,6 +1219,8 @@ function render() {
         if (state.piratify.some(x => x.r===r && x.c===c)) span.classList.add("piratifyed");
         // Golden piece: its square gets a gold border/glow
         if (p.golden) sq.classList.add("golden");
+        // Platinum piece: its square gets a platinum border/glow
+        if (p.platinum) sq.classList.add("platinum");
         sq.appendChild(span);
         if (p.bounty) {
           const halo = document.createElement("div");
@@ -1338,7 +1360,7 @@ function applyMove(snap, fr, fc, move, promoteTo) {
   board[fr][fc] = null;
   board[move.r][move.c] = move.promotion && promoteTo
     ? {type: promoteTo, color: p.color, bounty: p.bounty||null}
-    : {type: p.type, color: p.color, bounty: p.bounty||null, golden: p.golden||false};
+    : {type: p.type, color: p.color, bounty: p.bounty||null, golden: p.golden||false, platinum: p.platinum||false};
   if (move.castle === "K") { board[move.r][5] = board[move.r][7]; board[move.r][7] = null; }
   else if (move.castle === "Q") { board[move.r][3] = board[move.r][0]; board[move.r][0] = null; }
   if (p.type === "K") { if (p.color === "w") {castling.wK=false; castling.wQ=false;} else {castling.bK=false; castling.bQ=false;} }
@@ -1623,9 +1645,11 @@ function renderShop() {
       const modLabel = e.mod === "golden" ? '<span class="shop-mod mod-golden">GOLD</span>'
         : e.mod === "free" ? '<span class="shop-mod mod-free">FREE</span>'
         : e.mod === "pricier" ? '<span class="shop-mod mod-pricier">+$1</span>'
-        : e.mod === "discount" ? '<span class="shop-mod mod-discount">-$1</span>' : "";
+        : e.mod === "discount" ? '<span class="shop-mod mod-discount">-$1</span>'
+        : e.mod === "platinum" ? '<span class="shop-mod mod-platinum">PLAT</span>' : "";
       card.innerHTML = `${glyphHTML}${modLabel}<div class="price">$${cost}</div>`;
       if (e.mod === "golden") card.classList.add("golden");
+      if (e.mod === "platinum") card.classList.add("platinum");
       card.classList.toggle("disabled", !CAN);
       if (CAN) card.addEventListener("click", () => buyPiece(i));
     }
@@ -1756,7 +1780,7 @@ const gameOver = state.gameOver, placementMode = state.placementMode, targetMode
 function placePiece(r, c) {
   const color = state.turn;
   const mod = state.placementMod || "normal";
-  state.board[r][c] = { type: state.placementPiece, color, golden: mod === "golden" };
+  state.board[r][c] = { type: state.placementPiece, color, golden: mod === "golden", platinum: mod === "platinum" };
   const placedType = state.placementPiece;
   state.placementMode = false;
   state.placementPiece = null;
