@@ -150,6 +150,7 @@
   .shop-mod.mod-golden { color: #3a2f00; background: #ffd700; }
   .shop-mod.mod-free { color: #04320a; background: #35e06a; }
   .shop-mod.mod-pricier { color: #5a1b00; background: #ff9a4a; }
+  .shop-mod.mod-discount { color: #001f47; background: #6fc0ff; }
   .shop-card.golden { border-color: #ffd700; box-shadow: 0 0 8px 1px rgba(255,215,0,0.55); }
 
   #shopWrap { display: flex; flex-direction: column; align-items: center; }
@@ -510,16 +511,17 @@ function initialState() {
   };
 }
 
-const PIECE_VALUE = { P:1, N:3, B:3, R:5, Q:9, C:2, G:1, D:1, A:12, S:1, H:6, M:5, T:5 };
+const PIECE_VALUE = { P:1, N:3, B:3, R:5, Q:9, C:2, G:1, D:1, A:12, S:1, H:7, M:5, T:5 };
 // Uniform-random pool: each piece type is equally likely
 const SHOP_POOL = ["P","N","B","R","Q","C","G","D","S","H","M","T"];
 
-// Roll a shop modifier: 5% golden, 5% free, 5% pricier (+1$), 85% normal.
+// Roll a shop modifier: 5% golden, 5% free, 5% pricier (+1$), 5% discount (-1$), 80% normal.
 function rollShopMod() {
   const r = Math.random();
   if (r < 0.05) return "golden";    // gold tile surround; +$1 each time it captures
   if (r < 0.10) return "free";      // shows/costs $0
   if (r < 0.15) return "pricier";   // costs +$1 more
+  if (r < 0.20) return "discount";  // costs $1 less
   return "normal";
 }
 function randomShopPiece() {
@@ -535,6 +537,7 @@ function shopPrice(e) {
   const base = PIECE_VALUE[e.p];
   if (e.mod === "free") return 0;
   if (e.mod === "pricier") return base + 1;
+  if (e.mod === "discount") return Math.max(0, base - 1);
   return base;
 }
 
@@ -553,7 +556,6 @@ function tickShopRefresh() {
 
 // ---- Spells ----
 const SPELLS = {
-  spawnPawn:  { name:"Spawn Pawn",  cost:2, glyph:"+P", desc:"Spawn a pawn on your side" },
   moneySkip:  { name:"Tax Gain",    cost:0, glyph:"+3$", desc:"+$3 and skip your turn" },
   killRandom: { name:"Lightning",   cost:1, glyph:"⚡",  desc:"75% strike enemy, 25% strike your piece (random non-king)" },
   killPawn:   { name:"Snipe Pawn",  cost:2, glyph:"×P", desc:"Kill an enemy pawn of your choice" },
@@ -1567,7 +1569,9 @@ function updateStatus() {
     } else {
       const paid = state.placementMod === "pricier"
         ? PIECE_VALUE[state.placementPiece] + 1
-        : state.placementMod === "free" ? 0 : PIECE_VALUE[state.placementPiece];
+        : state.placementMod === "free" ? 0
+        : state.placementMod === "discount" ? Math.max(0, PIECE_VALUE[state.placementPiece] - 1)
+        : PIECE_VALUE[state.placementPiece];
       STATUS_EL.textContent = `${who}: place the ${state.placementPiece} on your side ($${paid} paid)`;
     }
     return;
@@ -1618,7 +1622,8 @@ function renderShop() {
         : `<div class="glyph${piece==="D" ? " dpawn" : ""}${piece==="A" ? " amazon" : ""}${piece==="S" ? " soldier" : ""}">${GLYPH[piece]}</div>`;
       const modLabel = e.mod === "golden" ? '<span class="shop-mod mod-golden">GOLD</span>'
         : e.mod === "free" ? '<span class="shop-mod mod-free">FREE</span>'
-        : e.mod === "pricier" ? '<span class="shop-mod mod-pricier">+$1</span>' : "";
+        : e.mod === "pricier" ? '<span class="shop-mod mod-pricier">+$1</span>'
+        : e.mod === "discount" ? '<span class="shop-mod mod-discount">-$1</span>' : "";
       card.innerHTML = `${glyphHTML}${modLabel}<div class="price">$${cost}</div>`;
       if (e.mod === "golden") card.classList.add("golden");
       card.classList.toggle("disabled", !CAN);
@@ -1753,7 +1758,6 @@ function placePiece(r, c) {
   const mod = state.placementMod || "normal";
   state.board[r][c] = { type: state.placementPiece, color, golden: mod === "golden" };
   const placedType = state.placementPiece;
-  const wasSpell = state.placementIsSpell;
   state.placementMode = false;
   state.placementPiece = null;
   state.placementMod = null;
@@ -1762,34 +1766,27 @@ function placePiece(r, c) {
   state.selected = null;
   state.legalForSelected = [];
 
-  if (wasSpell) {
-    // Spell placement: does NOT end turn
-    state.spellUsedThisTurn = true;
-    refillSpells();
-    pushSpellLog(`${color==="w"?"W":"B"}:${SPELLS.spawnPawn.name}`);
-  } else {
-    // Bought piece placed successfully: now reveal the next piece for that slot.
-    if (typeof state.pendingRefillShopSlot === "number") {
-      state.shop[state.pendingRefillShopSlot] = randomShopPiece();
-      state.pendingRefillShopSlot = null;
-    }
-    // Bought piece placement ends the turn (or grants the extra turn if Echo pending)
-    expireEffectsAtTurnEnd();
-    if (state.extraTurns[state.turn] > 0) {
-      state.extraTurns[state.turn] -= 1;
-      state.noCapture[state.turn] = Math.max(0, state.noCapture[state.turn] - 1);
-      state.didSkip = false;
-    } else {
-      if (state.turn === "b") state.fullmove++;
-      state.noCapture[state.turn] = Math.max(0, state.noCapture[state.turn] - 1);
-      state.turn = opp(state.turn);
-      state.lastMove = {from:{r,c}, to:{r,c}, placed:true};
-      onTurnStart(state.turn);
-    }
-    state.lastMove = {from:{r,c}, to:{r,c}, placed:true};
-    pushPieceLog(`(${placedType} placed)`);
-    tickShopRefresh();
+  // Bought piece placed successfully: now reveal the next piece for that slot.
+  if (typeof state.pendingRefillShopSlot === "number") {
+    state.shop[state.pendingRefillShopSlot] = randomShopPiece();
+    state.pendingRefillShopSlot = null;
   }
+  // Bought piece placement ends the turn (or grants the extra turn if Echo pending)
+  expireEffectsAtTurnEnd();
+  if (state.extraTurns[state.turn] > 0) {
+    state.extraTurns[state.turn] -= 1;
+    state.noCapture[state.turn] = Math.max(0, state.noCapture[state.turn] - 1);
+    state.didSkip = false;
+  } else {
+    if (state.turn === "b") state.fullmove++;
+    state.noCapture[state.turn] = Math.max(0, state.noCapture[state.turn] - 1);
+    state.turn = opp(state.turn);
+    state.lastMove = {from:{r,c}, to:{r,c}, placed:true};
+    onTurnStart(state.turn);
+  }
+  state.lastMove = {from:{r,c}, to:{r,c}, placed:true};
+  pushPieceLog(`(${placedType} placed)`);
+  tickShopRefresh();
   endTurnChecks();
   render();
 }
@@ -1838,13 +1835,6 @@ function castSpell(slotIndex) {
   state.freeCast = false;
 
   switch (id) {
-    case "spawnPawn":
-      state.placementMode = true;
-      state.placementPiece = "P";
-      state.placementMod = null;
-      state.placementIsSpell = true;
-      state.placementSpellId = "spawnPawn";
-      break;
     case "moneySkip":
       spellEndTurnSkip();
       break;
