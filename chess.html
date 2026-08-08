@@ -173,6 +173,21 @@
     border-radius: 3px;
     transition: width 0.3s;
   }
+  #spellRefreshBar {
+    width: 200px;
+    height: 6px;
+    margin: 6px 0 2px;
+    background: #223;
+    border-radius: 3px;
+    overflow: hidden;
+    position: relative;
+  }
+  #spellRefreshFill {
+    height: 100%;
+    background: linear-gradient(90deg, #9a6bff, #c86bff);
+    border-radius: 3px;
+    transition: width 0.3s;
+  }
   #shopRefreshLabel {
     font-size: 0.68rem;
     color: #789;
@@ -213,6 +228,20 @@
   .spell-card .sname { font-size: 0.72rem; font-weight: 600; color: #e0d0ff; }
   .spell-card .sglyph { font-size: 20px; line-height: 1; margin: 2px 0; color: #ffd24a; }
   .spell-card .sprice { font-size: 0.72rem; color: #ffd24a; }
+  .spell-card .spell-mod {
+    position: absolute;
+    top: 2px;
+    right: 2px;
+    font-size: 0.6rem;
+    font-weight: 800;
+    padding: 0 3px;
+    border-radius: 3px;
+    color: #000;
+  }
+  .spell-mod.mod-cheap { background: #8ef58e; }
+  .spell-mod.mod-pricier { background: #ff9a9a; }
+  .spell-mod.mod-double { background: #ffd24a; }
+  .spell-mod.mod-random { background: #9fc5ff; }
   #spellTitle { font-size: 0.85rem; letter-spacing: 1px; margin: 6px 0 4px; color: #9ab; }
 
   .square.targetable {
@@ -422,9 +451,34 @@
     z-index: 2;
   }
 
+  #pieceTip {
+    display: none;
+    position: fixed;
+    z-index: 1000;
+    max-width: 300px;
+    padding: 8px 10px;
+    background: rgba(20, 20, 24, 0.95);
+    border: 1px solid #555;
+    border-radius: 8px;
+    color: #eee;
+    font-size: 12px;
+    line-height: 1.35;
+    box-shadow: 0 4px 14px rgba(0,0,0,0.5);
+    pointer-events: none;
+    white-space: pre-wrap;
+  }
+  #piece-tip b { color: #ffd24a; }
+  #piece-tip .tip-name { font-size: 14px; }
+  #piece-tip .tip-status { color: #ff9a9a; }
+  #piece-tip .tip-moves { color: #9fd4ff; }
+
   #aiBtn { background:#3a5a3a; border-color:#5a8055; font-weight:600; }
   #aiBtn:hover { background:#4a6f4a; }
   #cancelBtn { display: none; }
+  #skipBtn { display: none; background:#5a4a3a; border-color:#8a7555; font-weight:600; }
+  #skipBtn:hover { background:#6f5a45; }
+  #skipSpellBtn { display: none; background:#3a4a5a; border-color:#556a80; font-weight:600; }
+  #skipSpellBtn:hover { background:#4a5f6f; }
 </style>
 </head>
 <body>
@@ -435,11 +489,13 @@
     <div id="walletB" class="wallet b">Black: $10</div>
   </div>
   <div id="board"></div>
+  <div id="pieceTip" class="piece-tip"></div>
   <div id="shopWrap">
     <div id="shopTitle">SHOP — buy &amp; place on your side (costs your move)</div>
     <div id="shop"></div>
     <div id="shopRefreshBar"><div id="shopRefreshFill"></div></div>
     <div id="spellTitle">SPELLS — free action, one per turn (reshuffle on use)</div>
+    <div id="spellRefreshBar"><div id="spellRefreshFill"></div></div>
     <div id="spells"></div>
   </div>
   <div id="controls">
@@ -447,6 +503,8 @@
     <button id="flipBtn">Flip Board</button>
     <button id="resetBtn">Reset</button>
     <button id="cancelBtn">Cancel Placement</button>
+    <button id="skipBtn">Skip Turn</button>
+    <button id="skipSpellBtn">Skip Spell</button>
     <select id="history" size="1" style="max-width:200px"></select>
   </div>
 
@@ -468,6 +526,27 @@ const PIECE_GLYPH = {
 // Fix discrepancies (use filled glyphs for both colors via text-color; we use standard unicode):
 const GLYPH = {
   P:"\u265F", N:"\u265E", B:"\u265D", R:"\u265C", Q:"\u265B", K:"\u265A", C:"\ud83d\udc2b", G:"\ud83e\udd97", D:"\u265F", A:"\u265E", S:"\u265F", H:"\u265E", M:"\ud83d\udc00", T:"\ud83d\udc31"
+};
+
+const PIECE_NAME = {
+  P:"Pawn", N:"Knight", B:"Bishop", R:"Rook", Q:"Queen", K:"King",
+  C:"Camel", G:"Cricket", D:"D-Pawn", A:"Amazon", S:"Soldier", H:"Centaur", M:"Rat", T:"Cat"
+};
+
+const PIECE_MOVES = {
+  P:"Moves 1 forwards or 2 from start position. Captures diagonally; promotes to queen. Can capture en passant",
+  N:"Jumps in an L (2+1); can leap",
+  B:"Slides diagonally; cannot jump",
+  R:"Slides horizontally or vertically; cannot jump",
+  Q:"Slides like a rook and bishop; cannot jump",
+  K:"One square in any direction; may castle",
+  C:"Camel: an extended knight leaper (3,1); can leap",
+  G:"Cricket: 1 diagonal step (no capture) or 2 diagonal leap (jumps, can capture)",
+  D:"Diagonal pawn: moves diagonally, captures straight ahead; auto-promotes to Amazon",
+  S:"Soldier: moves and captures 1 straight forward; auto-promotes to Amazon",
+  H:"Centaur: combines knight and king moves",
+  M:"Rat: slides up to 2 squares in any direction; cannot jump",
+  T:"Cat (color). Moves 1 square in any direction; captures up to 2 away. Can jump"
 };
 
 const CENTAUR_SVG = `<img src="data:image/gif;base64,R0lGODlhMgAyAJH/AP///zMzM8DAwAAAACH5BAEAAAIALAAAAAAyADIAQAL/lI+py+3fxoA0SYCzzjKE8Q3biEnQhXkByW7qZj6q1440q1byXZO5DgwKg7EhRYJMHlDFpFOH8vFw01GRcVv1bDbPtTLzJKq1nxEUcqrXnY/xDRey4/Av3YBs5WFRq13RR6WVMbP1hyDSNfjSwghz1LG1xYhEQSYJMOgSEMRpkBVWOCn25vnpKGlWqolJaHoHGysLezjLMGdbUZt7O8G7pGRRKTwsFwhQ2Weyp1F8kqgnUnjMBykZmUnt96Dtyurds6vt+K2B2uwbAZ3CE9ZItgucednqGH9w3qqInL4zr/9v0z0EouqVm9fJU7tQ8+ixewUGFESHmyACUSUg3zuLGUYKYsI4RGMqjgkBborjhY1KJyl/uXypoAAAOw==">`;
@@ -519,7 +598,8 @@ function initialState() {
     extraTurns: { w: 0, b: 0 },
     money: { w: 10, b: 10 },
     shop: [],
-    shopTurns: 0,          // turns since shop last refreshed (refreshes every 5)
+    shopTurns: 0,          // turns since shop last refreshed (refreshes every 3)
+    spellTurns: 0,         // turns since spells last refreshed (refreshes every 3)
     placementMode: false,
     placementPiece: null,   // piece type to place
     placementMod: null,     // shop modifier of the piece being placed (golden/free/pricier/normal)
@@ -527,8 +607,15 @@ function initialState() {
     placementSpellId: null,
     pendingRefillShopSlot: null,  // shop slot whose next piece rolls only after placement
     spells: [],
+    spellMods: [],
+    followUpSpell: null,   // { id } set when a "double" / "random" spell is cast
+    freeSpellId: null,      // spell id the pending follow-up allows for free
+    nextFollowUp: null,     // { player, kind, id } follow-up earned by a turn-ending spell, granted on that player's next turn
+    followUpOwner: null,    // color the current follow-up offer belongs to
     spellUsedThisTurn: false,
     freeCast: false,
+    taxSkipPending: false, // Tax Gain 2x cast: player must take the free Tax or hit Skip Turn
+    summonSkipPending: false, // Summon 2x cast: player must take the second Summon or hit Skip Turn
     blocked: [],        // [{r,c,owner}]
     sleeping: [],       // [{r,c,owner}]
     confused: [],       // [{r,c}] pieces that must move randomly on their next move
@@ -566,7 +653,7 @@ function refillShop() {
 
 // Effective shop price for an entry, honoring free / pricier modifiers.
 // The cat carries a bonus, so its shop cost differs from its capture value.
-const SHOP_PRICE = { C: 4 };
+const SHOP_PRICE = { T: 4 };
 function shopPrice(e) {
   const base = SHOP_PRICE[e.p] !== undefined ? SHOP_PRICE[e.p] : PIECE_VALUE[e.p];
   if (e.mod === "free") return 0;
@@ -575,13 +662,18 @@ function shopPrice(e) {
   return base;
 }
 
-// Called whenever a turn ends: every 5 turns the shop and spells refresh.
+// Called whenever a turn ends: the shop and spells refresh independently
+// every 3 turns.
 function tickShopRefresh() {
   state.shopTurns += 1;
-  if (state.shopTurns >= 5) {
+  if (state.shopTurns >= 3) {
     state.shopTurns = 0;
     state.shop = [];
     refillShop();
+  }
+  state.spellTurns += 1;
+  if (state.spellTurns >= 3) {
+    state.spellTurns = 0;
     refillSpells();
     renderSpells();
   }
@@ -606,7 +698,31 @@ const SPELLS = {
 };
 const SPELL_POOL = Object.keys(SPELLS);
 function randomSpell() { return SPELL_POOL[Math.floor(Math.random()*SPELL_POOL.length)]; }
-function refillSpells() { state.spells = []; for (let i=0;i<3;i++) state.spells.push(randomSpell()); }
+// Roll a spell modifier: cheap (-$1) 5%, pricier (+$1) 5%, double 5%,
+// random-extra 5%, normal 80%.
+function rollSpellMod() {
+  const r = Math.random();
+  if (r < 0.05) return "cheap";
+  if (r < 0.10) return "pricier";
+  if (r < 0.15) return "double";
+  if (r < 0.20) return "random";
+  return "normal";
+}
+function refillSpells() {
+  state.spells = [];
+  state.spellMods = [];
+  for (let i=0;i<3;i++) {
+    state.spells.push(randomSpell());
+    state.spellMods.push(rollSpellMod());
+  }
+}
+// Effective cast price after the cheap/pricier modifier (min 0).
+function spellEffCost(id, mod) {
+  const base = SPELLS[id].cost;
+  if (mod === "cheap") return Math.max(0, base - 1);
+  if (mod === "pricier") return base + 1;
+  return base;
+}
 
 function cloneBoard(b) {
   return b.map(row => row.map(p => p ? {type:p.type, color:p.color, bounty:p.bounty||null, golden:p.golden||false, platinum:p.platinum||false} : null));
@@ -625,6 +741,7 @@ function cloneStateForHistory(s) {
     money: { w: s.money.w, b: s.money.b },
     shop: [...s.shop],
     shopTurns: s.shopTurns,
+    spellTurns: s.spellTurns,
     placementMode: s.placementMode,
     placementPiece: s.placementPiece,
     placementMod: s.placementMod,
@@ -632,6 +749,11 @@ function cloneStateForHistory(s) {
     placementSpellId: s.placementSpellId,
     pendingRefillShopSlot: s.pendingRefillShopSlot,
     spells: [...s.spells],
+    spellMods: [...s.spellMods],
+    followUpSpell: s.followUpSpell ? {...s.followUpSpell} : null,
+    freeSpellId: s.freeSpellId || null,
+    nextFollowUp: s.nextFollowUp ? {...s.nextFollowUp} : null,
+    followUpOwner: s.followUpOwner || null,
     spellUsedThisTurn: s.spellUsedThisTurn,
     blocked: s.blocked.map(b=>({...b})),
     sleeping: s.sleeping.map(b=>({...b})),
@@ -642,6 +764,8 @@ function cloneStateForHistory(s) {
     extraTurns: { w: s.extraTurns.w, b: s.extraTurns.b },
     freeCast: !!s.freeCast,
     didSkip: s.didSkip,
+    taxSkipPending: !!s.taxSkipPending,
+    summonSkipPending: !!s.summonSkipPending,
   };
 }
 
@@ -1014,7 +1138,7 @@ function simulateMove(s, fr, fc, move) {
   // Move piece (with promotion)
   board[fr][fc] = null;
   board[move.r][move.c] = move.promotion && move.promoteTo
-    ? {type: move.promoteTo, color: p.color}
+    ? {type: move.promoteTo, color: p.color, bounty: p.bounty || null, golden: p.golden || false, platinum: p.platinum || false}
     : {type: p.type, color: p.color, bounty: p.bounty || null, golden: p.golden || false, platinum: p.platinum || false};
   // Castling: move rook
   if (move.castle === "K") {
@@ -1081,8 +1205,11 @@ function makeMove(fr, fc, move, promoteTo) {
     // Platinum piece: earns +$3 for each capture it makes
     if (p.platinum) state.money[p.color] += 3;
   }
-  // A confused piece that gets captured loses its confusion
-  if (captured) state.confused = state.confused.filter(x => !(x.r===move.r && x.c===move.c));
+  // A captured piece takes its diffuse effects with it (piratify/confused/sleep
+  // markers must not linger for the next piece to pick up). En-passant victims
+  // die on the square they were captured on.
+  if (captured) clearPieceEffects(move.r, move.c);
+  if (capturedEP) clearPieceEffects(fr, move.c);
   // Piratify marker travels with its piece
   const plIdx = state.piratify.findIndex(x => x.r===fr && x.c===fc);
   if (plIdx >= 0) state.piratify[plIdx] = { r: move.r, c: move.c };
@@ -1131,6 +1258,35 @@ function makeMove(fr, fc, move, promoteTo) {
 function onTurnStart(color) {
   state.spellUsedThisTurn = false;
   state.freeCast = false;
+  // A 2x decision that wasn't resolved when the turn rolled over is dropped.
+  state.taxSkipPending = false;
+  state.summonSkipPending = false;
+  // A follow-up earned by a turn-ending spell (Tax Gain / Summon) is granted
+  // on this player's next turn; it becomes the single free spell offer.
+  if (state.nextFollowUp && state.nextFollowUp.player === color) {
+    const fu = state.nextFollowUp;
+    let id;
+    if (fu.kind === "double") id = fu.id;
+    else id = randomSpell();
+    state.spells = [id, null, null];
+    state.spellMods = ["normal", null, null];
+    state.freeSpellId = id;
+    state.followUpOwner = color;
+    state.nextFollowUp = null;
+  }
+  // Any follow-up offer that wasn't claimed by the previous player is dropped —
+  // the slots go back to normal (3 random spells) so nothing lingers from a
+  // skipped extra spell.
+  if (state.followUpSpell) state.followUpSpell = null;
+  if (state.freeSpellId) {
+    if (state.followUpOwner && state.followUpOwner === color && state.nextFollowUp === null) {
+      // This player still can claim the extra spell from this or the previous turn.
+    } else {
+      state.freeSpellId = null;
+      state.followUpOwner = null;
+      refillSpells();
+    }
+  }
   // Spell slots are NOT reshuffled at turn start — they only change when cast.
 }
 
@@ -1214,9 +1370,10 @@ function render() {
         } else {
           span.textContent = GLYPH[p.type];
         }
-        // Camel & grasshopper use emoji that ignore text-color; tint them by side.
-        if (p.type === "C" || p.type === "G") {
-          span.classList.add(p.color === "w" ? "tint-white" : "tint-black");
+        // Camel & grasshopper use emoji that ignore text-color; keep the normal
+        // emoji on white's team (only darkened on black's team).
+        if ((p.type === "C" || p.type === "G") && p.color === "b") {
+          span.classList.add("tint-black");
         }
         // Rat: tint white on white's team only; keep the normal emoji on black's team.
         if (p.type === "M" && p.color === "w") {
@@ -1273,6 +1430,8 @@ function render() {
         sq.classList.add("targetable");
       }
       sq.addEventListener("click", onSquareClick);
+      sq.addEventListener("mouseenter", () => showPieceTip(r, c, sq));
+      sq.addEventListener("mouseleave", hidePieceTip);
       BOARD_EL.appendChild(sq);
     }
   }
@@ -1282,6 +1441,14 @@ function render() {
   updateStatus();
   document.getElementById("cancelBtn").style.display =
     (state.placementMode || state.targetMode) ? "inline-block" : "none";
+  document.getElementById("skipBtn").style.display =
+    (state.taxSkipPending || state.summonSkipPending) ? "inline-block" : "none";
+  // A 2x/RND follow-up already granted as a free spell can be declined with
+  // "Skip Spell" so the caster continues their turn (only HTML-blocking a move
+  // is real; skipBtn covers Tax/Summon forced decisions).
+  document.getElementById("skipSpellBtn").style.display =
+    (state.freeSpellId && state.followUpOwner === state.turn &&
+     !state.taxSkipPending && !state.summonSkipPending) ? "inline-block" : "none";
   document.getElementById("aiBtn").style.display =
     (state.aiOpponent || state.gameStarted || state.gameOver) ? "none" : "inline-block";
   if (state.aiOpponent && !aiThinking && state.turn === state.aiColor && !state.gameOver
@@ -1380,7 +1547,7 @@ function applyMove(snap, fr, fc, move, promoteTo) {
   if (move.enpassant) board[fr][move.c] = null;
   board[fr][fc] = null;
   board[move.r][move.c] = move.promotion && promoteTo
-    ? {type: promoteTo, color: p.color, bounty: p.bounty||null}
+    ? {type: promoteTo, color: p.color, bounty: p.bounty||null, golden: p.golden||false, platinum: p.platinum||false}
     : {type: p.type, color: p.color, bounty: p.bounty||null, golden: p.golden||false, platinum: p.platinum||false};
   if (move.castle === "K") { board[move.r][5] = board[move.r][7]; board[move.r][7] = null; }
   else if (move.castle === "Q") { board[move.r][3] = board[move.r][0]; board[move.r][0] = null; }
@@ -1481,6 +1648,33 @@ function aiMove() {
     aiThinking = false; render(); return;
   }
   const me = state.aiColor;
+
+  // 2x decision: the pending free extra (Tax or Summon) is on the table. Tax:
+  // take it (+$3, pass). Summon: place the free second summon.
+  if (state.taxSkipPending) {
+    const slot = state.spells.indexOf("moneySkip");
+    if (slot >= 0) castSpell(slot);
+    else spellEndTurnSkip(false);
+    setTimeout(aiMove, 400);
+    return;
+  }
+  if (state.summonSkipPending) {
+    const slot = state.spells.indexOf(state.freeSpellId);
+    if (slot >= 0) {
+      castSpell(slot);
+      setTimeout(aiFinishPlacement, 400);
+    } else {
+      spellEndTurnSkip(false);
+      setTimeout(aiMove, 400);
+    }
+    return;
+  }
+  // A 2x/RND follow-up was already granted as a free spell; the AI declines it
+  // and plays on normally with its normal spell bar.
+  if (state.freeSpellId && state.followUpOwner === me &&
+      !state.taxSkipPending && !state.summonSkipPending) {
+    skipFollowUpSpell();
+  }
 
   // Sometimes buy a piece if it materially helps (affordable strong piece)
   const shopBuy = aiConsiderBuy(me);
@@ -1592,6 +1786,14 @@ function updateStatus() {
     return;
   }
   const who = state.turn === "w" ? "White" : "Black";
+  if (state.taxSkipPending) {
+    STATUS_EL.textContent = `${who} — Tax Gain x2: take the free +$3 and pass, or Skip Turn`;
+    return;
+  }
+  if (state.summonSkipPending) {
+    STATUS_EL.textContent = `${who} — Summon x2: place the free second summon, or Skip Turn`;
+    return;
+  }
   if (state.targetMode) {
     const msgs = {
       enemyPawn: "click an enemy pawn to snipe",
@@ -1632,22 +1834,30 @@ function updateStatus() {
 function renderSpells() {
   const el = document.getElementById("spells");
   el.innerHTML = "";
-  for (let i=0;i<3;i++) {
+  for (let i=0;i<state.spells.length;i++) {
     const id = state.spells[i];
+    const mod = state.spellMods[i] || "normal";
+    if (!id) continue;
+    // A spell cast for free (via Freecast or a follow-up extra) is a plain spell:
+    // show it without any special-modifier badge so the card and behavior match.
+    const freeCard = state.freeCast || state.freeSpellId === id;
     const card = document.createElement("div");
     card.className = "spell-card";
-    card.title = id ? SPELLS[id].desc : "";
-    if (!id) {
-      card.innerHTML = '<div class="sname">—</div>';
-    } else {
-      const sp = SPELLS[id];
-      const CAN = canCast() && (state.freeCast || state.money[state.turn] >= sp.cost);
-      card.innerHTML = `<div class="sname">${sp.name}</div><div class="sglyph">${sp.glyph}</div><div class="sprice">$${sp.cost}</div>`;
-      card.classList.toggle("disabled", !CAN);
-      if (CAN) card.addEventListener("click", () => castSpell(i));
-    }
+    card.title = SPELLS[id].desc;
+    const sp = SPELLS[id];
+    const effCost = spellEffCost(id, freeCard ? "normal" : mod);
+    const CAN = canCast(i) && (state.freeCast || state.freeSpellId === id || state.money[state.turn] >= effCost);
+    const modLabel = (!freeCard && (mod === "cheap" ? '<div class="spell-mod mod-cheap">-$1</div>'
+      : mod === "pricier" ? '<div class="spell-mod mod-pricier">+$1</div>'
+      : mod === "double" ? '<div class="spell-mod mod-double">2x</div>'
+      : mod === "random" ? '<div class="spell-mod mod-random">RND</div>' : "")) || "";
+    card.innerHTML = `<div class="sname">${sp.name}</div><div class="sglyph">${sp.glyph}</div>${modLabel}<div class="sprice">$${effCost}</div>`;
+    card.classList.toggle("disabled", !CAN);
+    if (CAN) card.addEventListener("click", () => castSpell(i));
     el.appendChild(card);
   }
+  const sfill = document.getElementById("spellRefreshFill");
+  if (sfill) sfill.style.width = `${(state.spellTurns / 3) * 100}%`;
 }
 
 function renderShop() {
@@ -1676,12 +1886,16 @@ function renderShop() {
       if (e.mod === "platinum") card.classList.add("platinum");
       card.classList.toggle("disabled", !CAN);
       if (CAN) card.addEventListener("click", () => buyPiece(i));
+      card.addEventListener("mouseenter", () => showShopTip(e, card));
+      card.addEventListener("mouseleave", hidePieceTip);
     }
     shop.appendChild(card);
   }
-  // Refresh bar: full width = ready to refresh, narrows right after a refresh.
+  // Refresh bars: full width = ready to refresh, narrows right after a refresh.
   const fill = document.getElementById("shopRefreshFill");
-  if (fill) fill.style.width = `${(state.shopTurns / 5) * 100}%`;
+  if (fill) fill.style.width = `${(state.shopTurns / 3) * 100}%`;
+  const sfill = document.getElementById("spellRefreshFill");
+  if (sfill) sfill.style.width = `${(state.spellTurns / 3) * 100}%`;
 }
 
 function updateMoney() {
@@ -1695,6 +1909,9 @@ function updateMoney() {
 
 function onSquareClick(e) {
   if (state.gameOver || pendingPromotion) return;
+  // Tax Gain / Summon 2x decision: movement is locked until the pending free
+  // extra is played or the player chooses Skip Turn.
+  if (state.taxSkipPending || state.summonSkipPending) return;
   const r = +e.currentTarget.dataset.r;
   const c = +e.currentTarget.dataset.c;
 
@@ -1787,6 +2004,8 @@ const gameOver = state.gameOver, placementMode = state.placementMode, targetMode
   if (state.money[state.turn] < cost) return;
   state.history.push(cloneStateForHistory(state));
   state.money[state.turn] -= cost;
+  // Buying a piece resets the shop refresh timer (spell shop unaffected).
+  state.shopTurns = 0;
   // Keep the bought piece shown in its shop slot until it's actually placed;
   // the next piece is only rolled/visible after placement completes.
   state.pendingRefillShopSlot = slotIndex;
@@ -1816,8 +2035,19 @@ function placePiece(r, c) {
   state.legalForSelected = [];
 
   if (wasSummon) {
-    // Summoned piece placed: spell is consumed and the turn ends below.
     state.spellUsedThisTurn = true;
+    if (state.followUpSpell) {
+      // Summon 2x (or a random-mod Summon): instead of flipping to the opponent
+      // first, stay on the same turn so the summoner can play the second piece
+      // (free, via the follow-up) — or skip the turn without it.
+      pushSpellLog(`${color==="w"?"W":"B"}:Summon@${sqName(r,c)}`);
+      applySpellFollowUp();
+      state.summonSkipPending = true;
+      render();
+      return;
+    }
+    state.summonSkipPending = false;
+    // Single Summon (no modifier): spell is consumed and the turn ends below.
     refillSpells();
     pushSpellLog(`${color==="w"?"W":"B"}:Summon@${sqName(r,c)}`);
   }
@@ -1870,29 +2100,64 @@ function endTurnChecks() {
 }
 
 // ---- Spells ----
-function canCast() {
-  return !state.gameOver && !state.placementMode && !state.targetMode
-    && !pendingPromotion && (!state.spellUsedThisTurn || state.freeCast);
+function canCast(slotIndex) {
+  if (state.gameOver || state.placementMode || state.targetMode || pendingPromotion) return false;
+  if (state.taxSkipPending || state.summonSkipPending) {
+    // 2x decision in progress: the ONLY castable card is the pending free extra
+    // (Skip Turn is the alternative)
+    return typeof slotIndex === "number" && state.spells[slotIndex] === state.freeSpellId;
+  }
+  if (state.spellUsedThisTurn && !state.freeCast) {
+    // the one pending follow-up spell is still castable (freeSpellId match)
+    return typeof slotIndex === "number" && state.spells[slotIndex] === state.freeSpellId;
+  }
+  return true;
 }
 
 function castSpell(slotIndex) {
-  if (!canCast()) return;
+  if (!canCast(slotIndex)) return;
   state.gameStarted = true;
   const id = state.spells[slotIndex];
   if (!id) return;
   const sp = SPELLS[id];
-  const isFree = !!state.freeCast;
+  const isFree = !!state.freeCast || state.freeSpellId === id;
+  // A spell cast for free (via Freecast, or the extra granted by an RND/double
+  // modifier) resolves as a plain spell — the rolled special modifier never
+  // applies, so a free pickup can't chain into another "2x"/"RND" offer.
+  const mod = isFree ? "normal" : (state.spellMods[slotIndex] || "normal");
+  const effCost = spellEffCost(id, mod);
   // Precast: the next spell is free. Using the Precast itself is not free.
-  if (!isFree && state.money[state.turn] < sp.cost) return;
+  if (!isFree && state.money[state.turn] < effCost) return;
 
   state.history.push(cloneStateForHistory(state));
-  if (!isFree) state.money[state.turn] -= sp.cost;
+  if (!isFree) state.money[state.turn] -= effCost;
   // Free cast consumed; the target/spell that uses it finished the precast chain.
   state.freeCast = false;
+  if (state.freeSpellId === id) state.freeSpellId = null;
+  // Casting a spell resets the spell refresh timer (piece shop unaffected).
+  state.spellTurns = 0;
+  // The "double" modifier normally recasts the spell free; "random" grants a
+  // random extra spell. A double Echo doubles its own effect (2 extra turns)
+  // instead of generating a follow-up card.
+  const inlineDouble = mod === "double" && id === "echo";
+  if (inlineDouble) state.followUpSpell = null;
+  else if (mod === "double") state.followUpSpell = { kind: "double", id };
+  else if (mod === "random") state.followUpSpell = { kind: "random" };
 
   switch (id) {
     case "moneySkip":
-      spellEndTurnSkip();
+      if (state.followUpSpell) {
+        // Tax Gain 2x: bank the first +$3 but hang on to your turn.
+        // You must now either play the second Tax (free) or hit "Skip Turn":
+        // while the offer is pending you're locked out of moving pieces and
+        // casting everything except the free Tax.
+        state.money[state.turn] += 3;
+        applySpellFollowUp();
+        state.taxSkipPending = true;
+      } else {
+        state.taxSkipPending = false;
+        spellEndTurnSkip();
+      }
       break;
     case "killRandom":
       spellKillRandom();
@@ -1913,7 +2178,7 @@ function castSpell(slotIndex) {
       state.targetMode = { kind: "dispelable", spellId: id };
       break;
     case "echo":
-      spellEcho();
+      spellEcho(mod);
       break;
     case "push":
       state.targetMode = { kind: "pushable", spellId: id };
@@ -1946,24 +2211,86 @@ function finishSpell(logTxt) {
   refillSpells();
   pushSpellLog(logTxt);
   endTurnChecks();
+  applySpellFollowUp();
   render();
 }
 
-function spellEndTurnSkip() {
-  // Grants +$3 and ends the turn (skips move). If an extra turn is pending, skip Consumption is suppressed
+// Grant the follow-up spell of a double/random modifier. Only that single
+// spell is revealed as the free option (locked until cast).
+function applySpellFollowUp() {
+  const fu = state.followUpSpell;
+  state.followUpSpell = null;
+  if (!fu || state.gameOver) return;
+  let id;
+  if (fu.kind === "double") id = fu.id;
+  else id = randomSpell();
+  const prevSpells = state.spells;
+  const prevMods = state.spellMods;
+  state.spells = [id, null, null];
+  state.spellMods = ["normal", null, null];
+  state.stashSpells = prevSpells;
+  state.stashSpellMods = prevMods;
+  state.freeSpellId = id;
+  state.followUpOwner = state.turn;
+  renderSpells();
+  STATUS_EL.textContent = (state.turn === "w" ? "White" : "Black") + " — " + SPELLS[id].name + " is free (modifier)";
+}
+
+// A double/random spell left a free follow-up on the table (after the caster
+// already used the first activation). "Skip Spell" declines that second offer
+// so the turn continues normally; the free bar returns to the pre-offer spells.
+function skipFollowUpSpell() {
+  if (!state.freeSpellId || state.followUpOwner !== state.turn) return;
+  state.followUpSpell = null;
+  state.freeSpellId = null;
+  state.followUpOwner = null;
+  if (state.stashSpells) {
+    state.spells = state.stashSpells;
+    state.spellMods = state.stashSpellMods;
+  } else {
+    refillSpells();
+  }
+  state.stashSpells = null;
+  state.stashSpellMods = null;
+  render();
+}
+
+// A turn-ending spell (Tax Gain / Summon) that carries a double/random follow-up
+// moves that offer to the caster's NEXT turn so they still get their free extra.
+function queueFollowUpForNextTurn() {
+  const fu = state.followUpSpell;
+  state.followUpSpell = null;
+  state.freeSpellId = null;
+  state.followUpOwner = null;
+  if (!fu) return;
+  state.nextFollowUp = { player: state.turn, kind: fu.kind, id: fu.id };
+}
+
+function spellEndTurnSkip(grantMoney = true) {
+  // Grants +$3 and ends the turn (skips move), when grantMoney=true. The false
+  // form is used by the "Skip Turn" button on a Tax Gain 2x offer, which just
+  // passes the turn without taking the second +$3.
   expireEffectsAtTurnEnd();
+  // A double/random modifier earned by this turn-ending spell is handed to the
+  // caster's next turn (the spell itself switches the turn below).
+  queueFollowUpForNextTurn();
   if (state.extraTurns[state.turn] > 0) {
     // spending a skip on the extra turn just passes that extra; also clears no-capture
     state.extraTurns[state.turn] -= 1;
     state.noCapture[state.turn] = Math.max(0, state.noCapture[state.turn] - 1);
   }
-  state.money[state.turn] += 3;
+  if (grantMoney) state.money[state.turn] += 3;
   if (state.turn === "b") state.fullmove++;
-  state.moveLog.push("(skip +$3)");
+  state.moveLog.push(grantMoney ? "(skip +$3)" : "(skip)");
   state.noCapture[state.turn] = Math.max(0, state.noCapture[state.turn] - 1);
+  // A skipped turn still passes a turn: advance both refresh timers by 1.
+  state.shopTurns += 1;
+  state.spellTurns += 1;
   state.turn = opp(state.turn);
   state.lastMove = null;
   state.spellUsedThisTurn = false;
+  state.taxSkipPending = false;
+  state.summonSkipPending = false;
   state.targetMode = null;
   refillSpells();
   onTurnStart(state.turn);
@@ -1982,6 +2309,17 @@ function strikeLightning(r, c) {
   render();
 }
 
+// Remove square-tracking effects (piratify/confused/sleep markers) when a
+// piece is removed by a non-piece effect (lightning, snipe), so they don't
+// linger on an empty square for a later piece to "pick up".
+function clearPieceEffects(r, c) {
+  state.piratify = state.piratify.filter(x => !(x.r===r && x.c===c));
+  state.confused = state.confused.filter(x => !(x.r===r && x.c===c));
+  // A removed piece can no longer be sleeping either.
+  const si = state.sleeping.findIndex(s => s.r===r && s.c===c);
+  if (si >= 0) state.sleeping.splice(si, 1);
+}
+
 function spellKillRandom() {
   const mine = [], foes = [];
   for (let r=0;r<8;r++) for (let c=0;c<8;c++) {
@@ -1995,6 +2333,7 @@ function spellKillRandom() {
   const victim = state.board[t.r][t.c];
   applyBountyIfAny(victim);
   state.board[t.r][t.c] = null;
+  clearPieceEffects(t.r, t.c);
   const label = `${state.turn==="w"?"W":"B"}:Lightning@${sqName(t.r,t.c)}`;
   finishSpell(label);
   strikeLightning(t.r, t.c);
@@ -2020,11 +2359,13 @@ function spellBounty() {
   finishSpell(`${state.turn==="w"?"W":"B"}:Bounty@${sqName(mine.r,mine.c)}+${sqName(f1.r,f1.c)},${sqName(f2.r,f2.c)}`);
 }
 
-function spellEcho() {
-  // This turn + next turn (extra): no captures allowed. extraTurns=1 grants the extra move.
-  state.noCapture[state.turn] = 2;   // counts down: current move + extra move
-  state.extraTurns[state.turn] = 1;
-  finishSpell(`${state.turn==="w"?"W":"B"}:Echo`);
+function spellEcho(mod) {
+  // Echo (1x): no captures during this and one extra turn.
+  // Echo (2x): no captures during this + TWO extra turns.
+  const doubles = mod === "double";
+  state.noCapture[state.turn] = doubles ? 3 : 2;  // current move + N extra moves
+  state.extraTurns[state.turn] = doubles ? 2 : 1;
+  finishSpell(`${state.turn==="w"?"W":"B"}:Echo${doubles?" x2":""}`);
 }
 
 function spellPrecast() {
@@ -2033,6 +2374,10 @@ function spellPrecast() {
   state.spellUsedThisTurn = false;
   refillSpells();
   pushSpellLog(`${state.turn==="w"?"W":"B"}:Precast`);
+  // If this Freecast had a 2x/random modifier, the follow-up is NOT revealed yet:
+  // first the refreshed store stays available so the free spell can be cast, and
+  // the second copy is handed out once that free spell resolves (finishSpell),
+  // matching "first freecast refreshes the store, then you cast the second."
   endTurnChecks();
   render();
 }
@@ -2040,6 +2385,8 @@ function spellPrecast() {
 function refundSpellNoEffect(id) {
   // spell had no valid target — refund cost, do not consume the one-spell-per-turn
   state.money[state.turn] += SPELLS[id].cost;
+  // a cast that fizzled shouldn't keep its double/random follow-up waiting
+  state.followUpSpell = null;
   // pop the history snapshot we pushed
   state.history.pop();
   state.targetMode = null;
@@ -2054,6 +2401,7 @@ function handleTargetClick(r, c) {
     if (!p || p.type !== "P" || p.color === state.turn) { render(); return; }
     applyBountyIfAny(p);
     state.board[r][c] = null;
+    clearPieceEffects(r, c);
     finishSpell(`${state.turn==="w"?"W":"B"}:Snipe@${sqName(r,c)}`);
   } else if (tm.kind === "anyEmpty") {
     if (state.board[r][c]) { render(); return; }
@@ -2117,6 +2465,58 @@ function handleTargetClick(r, c) {
 
 function sqName(r, c) { return "abcdefgh"[c] + (8 - r); }
 
+const TIP_EL = document.getElementById("pieceTip");
+let TIP_TIMER = null;
+function showPieceTip(r, c, sq) {
+  clearTimeout(TIP_TIMER);
+  TIP_TIMER = setTimeout(() => { renderTip(r, c, sq); }, 1500);
+}
+function renderTip(r, c, sq) {
+  const p = state.board[r][c];
+  if (!p) return;
+  const name = (PIECE_NAME[p.type] || p.type) + " (" + (p.color === "w" ? "White" : "Black") + ")";
+  const statuses = [];
+  if (isSleeping(state, r, c)) statuses.push("sleeping (can't move this turn)");
+  if (p.bounty) statuses.push("bountied (worth +$1 when captured)");
+  if (p.golden) statuses.push("golden (+$1 per capture)");
+  if (p.platinum) statuses.push("platinum (+$3 per capture)");
+  if (state.piratify.some(x => x.r===r && x.c===c)) statuses.push("piratified (+$2 per capture)");
+  if (state.confused.some(x => x.r===r && x.c===c)) statuses.push("confused (moves randomly)");
+  if (state.blocked.some(b => b.r===r && b.c===c)) statuses.push("blocked");
+  let html = `<span class="tip-name">${name}</span>`;
+  if (statuses.length) html += `<div class="tip-status">Status: ${statuses.join(", ")}</div>`;
+  html += `<div class="tip-moves">Moves: ${PIECE_MOVES[p.type] || "—"}</div>`;
+  showTip(html, sq);
+}
+function showShopTip(e, card) {
+  clearTimeout(TIP_TIMER);
+  TIP_TIMER = setTimeout(() => {
+    const name = PIECE_NAME[e.p] || e.p;
+    const mod = e.mod === "golden" ? " (golden, +$1 per capture)"
+      : e.mod === "platinum" ? " (platinum, +$3 per capture)"
+      : e.mod === "free" ? " (free)" : e.mod === "pricier" ? " (+$1)" : e.mod === "discount" ? " (-$1)" : "";
+    const html = `<span class="tip-name">${name}</span><div class="tip-status">Shop: $${shopPrice(e)}${mod}</div><div class="tip-moves">Moves: ${PIECE_MOVES[e.p] || "—"}</div>`;
+    showTip(html, card);
+  }, 1500);
+}
+function showTip(html, sq) {
+  TIP_EL.innerHTML = html;
+  TIP_EL.style.display = "block";
+  const rect = sq.getBoundingClientRect();
+  let x = rect.left;
+  let y = rect.top - TIP_EL.offsetHeight - 8;
+  if (y < 8) y = rect.bottom + 8;
+  if (x + TIP_EL.offsetWidth > window.innerWidth - 8) x = window.innerWidth - TIP_EL.offsetWidth - 8;
+  if (x < 8) x = 8;
+  TIP_EL.style.left = x + "px";
+  TIP_EL.style.top = y + "px";
+}
+function hidePieceTip() {
+  clearTimeout(TIP_TIMER);
+  TIP_TIMER = null;
+  TIP_EL.style.display = "none";
+}
+
 function cancelPlacement() {
   if (state.targetMode) {
     // Cancel a targeting spell: refund the cost and restore the exact pre-cast
@@ -2135,6 +2535,7 @@ function cancelPlacement() {
       state.money = prev.money;
       state.shop = prev.shop;
       state.shopTurns = prev.shopTurns;
+      state.spellTurns = prev.spellTurns;
       state.placementMode = prev.placementMode;
       state.placementPiece = prev.placementPiece;
       state.placementMod = prev.placementMod;
@@ -2142,8 +2543,15 @@ function cancelPlacement() {
       state.placementSpellId = prev.placementSpellId;
       state.pendingRefillShopSlot = prev.pendingRefillShopSlot;
       state.spells = prev.spells;
+      state.spellMods = [...prev.spellMods];
+      state.followUpSpell = prev.followUpSpell ? {...prev.followUpSpell} : null;
+      state.freeSpellId = prev.freeSpellId || null;
+      state.nextFollowUp = prev.nextFollowUp ? {...prev.nextFollowUp} : null;
+      state.followUpOwner = prev.followUpOwner || null;
       state.spellUsedThisTurn = prev.spellUsedThisTurn;
       state.freeCast = !!prev.freeCast;
+      state.taxSkipPending = !!prev.taxSkipPending;
+      state.summonSkipPending = !!prev.summonSkipPending;
       state.blocked = prev.blocked.map(b=>({...b}));
       state.sleeping = prev.sleeping.map(b=>({...b}));
 state.confused = prev.confused.map(b=>({...b}));
@@ -2173,6 +2581,7 @@ state.confused = prev.confused.map(b=>({...b}));
   state.money = prev.money;
   state.shop = prev.shop;
   state.shopTurns = prev.shopTurns;
+  state.spellTurns = prev.spellTurns;
   state.placementMode = false;
   state.placementPiece = null;
   state.placementMod = null;
@@ -2241,6 +2650,10 @@ document.getElementById("flipBtn").addEventListener("click", () => {
   render();
 });
 document.getElementById("cancelBtn").addEventListener("click", cancelPlacement);
+  document.getElementById("skipBtn").addEventListener("click", () => {
+    if (state.taxSkipPending || state.summonSkipPending) spellEndTurnSkip(false);
+  });
+  document.getElementById("skipSpellBtn").addEventListener("click", skipFollowUpSpell);
 
 state = initialState();
 refillShop();
