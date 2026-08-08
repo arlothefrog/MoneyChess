@@ -45,7 +45,7 @@
   .light { background: #f0d9b5; color: #000; }
   .dark  { background: #b58863; color: #000; }
   .square .piece { pointer-events: none; }
-  .square.selected { box-shadow: inset 0 0 0 4px #ffd24a; }
+  .square.selected { box-shadow: inset 0 0 0 4px #4d9fff; }
   .square.legal::after {
     content: "";
     position: absolute;
@@ -246,7 +246,7 @@
   }
   @keyframes confuseWob { from { transform: rotate(-4deg); } to { transform: rotate(4deg); } }
   @keyframes confuseSpin { from { transform: rotate(0); } to { transform: rotate(360deg); } }
-  .piece.bounty { text-shadow: 0 0 6px #ffd24a, 0 0 12px #ffd24a; }
+  .piece.bounty { text-shadow: 0 0 6px #ff5252, 0 0 12px #ff5252; }
   .square.lightning::after {
     content: "⚡";
     position: absolute;
@@ -402,12 +402,24 @@
     pointer-events: none;
     z-index: 2;
   }
-.square .halo {
+  .square .halo {
     position: absolute;
     inset: 4px;
     border-radius: 50%;
-    box-shadow: 0 0 8px 2px rgba(255, 210, 74, 0.9);
+    box-shadow: 0 0 8px 2px rgba(255, 82, 82, 0.9);
     pointer-events: none;
+  }
+
+  .square .bounty-mark {
+    position: absolute;
+    top: 0;
+    right: 0;
+    font-size: 11px;
+    font-weight: 800;
+    color: #ff5252;
+    text-shadow: 0 0 3px #000;
+    pointer-events: none;
+    z-index: 2;
   }
 
   #aiBtn { background:#3a5a3a; border-color:#5a8055; font-weight:600; }
@@ -530,6 +542,8 @@ function initialState() {
 const PIECE_VALUE = { P:1, N:3, B:3, R:5, Q:9, C:2, G:1, D:1, A:12, S:1, H:7, M:5, T:5 };
 // Uniform-random pool: each piece type is equally likely
 const SHOP_POOL = ["P","N","B","R","Q","C","G","D","S","H","M","T"];
+// Uniform-random pool for the Summon spell: every piece in the game, including the Amazon.
+const SUMMON_POOL = ["P","N","B","R","Q","C","G","D","S","H","M","T","A"];
 
 // Roll a shop modifier: golden 99/2000 (4.95%), platinum 1/2000 (0.05%),
 // free 5%, pricier (+1$) 5%, discount (-1$) 5%, normal 80%.
@@ -551,8 +565,10 @@ function refillShop() {
 }
 
 // Effective shop price for an entry, honoring free / pricier modifiers.
+// The cat carries a bonus, so its shop cost differs from its capture value.
+const SHOP_PRICE = { C: 4 };
 function shopPrice(e) {
-  const base = PIECE_VALUE[e.p];
+  const base = SHOP_PRICE[e.p] !== undefined ? SHOP_PRICE[e.p] : PIECE_VALUE[e.p];
   if (e.mod === "free") return 0;
   if (e.mod === "pricier") return base + 1;
   if (e.mod === "discount") return Math.max(0, base - 1);
@@ -579,13 +595,14 @@ const SPELLS = {
   killPawn:   { name:"Snipe Pawn",  cost:2, glyph:"×P", desc:"Kill an enemy pawn of your choice" },
   block:      { name:"Wall",        cost:1, glyph:"▣",  desc:"Block a square this & next turn" },
   sleep:      { name:"Sleep",       cost:4, glyph:"Zz", desc:"Enemy piece can't move next turn" },
-  bounty:     { name:"Bounty",      cost:0, glyph:"★",  desc:"Bounties 1 of your pieces + 2 enemy pieces; you earn +$1 when each is captured (yellow halo)" },
+  bounty:     { name:"Bounty",      cost:0, glyph:"★",  desc:"Bounties 1 of your pieces + 2 enemy pieces; you earn +$1 when each is captured (red halo)" },
   dispel:     { name:"Dispel",      cost:3, glyph:"✦",  desc:"Destroy a wall / wake a sleeping piece / clear confusion / clear a pirate mark / remove a bounty" },
   echo:       { name:"Echo",        cost:5, glyph:"↻",  desc:"Take an extra turn; no captures during this & the extra turn" },
   push:       { name:"Push",        cost:3, glyph:"⇦",  desc:"Push a piece back 3 squares (or until blocked)" },
   precast:    { name:"Freecast",    cost:3, glyph:"♻",  desc:"Cast another spell this turn; the next spell is free" },
   confuse:    { name:"Confusion",   cost:4, glyph:"¿",  desc:"Target a piece to move randomly next move" },
   piratify:   { name:"Piratify",   cost:3, glyph:"¤↯", desc:"Marks one of your pieces to earn +$2 per capture (green stripes)" },
+  summon:     { name:"Summon",     cost:3, glyph:"✨", desc:"Create a random piece on a square of your choice; ends your turn" },
 };
 const SPELL_POOL = Object.keys(SPELLS);
 function randomSpell() { return SPELL_POOL[Math.floor(Math.random()*SPELL_POOL.length)]; }
@@ -1226,6 +1243,10 @@ function render() {
           const halo = document.createElement("div");
           halo.className = "halo";
           sq.appendChild(halo);
+          const mark = document.createElement("div");
+          mark.className = "bounty-mark";
+          mark.textContent = "$";
+          sq.appendChild(mark);
         }
       }
       if (state.selected && state.selected.r===r && state.selected.c===c) sq.classList.add("selected");
@@ -1586,14 +1607,17 @@ function updateStatus() {
     return;
   }
   if (state.placementMode) {
-    if (state.placementIsSpell) {
+    if (state.placementSpellId === "summon") {
+      STATUS_EL.textContent = `${who}: place the summoned piece on your side`;
+    } else if (state.placementIsSpell) {
       STATUS_EL.textContent = `${who}: place the spawned pawn on your side`;
     } else {
+      const base = SHOP_PRICE[state.placementPiece] !== undefined ? SHOP_PRICE[state.placementPiece] : PIECE_VALUE[state.placementPiece];
       const paid = state.placementMod === "pricier"
-        ? PIECE_VALUE[state.placementPiece] + 1
+        ? base + 1
         : state.placementMod === "free" ? 0
-        : state.placementMod === "discount" ? Math.max(0, PIECE_VALUE[state.placementPiece] - 1)
-        : PIECE_VALUE[state.placementPiece];
+        : state.placementMod === "discount" ? Math.max(0, base - 1)
+        : base;
       STATUS_EL.textContent = `${who}: place the ${state.placementPiece} on your side ($${paid} paid)`;
     }
     return;
@@ -1782,6 +1806,7 @@ function placePiece(r, c) {
   const mod = state.placementMod || "normal";
   state.board[r][c] = { type: state.placementPiece, color, golden: mod === "golden", platinum: mod === "platinum" };
   const placedType = state.placementPiece;
+  const wasSummon = state.placementSpellId === "summon";
   state.placementMode = false;
   state.placementPiece = null;
   state.placementMod = null;
@@ -1789,6 +1814,13 @@ function placePiece(r, c) {
   state.placementSpellId = null;
   state.selected = null;
   state.legalForSelected = [];
+
+  if (wasSummon) {
+    // Summoned piece placed: spell is consumed and the turn ends below.
+    state.spellUsedThisTurn = true;
+    refillSpells();
+    pushSpellLog(`${color==="w"?"W":"B"}:Summon@${sqName(r,c)}`);
+  }
 
   // Bought piece placed successfully: now reveal the next piece for that slot.
   if (typeof state.pendingRefillShopSlot === "number") {
@@ -1894,6 +1926,13 @@ function castSpell(slotIndex) {
       break;
     case "piratify":
       state.targetMode = { kind: "piratify", spellId: id };
+      break;
+    case "summon":
+      // Summon: place a random piece on your side; ends your turn.
+      state.placementMode = true;
+      state.placementPiece = SUMMON_POOL[Math.floor(Math.random() * SUMMON_POOL.length)];
+      state.placementMod = null;
+      state.placementSpellId = "summon";
       break;
   }
   state.selected = null;
