@@ -444,6 +444,22 @@
     pointer-events: none;
     z-index: 2;
   }
+  /* Thief marker for a piece that steals $1 per capture */
+  .piece.thieved {
+    position: relative;
+    display: inline-block;
+  }
+  .piece.thieved::after {
+    content: "\1F4B0";
+    position: absolute;
+    left: 50%;
+    top: -0.32em;
+    transform: translateX(-50%);
+    font-size: 0.5em;
+    line-height: 1;
+    pointer-events: none;
+    z-index: 2;
+  }
   /* Golden square: a gold border + soft glow surrounding the tile */
   .square.golden {
     position: relative;
@@ -669,8 +685,9 @@ function initialState() {
     summonSkipPending: false, // Summon 2x cast: player must take the second Summon or hit Skip Turn
     blocked: [],        // [{r,c,owner}]
     sleeping: [],       // [{r,c,owner}]
-    confused: [],       // [{r,c}] pieces that must move randomly on their next move
-    piratify: [],        // [{r,c}] pieces that earn +$1 per capture
+confused: [],       // [{r,c}] pieces that must move randomly on their next move
+    piratify: [],        // [{r,c}] pieces that earn +$2 per capture
+    thief: [],           // [{r,c}] pieces that steal $1 from the opponent per capture
     lightningStrike: null, // {r,c} current lightning bolt animation target
     lightningStrikeTimer: null,
     targetMode: null,   // {kind, spellId}
@@ -739,12 +756,13 @@ const SPELLS = {
   block:      { name:"Wall",        cost:1, glyph:"▣",  desc:"Block a square this & next turn" },
   sleep:      { name:"Sleep",       cost:4, glyph:"Zz", desc:"Enemy piece can't move next turn" },
   bounty:     { name:"Bounty",      cost:0, glyph:"★",  desc:"Bounties 1 of your pieces + 2 enemy pieces; you earn +$1 when each is captured (red halo)" },
-  dispel:     { name:"Dispel",      cost:3, glyph:"✦",  desc:"Destroy a wall / wake a sleeping piece / clear confusion / clear a pirate mark / remove a bounty" },
+dispel:     { name:"Dispel",      cost:3, glyph:"✦",  desc:"Destroy a wall / wake a sleeping piece / clear confusion / clear a pirate or thief mark / remove a bounty" },
   echo:       { name:"Echo",        cost:5, glyph:"↻",  desc:"Take an extra turn; no captures during this & the extra turn" },
   push:       { name:"Push",        cost:3, glyph:"⇦",  desc:"Push a piece back 3 squares (or until blocked)" },
   precast:    { name:"Freecast",    cost:3, glyph:"♻",  desc:"Cast another spell this turn; the next spell is free" },
   confuse:    { name:"Confusion",   cost:4, glyph:"¿",  desc:"Target a piece to move randomly next move" },
   piratify:   { name:"Piratify",   cost:3, glyph:"¤↯", desc:"Marks one of your pieces to earn +$2 per capture (green stripes)" },
+  thief:      { name:"Thief",      cost:3, glyph:"💰", desc:"Marks one of your pieces to steal $1 from the opponent each time it captures (can't be used on a piratified piece)" },
   summon:     { name:"Summon",     cost:3, glyph:"✨", desc:"Create a random piece on a square of your choice; ends your turn" },
 };
 const SPELL_POOL = Object.keys(SPELLS);
@@ -812,6 +830,7 @@ function cloneStateForHistory(s) {
     sleeping: s.sleeping.map(b=>({...b})),
     confused: s.confused.map(b=>({...b})),
     piratify: s.piratify.map(b=>({...b})),
+    thief: s.thief.map(b=>({...b})),
     targetMode: s.targetMode ? {...s.targetMode} : null,
     noCapture: { w: s.noCapture.w, b: s.noCapture.b },
     extraTurns: { w: s.extraTurns.w, b: s.extraTurns.b },
@@ -1349,8 +1368,15 @@ function makeMove(fr, fc, move, promoteTo) {
     const capType = captured ? captured.type : "P"; // en passant captures a pawn
     state.money[p.color] += Math.floor(PIECE_VALUE[capType] / 2);
     if (cap && cap.bounty) applyBountyIfAny(cap);   // +$1 to bounty owner (stacks)
-    // Plunder: a plundering piece earns +$1 for every capture
+// Plunder: a plundering piece earns +$1 for every capture
     if (state.piratify.some(x => x.r===fr && x.c===fc)) state.money[p.color] += 2;
+    // Thief: steals $1 from the opponent per capture (clamped to their balance)
+    if (state.thief.some(x => x.r===fr && x.c===fc)) {
+      const oppColor = opp(p.color);
+      const gain = Math.min(1, state.money[oppColor]);
+      state.money[oppColor] -= gain;
+      state.money[p.color] += gain;
+    }
     // Golden piece: earns +$1 for each capture it makes
     if (p.golden) state.money[p.color] += 1;
     // Platinum piece: earns +$3 for each capture it makes
@@ -1368,9 +1394,12 @@ function makeMove(fr, fc, move, promoteTo) {
   // die on the square they were captured on.
   if (captured) clearPieceEffects(move.r, move.c);
   if (capturedEP) clearPieceEffects(fr, move.c);
-  // Piratify marker travels with its piece (a shooter that fires stays put)
+// Piratify marker travels with its piece (a shooter that fires stays put)
   const plIdx = state.piratify.findIndex(x => x.r===fr && x.c===fc);
   if (plIdx >= 0 && !move.shoot) state.piratify[plIdx] = { r: move.r, c: move.c };
+  // Thief marker travels the same way
+  const tlfIdx = state.thief.findIndex(x => x.r===fr && x.c===fc);
+  if (tlfIdx >= 0 && !move.shoot) state.thief[tlfIdx] = { r: move.r, c: move.c };
 
   // halfmove clock
   if (movedType==="P" || capturedAny) state.halfmove = 0;
@@ -1555,8 +1584,10 @@ function render() {
         if (p.type === "F") span.classList.add("fakeknight");
         // Amazon (A): knight topped with a crown
         if (p.type === "A") span.classList.add("amazon");
-        // Piratified piece gets a pirate marker
+// Piratified piece gets a pirate marker
         if (state.piratify.some(x => x.r===r && x.c===c)) span.classList.add("piratifyed");
+        // Thief piece gets a money-bag marker
+        if (state.thief.some(x => x.r===r && x.c===c)) span.classList.add("thieved");
         // Golden piece: its square gets a gold border/glow
         if (p.golden) sq.classList.add("golden");
         // Platinum piece: its square gets a platinum border/glow
@@ -1935,14 +1966,16 @@ function isTargetable(r, c, kind) {
   if (kind === "enemyPiece") return p && p.color !== state.turn;
   if (kind === "ownPiece") return p && p.color === state.turn;
   if (kind === "confuse") return p && p.color !== state.turn && !state.confused.some(x => x.r===r && x.c===c);
-  if (kind === "piratify") return p && p.color === state.turn && !state.piratify.some(x => x.r===r && x.c===c);
+  if (kind === "piratify") return p && p.color === state.turn && !state.piratify.some(x => x.r===r && x.c===c) && !state.thief.some(x => x.r===r && x.c===c);
+  if (kind === "thief") return p && p.color === state.turn && !state.piratify.some(x => x.r===r && x.c===c) && !state.thief.some(x => x.r===r && x.c===c);
   if (kind === "anyEmpty") return !p;
   if (kind === "dispelable") {
     if (state.blocked.some(b => b.r===r && b.c===c)) return true;
     if (isSleeping(state, r, c)) return true;
     if (state.confused.some(x => x.r===r && x.c===c)) return true;
-    if (p && p.bounty) return true;
+if (p && p.bounty) return true;
     if (state.piratify.some(x => x.r===r && x.c===c)) return true;
+    if (state.thief.some(x => x.r===r && x.c===c)) return true;
     return false;
   }
   if (kind === "pushable") {
@@ -1977,9 +2010,10 @@ function updateStatus() {
       enemyPawn: "click an enemy pawn to snipe",
       enemyPiece: "click an enemy piece to put to sleep",
       confuse: "click an enemy piece to confuse (cannot re-target a confused piece)",
-      piratify: "click one of your pieces to piratify it (cannot re-target a piratified piece)",
+piratify: "click one of your pieces to piratify it (cannot re-target a piratified piece)",
+      thief: "click one of your pieces to make it a thief (cannot be a pirate thief)",
       anyEmpty: "click any empty square to block",
-      dispelable: "click a wall / sleeping / confused / bountied / piratified piece to dispel",
+      dispelable: "click a wall / sleeping / confused / bountied / piratified / thief piece to dispel",
       pushable: "click a piece to push it back 3 squares",
       ownPiece: "click one of your pieces to piratify it",
     };
@@ -2393,8 +2427,11 @@ function castSpell(slotIndex) {
     case "confuse":
       state.targetMode = { kind: "confuse", spellId: id };
       break;
-    case "piratify":
+case "piratify":
       state.targetMode = { kind: "piratify", spellId: id };
+      break;
+    case "thief":
+      state.targetMode = { kind: "thief", spellId: id };
       break;
     case "summon":
       // Summon: place a random piece on your side; ends your turn.
@@ -2519,6 +2556,7 @@ function strikeLightning(r, c) {
 // linger on an empty square for a later piece to "pick up".
 function clearPieceEffects(r, c) {
   state.piratify = state.piratify.filter(x => !(x.r===r && x.c===c));
+  state.thief = state.thief.filter(x => !(x.r===r && x.c===c));
   state.confused = state.confused.filter(x => !(x.r===r && x.c===c));
   // A removed piece can no longer be sleeping either.
   const si = state.sleeping.findIndex(s => s.r===r && s.c===c);
@@ -2628,24 +2666,32 @@ function handleTargetClick(r, c) {
     if (!p || p.color !== state.turn) { render(); return; }
     state.piratify.push({ r, c });
     finishSpell(`${state.turn==="w"?"W":"B"}:Piratify@${sqName(r,c)}`);
-  } else if (tm.kind === "piratify") {
+} else if (tm.kind === "piratify") {
     const p = state.board[r][c];
     if (!p || p.color !== state.turn) { render(); return; }
-    if (state.piratify.some(x => x.r===r && x.c===c)) { render(); return; }
+    if (state.piratify.some(x => x.r===r && x.c===c) || state.thief.some(x => x.r===r && x.c===c)) { render(); return; }
     state.piratify.push({ r, c });
     finishSpell(`${state.turn==="w"?"W":"B"}:Piratify@${sqName(r,c)}`);
+  } else if (tm.kind === "thief") {
+    const p = state.board[r][c];
+    if (!p || p.color !== state.turn) { render(); return; }
+    if (state.piratify.some(x => x.r===r && x.c===c) || state.thief.some(x => x.r===r && x.c===c)) { render(); return; }
+    state.thief.push({ r, c });
+    finishSpell(`${state.turn==="w"?"W":"B"}:Thief@${sqName(r,c)}`);
   } else if (tm.kind === "dispelable") {
     const blockedIdx = state.blocked.findIndex(b => b.r===r && b.c===c);
     const sleepIdx = state.sleeping.findIndex(s => s.r===r && s.c===c);
     const confIdx = state.confused.findIndex(x => x.r===r && x.c===c);
-    const pirIdx = state.piratify.findIndex(x => x.r===r && x.c===c);
+const pirIdx = state.piratify.findIndex(x => x.r===r && x.c===c);
+    const thfIdx = state.thief.findIndex(x => x.r===r && x.c===c);
     const p = state.board[r][c];
-    if (blockedIdx < 0 && sleepIdx < 0 && confIdx < 0 && pirIdx < 0 && !(p && p.bounty)) { render(); return; }
+    if (blockedIdx < 0 && sleepIdx < 0 && confIdx < 0 && pirIdx < 0 && thfIdx < 0 && !(p && p.bounty)) { render(); return; }
     let what = "";
     if (blockedIdx >= 0) { state.blocked.splice(blockedIdx,1); what = "wall"; }
     if (sleepIdx >= 0) { state.sleeping.splice(sleepIdx,1); what = what ? what+"/sleep" : "sleep"; }
     if (confIdx >= 0) { state.confused.splice(confIdx,1); what = what ? what+"/confusion" : "confusion"; }
-    if (pirIdx >= 0) { state.piratify.splice(pirIdx,1); what = what ? what+"/piratify" : "piratify"; }
+if (pirIdx >= 0) { state.piratify.splice(pirIdx,1); what = what ? what+"/piratify" : "piratify"; }
+    if (thfIdx >= 0) { state.thief.splice(thfIdx,1); what = what ? what+"/thief" : "thief"; }
     if (p && p.bounty) { p.bounty = null; what = what ? what+"/bounty" : "bounty"; }
     finishSpell(`${state.turn==="w"?"W":"B"}:Dispel@${sqName(r,c)}(${what})`);
   } else if (tm.kind === "pushable") {
@@ -2686,6 +2732,7 @@ function renderTip(r, c, sq) {
   if (p.golden) statuses.push("golden (+$1 per capture)");
   if (p.platinum) statuses.push("platinum (+$3 per capture)");
   if (state.piratify.some(x => x.r===r && x.c===c)) statuses.push("piratified (+$2 per capture)");
+  if (state.thief.some(x => x.r===r && x.c===c)) statuses.push("thief (steals $1 per capture)");
   if (state.confused.some(x => x.r===r && x.c===c)) statuses.push("confused (moves randomly)");
   if (state.blocked.some(b => b.r===r && b.c===c)) statuses.push("blocked");
   let html = `<span class="tip-name">${name}</span>`;
@@ -2762,7 +2809,8 @@ state.money = prev.money;
       state.blocked = prev.blocked.map(b=>({...b}));
       state.sleeping = prev.sleeping.map(b=>({...b}));
 state.confused = prev.confused.map(b=>({...b}));
-      state.piratify = prev.piratify.map(b=>({...b}));
+state.piratify = prev.piratify.map(b=>({...b}));
+      state.thief = prev.thief.map(b=>({...b}));
       state.targetMode = prev.targetMode ? {...prev.targetMode} : null;
       state.noCapture = { w: prev.noCapture.w, b: prev.noCapture.b };
       state.extraTurns = { w: prev.extraTurns.w, b: prev.extraTurns.b };
