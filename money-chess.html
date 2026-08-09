@@ -601,6 +601,7 @@
       <button class="sizebtn" data-size="12">12x12</button>
       <button class="sizebtn" data-size="15">15x15</button>
       <button class="sizebtn" data-size="0">Random</button>
+      <button id="randBtn" class="sizebtn" title="Chess 960: back rank filled with random pieces">960</button>
     </span>
     <button id="aiBtn">Play vs AI</button>
     <button id="flipBtn">Flip Board</button>
@@ -622,7 +623,8 @@
 "use strict";
 
 // ---- Board size ----
-let SIZE = 8;   // current board edge length (5 / 8 / 10 / 12 / 15)
+let SIZE = 8;           // current board edge length (5 / 8 / 10 / 12 / 15)
+let RANDOM960 = false;  // Chess 960 mode: back rank filled with random pieces
 const BOARD_LETTERS = "abcdefghijklmno";   // up to 15 files wide
 
 // ---- Piece representation: {type, color} where type in P,N,B,R,Q,K and color in 'w','b' ----
@@ -686,8 +688,23 @@ function makeBackRank() {
   return arr;
 }
 
+// Chess 960 style back rank: one random column gets the king; every other
+// square is a random piece from the full roster (any piece possible, mirrored).
+const RANDOM_BACK_POOL = ["P","N","B","R","Q","C","G","D","A","S","H","M","T","X","F"];
+function makeRandomBackRank() {
+  const n = SIZE;
+  const arr = new Array(n).fill(null);
+  const kingCol = Math.floor(Math.random() * n);
+  arr[kingCol] = "K";
+  for (let c = 0; c < n; c++) {
+    if (c === kingCol) continue;
+    arr[c] = RANDOM_BACK_POOL[Math.floor(Math.random() * RANDOM_BACK_POOL.length)];
+  }
+  return arr;
+}
+
 function initialState() {
-  const back = makeBackRank();
+  const back = RANDOM960 ? makeRandomBackRank() : makeBackRank();
   const board = [];
   for (let r = 0; r < SIZE; r++) {
     const row = [];
@@ -1162,7 +1179,8 @@ const dir = color === "w" ? -1 : 1;
       if (dr===0&&dc===0) continue;
       add(r+dr,c+dc);
     }
-// Castling
+// Castling (only in the classic setup; random back ranks have no castle)
+    if (!RANDOM960) {
     const rank = color === "w" ? SIZE - 1 : 0;
     const kingCol = SIZE >> 1;
     if (r === rank && c === kingCol) {
@@ -1190,6 +1208,7 @@ const dir = color === "w" ? -1 : 1;
           moves.push({r:rank, c:kingCol-2, castle:"Q"});
         }
       }
+    }
     }
   }
   return moves;
@@ -1738,6 +1757,7 @@ document.getElementById("aiBtn").style.display =
   document.querySelectorAll(".sizebtn").forEach(b => {
     b.classList.toggle("active", +b.dataset.size === SIZE);
   });
+  document.getElementById("randBtn").classList.toggle("active", RANDOM960);
   if (state.aiOpponent && !aiThinking && state.turn === state.aiColor && !state.gameOver
       && !state.placementMode && !state.targetMode && !pendingPromotion) {
     aiThinking = true;
@@ -2091,13 +2111,14 @@ function updateStatus() {
     else STATUS_EL.textContent = "Stalemate — Draw";
     return;
   }
-  const who = state.turn === "w" ? "White" : "Black";
+const who = state.turn === "w" ? "White" : "Black";
+  const prefix = RANDOM960 ? "[960] " : "";
   if (state.taxSkipPending) {
-    STATUS_EL.textContent = `${who} — Tax Gain x2: take the free +$3 and pass, or Skip Turn`;
+    STATUS_EL.textContent = `${prefix}${who} — Tax Gain x2: take the free +$3 and pass, or Skip Turn`;
     return;
   }
   if (state.summonSkipPending) {
-    STATUS_EL.textContent = `${who} — Summon x2: place the free second summon, or Skip Turn`;
+    STATUS_EL.textContent = `${prefix}${who} — Summon x2: place the free second summon, or Skip Turn`;
     return;
   }
   if (state.targetMode) {
@@ -2113,14 +2134,14 @@ piratify: "click one of your pieces to piratify it (cannot re-target a piratifie
       pushable: "click a piece to push it back 3 squares",
       ownPiece: "click one of your pieces to piratify it",
     };
-    STATUS_EL.textContent = `${who} — ${msgs[state.targetMode.kind]||"targeting"} (Cancel to abort)`;
+STATUS_EL.textContent = `${prefix}${who} — ${msgs[state.targetMode.kind]||"targeting"} (Cancel to abort)`;
     return;
   }
   if (state.placementMode) {
     if (state.placementSpellId === "summon") {
-      STATUS_EL.textContent = `${who}: place the summoned piece on your side`;
+      STATUS_EL.textContent = `${prefix}${who}: place the summoned piece on your side`;
     } else if (state.placementIsSpell) {
-      STATUS_EL.textContent = `${who}: place the spawned pawn on your side`;
+      STATUS_EL.textContent = `${prefix}${who}: place the spawned pawn on your side`;
     } else {
       const base = SHOP_PRICE[state.placementPiece] !== undefined ? SHOP_PRICE[state.placementPiece] : PIECE_VALUE[state.placementPiece];
       const paid = state.placementMod === "pricier"
@@ -2128,11 +2149,11 @@ piratify: "click one of your pieces to piratify it (cannot re-target a piratifie
         : state.placementMod === "free" ? 0
         : state.placementMod === "discount" ? Math.max(0, base - 1)
         : base;
-      STATUS_EL.textContent = `${who}: place the ${state.placementPiece} on your side ($${paid} paid)`;
+      STATUS_EL.textContent = `${prefix}${who}: place the ${state.placementPiece} on your side ($${paid} paid)`;
     }
     return;
   }
-  let t = `${who} to move`;
+  let t = `${prefix}${who} to move`;
   if (state.extraTurns[state.turn] > 0) t += " [extra turn — no captures]";
   else if (state.noCapture[state.turn] > 0) t += " — no captures this turn";
   if (inCheck(state.board, state.turn)) t += " — Check!";
@@ -3015,6 +3036,10 @@ function enableAI() {
 
 
 document.getElementById("resetBtn").addEventListener("click", reset);
+document.getElementById("randBtn").addEventListener("click", () => {
+  RANDOM960 = !RANDOM960;
+  reset();
+});
 document.querySelectorAll(".sizebtn").forEach(btn => {
   btn.addEventListener("click", () => {
     const s = +btn.dataset.size;
