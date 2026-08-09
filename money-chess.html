@@ -31,12 +31,12 @@
     border: 4px solid #0b141f;
     box-shadow: 0 8px 24px rgba(0,0,0,0.5);
   }
-  .square {
+.square {
     position: relative;
     display: flex;
     align-items: center;
     justify-content: center;
-    font-size: 42px;
+    font-size: calc(var(--sq, 60px) * 0.7);
     line-height: 1;
     user-select: none;
     cursor: pointer;
@@ -412,9 +412,15 @@
     align-items: center;
     justify-content: center;
   }
-  .piece.shooter img, .glyph.shooter img {
+  .piece.shooter img {
     width: 1.3em;
     height: 1.3em;
+    display: block;
+    filter: drop-shadow(0 1px 1px rgba(0,0,0,0.5));
+  }
+  .glyph.shooter img {
+    width: 1em;
+    height: 1em;
     display: block;
     filter: drop-shadow(0 1px 1px rgba(0,0,0,0.5));
   }
@@ -456,6 +462,22 @@
     top: -0.32em;
     transform: translateX(-50%);
     font-size: 0.5em;
+    line-height: 1;
+    pointer-events: none;
+    z-index: 2;
+  }
+  /* Curse marker for a piece that pays $1 each time it moves */
+  .piece.cursed {
+    position: relative;
+    display: inline-block;
+  }
+  .piece.cursed::after {
+    content: "\2620";
+    position: absolute;
+    left: 50%;
+    top: -0.32em;
+    transform: translateX(-50%);
+    font-size: 0.6em;
     line-height: 1;
     pointer-events: none;
     z-index: 2;
@@ -530,8 +552,18 @@
   #piece-tip .tip-status { color: #ff9a9a; }
   #piece-tip .tip-moves { color: #9fd4ff; }
 
-  #aiBtn { background:#3a5a3a; border-color:#5a8055; font-weight:600; }
+#aiBtn { background:#3a5a3a; border-color:#5a8055; font-weight:600; }
   #aiBtn:hover { background:#4a6f4a; }
+  #sizePicker { display: inline-flex; gap: 6px; align-items: center; }
+  #sizeLabel { font-size: 0.8rem; color: #9fb3c8; }
+  .sizebtn {
+    padding: 5px 9px;
+    font-size: 0.8rem;
+    background: #223040;
+    border-color: #33465e;
+  }
+  .sizebtn:hover { background: #33465e; }
+  .sizebtn.active { background: #4d9fff; border-color: #7ab8ff; font-weight: 700; }
   #cancelBtn { display: none; }
   #skipBtn { display: none; background:#5a4a3a; border-color:#8a7555; font-weight:600; }
   #skipBtn:hover { background:#6f5a45; }
@@ -560,7 +592,16 @@
     <div id="spellRefreshBar"><div id="spellRefreshFill"></div></div>
     <div id="spells"></div>
   </div>
-  <div id="controls">
+<div id="controls">
+    <span id="sizePicker">
+      <span id="sizeLabel">Board:</span>
+      <button class="sizebtn" data-size="5">5x5</button>
+      <button class="sizebtn" data-size="8">8x8</button>
+      <button class="sizebtn" data-size="10">10x10</button>
+      <button class="sizebtn" data-size="12">12x12</button>
+      <button class="sizebtn" data-size="15">15x15</button>
+      <button class="sizebtn" data-size="0">Random</button>
+    </span>
     <button id="aiBtn">Play vs AI</button>
     <button id="flipBtn">Flip Board</button>
     <button id="resetBtn">Reset</button>
@@ -579,6 +620,10 @@
 
 <script>
 "use strict";
+
+// ---- Board size ----
+let SIZE = 8;   // current board edge length (5 / 8 / 10 / 12 / 15)
+const BOARD_LETTERS = "abcdefghijklmno";   // up to 15 files wide
 
 // ---- Piece representation: {type, color} where type in P,N,B,R,Q,K and color in 'w','b' ----
 const PIECE_GLYPH = {
@@ -626,17 +671,32 @@ let state = null;
 let flipped = false;
 let pendingPromotion = null; // {from, to, captured}
 
+// Build a symmetric back rank of length SIZE: king+queen centered, then
+// bishops, knights and rooks fanning outward (extra columns get more rooks).
+function makeBackRank() {
+  const n = SIZE;
+  const arr = new Array(n).fill("R");
+  const center = n >> 1;          // king file (matches classic 8x8, center=4)
+  arr[center] = "K";
+  arr[center - 1] = "Q";
+  let lc = center - 2, rc = center + 1, oL = 0, oR = 0;
+  const seq = ["B", "N", "R"];
+  while (lc >= 0) { arr[lc] = seq[oL % seq.length]; oL++; lc--; }
+  while (rc < n) { arr[rc] = seq[oR % seq.length]; oR++; rc++; }
+  return arr;
+}
+
 function initialState() {
-  const back = ["R","N","B","Q","K","B","N","R"];
+  const back = makeBackRank();
   const board = [];
-  for (let r = 0; r < 8; r++) {
+  for (let r = 0; r < SIZE; r++) {
     const row = [];
-    for (let c = 0; c < 8; c++) {
+    for (let c = 0; c < SIZE; c++) {
       let p = null;
       if (r === 0) p = {type: back[c], color: "b"};
       else if (r === 1) p = {type: "P", color: "b"};
-      else if (r === 6) p = {type: "P", color: "w"};
-      else if (r === 7) p = {type: back[c], color: "w"};
+      else if (r === SIZE - 2) p = {type: "P", color: "w"};
+      else if (r === SIZE - 1) p = {type: back[c], color: "w"};
       row.push(p);
     }
     board.push(row);
@@ -688,6 +748,7 @@ function initialState() {
 confused: [],       // [{r,c}] pieces that must move randomly on their next move
     piratify: [],        // [{r,c}] pieces that earn +$2 per capture
     thief: [],           // [{r,c}] pieces that steal $1 from the opponent per capture
+    cursed: [],          // [{r,c,owner}] enemy pieces that pay $1 to their curser every time they move
     lightningStrike: null, // {r,c} current lightning bolt animation target
     lightningStrikeTimer: null,
     targetMode: null,   // {kind, spellId}
@@ -761,8 +822,9 @@ dispel:     { name:"Dispel",      cost:3, glyph:"✦",  desc:"Destroy a wall / w
   push:       { name:"Push",        cost:3, glyph:"⇦",  desc:"Push a piece back 3 squares (or until blocked)" },
   precast:    { name:"Freecast",    cost:3, glyph:"♻",  desc:"Cast another spell this turn; the next spell is free" },
   confuse:    { name:"Confusion",   cost:4, glyph:"¿",  desc:"Target a piece to move randomly next move" },
-  piratify:   { name:"Piratify",   cost:3, glyph:"¤↯", desc:"Marks one of your pieces to earn +$2 per capture (green stripes)" },
+piratify: { name:"Piratify",   cost:3, glyph:"¤↯", desc:"Marks one of your pieces to earn +$2 per capture (green stripes)" },
   thief:      { name:"Thief",      cost:3, glyph:"💰", desc:"Marks one of your pieces to steal $1 from the opponent each time it captures (can't be used on a piratified piece)" },
+  curse:      { name:"Curse",      cost:3, glyph:"☠",  desc:"Curses an enemy piece so it pays you $1 every time it moves (permanent until dispelled)" },
   summon:     { name:"Summon",     cost:3, glyph:"✨", desc:"Create a random piece on a square of your choice; ends your turn" },
 };
 const SPELL_POOL = Object.keys(SPELLS);
@@ -831,6 +893,7 @@ function cloneStateForHistory(s) {
     confused: s.confused.map(b=>({...b})),
     piratify: s.piratify.map(b=>({...b})),
     thief: s.thief.map(b=>({...b})),
+    cursed: s.cursed.map(b=>({...b})),
     targetMode: s.targetMode ? {...s.targetMode} : null,
     noCapture: { w: s.noCapture.w, b: s.noCapture.b },
     extraTurns: { w: s.extraTurns.w, b: s.extraTurns.b },
@@ -841,7 +904,7 @@ function cloneStateForHistory(s) {
   };
 }
 
-function inBounds(r,c){ return r>=0&&r<8&&c>=0&&c<8; }
+function inBounds(r,c){ return r>=0&&r<SIZE&&c>=0&&c<SIZE; }
 function opp(color){ return color === "w" ? "b" : "w"; }
 
 function blockedSet(s){ const set = new Set(); for (const b of s.blocked) set.add(b.r+","+b.c); return set; }
@@ -896,10 +959,10 @@ function pseudoMoves(board, r, c, castling, epTarget, blocked) {
     moves.push({r:rr, c:cc, ...spec});
   };
 
-  if (p.type === "P") {
+if (p.type === "P") {
     const dir = color === "w" ? -1 : 1;
-    const startRow = color === "w" ? 6 : 1;
-    const promoRow = color === "w" ? 0 : 7;
+    const startRow = color === "w" ? SIZE - 2 : 1;
+    const promoRow = color === "w" ? 0 : SIZE - 1;
     // forward one
     if (inBounds(r+dir,c) && !board[r+dir][c] && !blk.has((r+dir)+","+c)) {
       const promo = (r+dir === promoRow);
@@ -926,8 +989,8 @@ function pseudoMoves(board, r, c, castling, epTarget, blocked) {
     // Diagonal pawn: moves one square DIAGONALLY (like a bishop, 1 step);
     // captures straight FORWARD (like a normal pawn). No double-step.
     // Always auto-promotes to Amazon (A) when reaching the last rank.
-    const dir = color === "w" ? -1 : 1;
-    const promoRow = color === "w" ? 0 : 7;
+const dir = color === "w" ? -1 : 1;
+    const promoRow = color === "w" ? 0 : SIZE - 1;
     for (const dc of [-1,1]) {
       const rr = r+dir, cc = c+dc;
       if (!inBounds(rr,cc)) continue;
@@ -953,8 +1016,8 @@ function pseudoMoves(board, r, c, castling, epTarget, blocked) {
     // Soldier: moves AND captures exactly one square straight forward.
     // Cannot double-step, cannot capture diagonally. Auto-promotes to Amazon (A)
     // when it reaches the last rank.
-    const dir = color === "w" ? -1 : 1;
-    const promoRow = color === "w" ? 0 : 7;
+const dir = color === "w" ? -1 : 1;
+    const promoRow = color === "w" ? 0 : SIZE - 1;
     const fr = r + dir, fc = c;
     if (inBounds(fr, fc) && !blk.has(fr+","+fc)) {
       const t = board[fr][fc];
@@ -1099,25 +1162,32 @@ function pseudoMoves(board, r, c, castling, epTarget, blocked) {
       if (dr===0&&dc===0) continue;
       add(r+dr,c+dc);
     }
-    // Castling
-    const rank = color === "w" ? 7 : 0;
-    if (r === rank && c === 4) {
+// Castling
+    const rank = color === "w" ? SIZE - 1 : 0;
+    const kingCol = SIZE >> 1;
+    if (r === rank && c === kingCol) {
       const kRight = color==="w" ? castling.wK : castling.bK;
       const qRight = color==="w" ? castling.wQ : castling.bQ;
-      // King side: squares 5,6 empty, rook at 7
-      if (kRight && !board[rank][5] && !board[rank][6] && !blk.has(rank+",5") && !blk.has(rank+",6") && board[rank][7] && board[rank][7].type==="R" && board[rank][7].color===color) {
-        if (!squareAttacked(board, rank, 4, opp(color)) &&
-            !squareAttacked(board, rank, 5, opp(color)) &&
-            !squareAttacked(board, rank, 6, opp(color))) {
-          moves.push({r:rank, c:6, castle:"K"});
+      // King side: kingCol+1, kingCol+2 empty, rook at SIZE-1
+      if (kRight && !board[rank][kingCol+1] && !board[rank][kingCol+2] &&
+          !blk.has(rank+","+(kingCol+1)) && !blk.has(rank+","+(kingCol+2)) &&
+          board[rank][SIZE-1] && board[rank][SIZE-1].type==="R" && board[rank][SIZE-1].color===color) {
+        if (!squareAttacked(board, rank, kingCol, opp(color)) &&
+            !squareAttacked(board, rank, kingCol+1, opp(color)) &&
+            !squareAttacked(board, rank, kingCol+2, opp(color))) {
+          moves.push({r:rank, c:kingCol+2, castle:"K"});
         }
       }
-      // Queen side: squares 1,2,3 empty, rook at 0
-      if (qRight && !board[rank][1] && !board[rank][2] && !board[rank][3] && !blk.has(rank+",2") && !blk.has(rank+",3") && board[rank][0] && board[rank][0].type==="R" && board[rank][0].color===color) {
-        if (!squareAttacked(board, rank, 4, opp(color)) &&
-            !squareAttacked(board, rank, 3, opp(color)) &&
-            !squareAttacked(board, rank, 2, opp(color))) {
-          moves.push({r:rank, c:2, castle:"Q"});
+      // Queen side: squares 1..kingCol-1 empty, rook at 0
+      let qEmpty = true;
+      for (let i = 1; i < kingCol; i++) {
+        if (board[rank][i] || blk.has(rank+","+i)) { qEmpty = false; break; }
+      }
+      if (qRight && qEmpty && board[rank][0] && board[rank][0].type==="R" && board[rank][0].color===color) {
+        if (!squareAttacked(board, rank, kingCol, opp(color)) &&
+            !squareAttacked(board, rank, kingCol-1, opp(color)) &&
+            !squareAttacked(board, rank, kingCol-2, opp(color))) {
+          moves.push({r:rank, c:kingCol-2, castle:"Q"});
         }
       }
     }
@@ -1164,7 +1234,7 @@ function squareAttacked(board, r, c, attackerColor) {
   }
   // Fake Knight: presses forward (1, 2, or 2-then-side); threatens any square
   // it can move or capture to along its path.
-  for (let rr=0;rr<8;rr++) for (let cc=0;cc<8;cc++) {
+  for (let rr=0;rr<SIZE;rr++) for (let cc=0;cc<SIZE;cc++) {
     const t=board[rr][cc];
     if (t && t.color===attackerColor && t.type==="F" && fakeKnightReach(rr, cc, board).has(r+","+c)) return true;
   }
@@ -1260,7 +1330,7 @@ function squareAttacked(board, r, c, attackerColor) {
 }
 
 function findKing(board, color) {
-  for (let r=0;r<8;r++) for (let c=0;c<8;c++) {
+  for (let r=0;r<SIZE;r++) for (let c=0;c<SIZE;c++) {
     const p=board[r][c];
     if (p && p.type==="K" && p.color===color) return {r,c};
   }
@@ -1310,12 +1380,13 @@ function simulateMove(s, fr, fc, move) {
   board[move.r][move.c] = move.promotion && move.promoteTo
     ? {type: move.promoteTo, color: p.color, bounty: p.bounty || null, golden: p.golden || false, platinum: p.platinum || false}
     : {type: p.type, color: p.color, bounty: p.bounty || null, golden: p.golden || false, platinum: p.platinum || false};
-  // Castling: move rook
+// Castling: move rook
+  const kingCol = SIZE >> 1;
   if (move.castle === "K") {
-    board[move.r][5] = board[move.r][7];
-    board[move.r][7] = null;
+    board[move.r][kingCol+1] = board[move.r][SIZE-1];
+    board[move.r][SIZE-1] = null;
   } else if (move.castle === "Q") {
-    board[move.r][3] = board[move.r][0];
+    board[move.r][kingCol-1] = board[move.r][0];
     board[move.r][0] = null;
   }
   // Update castling rights
@@ -1325,20 +1396,20 @@ function simulateMove(s, fr, fc, move) {
   }
   if (p.type === "R") {
     if (p.color==="w") {
-      if (fr===7&&fc===0) castling.wQ=false;
-      if (fr===7&&fc===7) castling.wK=false;
+      if (fr===SIZE-1&&fc===0) castling.wQ=false;
+      if (fr===SIZE-1&&fc===SIZE-1) castling.wK=false;
     } else {
       if (fr===0&&fc===0) castling.bQ=false;
-      if (fr===0&&fc===7) castling.bK=false;
+      if (fr===0&&fc===SIZE-1) castling.bK=false;
     }
   }
   // If a rook is captured, lose that side's right
   const tr = move.r, tc = move.c;
   // (only relevant if captured piece was rook on original square)
-  if (tr===7&&tc===0) castling.wQ=false;
-  if (tr===7&&tc===7) castling.wK=false;
+  if (tr===SIZE-1&&tc===0) castling.wQ=false;
+  if (tr===SIZE-1&&tc===SIZE-1) castling.wK=false;
   if (tr===0&&tc===0) castling.bQ=false;
-  if (tr===0&&tc===7) castling.bK=false;
+  if (tr===0&&tc===SIZE-1) castling.bK=false;
 
   if (move.doubleStep) {
     epTarget = {r:(fr+move.r)/2, c:fc};
@@ -1400,6 +1471,14 @@ function makeMove(fr, fc, move, promoteTo) {
   // Thief marker travels the same way
   const tlfIdx = state.thief.findIndex(x => x.r===fr && x.c===fc);
   if (tlfIdx >= 0 && !move.shoot) state.thief[tlfIdx] = { r: move.r, c: move.c };
+  // Curse: a cursed piece pays $1 to its curser every time it moves.
+  const curIdx = state.cursed.findIndex(x => x.r===fr && x.c===fc);
+  if (curIdx >= 0 && !move.shoot) {
+    const pay = Math.min(1, state.money[p.color]);
+    state.money[p.color] -= pay;
+    state.money[opp(p.color)] += pay;
+    state.cursed[curIdx] = { r: move.r, c: move.c, owner: state.cursed[curIdx].owner };
+  }
 
   // halfmove clock
   if (movedType==="P" || capturedAny) state.halfmove = 0;
@@ -1503,9 +1582,8 @@ function moveToSAN(ctx) {
   const {from, to, piece, move, captured, promoteTo} = ctx;
   if (move.castle === "K") return "O-O";
   if (move.castle === "Q") return "O-O-O";
-  const files = "abcdefgh";
-  const ranks = "87654321";
-  const dest = files[to.c] + ranks[to.r];
+const files = "abcdefghijklmno";
+  const dest = files[to.c] + (SIZE - to.r);
   let san = "";
   if (piece.type === "P" || piece.type === "S") {
     if (captured) san += files[from.c] + "x";
@@ -1521,7 +1599,7 @@ function moveToSAN(ctx) {
 }
 
 function hasAnyLegalMove(s) {
-  for (let r=0;r<8;r++) for (let c=0;c<8;c++) {
+  for (let r=0;r<SIZE;r++) for (let c=0;c<SIZE;c++) {
     const p = s.board[r][c];
     if (p && p.color === s.turn && !isSleeping(s, r, c)) {
       if (legalMoves(s, r, c).length > 0) return true;
@@ -1533,12 +1611,16 @@ function hasAnyLegalMove(s) {
 // ---- Rendering ----
 function render() {
   BOARD_EL.innerHTML = "";
+  const sqLen = SIZE <= 8 ? 60 : SIZE <= 10 ? 52 : SIZE <= 12 ? 46 : 40;
+  BOARD_EL.style.gridTemplateColumns = `repeat(${SIZE}, ${sqLen}px)`;
+  BOARD_EL.style.gridTemplateRows = `repeat(${SIZE}, ${sqLen}px)`;
+  BOARD_EL.style.setProperty("--sq", sqLen + "px");
   const checkW = inCheck(state.board, "w") ? findKing(state.board, "w") : null;
   const checkB = inCheck(state.board, "b") ? findKing(state.board, "b") : null;
-  for (let i=0;i<8;i++) {
-    for (let j=0;j<8;j++) {
-      const r = flipped ? 7-i : i;
-      const c = flipped ? 7-j : j;
+  for (let i=0;i<SIZE;i++) {
+    for (let j=0;j<SIZE;j++) {
+      const r = flipped ? SIZE-1-i : i;
+      const c = flipped ? SIZE-1-j : j;
       const sq = document.createElement("div");
       sq.className = "square " + (((r+c)%2===0) ? "light" : "dark");
       sq.dataset.r = r;
@@ -1588,6 +1670,8 @@ function render() {
         if (state.piratify.some(x => x.r===r && x.c===c)) span.classList.add("piratifyed");
         // Thief piece gets a money-bag marker
         if (state.thief.some(x => x.r===r && x.c===c)) span.classList.add("thieved");
+        // Cursed piece gets a skull marker
+        if (state.cursed.some(x => x.r===r && x.c===c)) span.classList.add("cursed");
         // Golden piece: its square gets a gold border/glow
         if (p.golden) sq.classList.add("golden");
         // Platinum piece: its square gets a platinum border/glow
@@ -1647,8 +1731,13 @@ renderShop();
   document.getElementById("skipSpellBtn").style.display =
     (state.freeSpellId && state.followUpOwner === state.turn &&
      !state.taxSkipPending && !state.summonSkipPending) ? "inline-block" : "none";
-  document.getElementById("aiBtn").style.display =
+document.getElementById("aiBtn").style.display =
     (state.aiOpponent || state.gameStarted || state.gameOver) ? "none" : "inline-block";
+  document.getElementById("sizePicker").style.display =
+    (state.gameStarted || state.gameOver) ? "none" : "inline-flex";
+  document.querySelectorAll(".sizebtn").forEach(b => {
+    b.classList.toggle("active", +b.dataset.size === SIZE);
+  });
   if (state.aiOpponent && !aiThinking && state.turn === state.aiColor && !state.gameOver
       && !state.placementMode && !state.targetMode && !pendingPromotion) {
     aiThinking = true;
@@ -1687,17 +1776,18 @@ const PST = {
 };
 
 function pstValue(type, color, r, c) {
-  const table = PST[type];
+const table = PST[type];
   if (!table) return 0;
+  if (SIZE !== 8) return 0;   // piece-square tables are only tuned for 8x8
   // mirror vertically for black so good placement is always + regardless of color
-  const row = color === "w" ? r : 7 - r;
+  const row = color === "w" ? r : SIZE - 1 - r;
   return table[row][c];
 }
 
 function evaluate(s, aiColor) {
   // King present = win/loss; if a king is missing, return huge score.
   let wKing = false, bKing = false;
-  for (let r=0;r<8;r++) for (let c=0;c<8;c++) {
+  for (let r=0;r<SIZE;r++) for (let c=0;c<SIZE;c++) {
     const p = s.board[r][c];
     if (p && p.type==="K") { if (p.color==="w") wKing=true; else bKing=true; }
   }
@@ -1705,7 +1795,7 @@ function evaluate(s, aiColor) {
   if (!bKing) return aiColor === "w" ? 100000 : -100000;
 
   let score = 0;
-  for (let r=0;r<8;r++) for (let c=0;c<8;c++) {
+  for (let r=0;r<SIZE;r++) for (let c=0;c<SIZE;c++) {
     const p = s.board[r][c];
     if (!p) continue;
     const sign = p.color === aiColor ? 1 : -1;
@@ -1758,16 +1848,17 @@ function applyMove(snap, fr, fc, move, promoteTo) {
   board[move.r][move.c] = move.promotion && promoteTo
     ? {type: promoteTo, color: p.color, bounty: p.bounty||null, golden: p.golden||false, platinum: p.platinum||false}
     : {type: p.type, color: p.color, bounty: p.bounty||null, golden: p.golden||false, platinum: p.platinum||false};
-  if (move.castle === "K") { board[move.r][5] = board[move.r][7]; board[move.r][7] = null; }
-  else if (move.castle === "Q") { board[move.r][3] = board[move.r][0]; board[move.r][0] = null; }
+const kingCol = SIZE >> 1;
+  if (move.castle === "K") { board[move.r][kingCol+1] = board[move.r][SIZE-1]; board[move.r][SIZE-1] = null; }
+  else if (move.castle === "Q") { board[move.r][kingCol-1] = board[move.r][0]; board[move.r][0] = null; }
   if (p.type === "K") { if (p.color === "w") {castling.wK=false; castling.wQ=false;} else {castling.bK=false; castling.bQ=false;} }
   if (p.type === "R") {
-    if (p.color==="w") { if (fr===7&&fc===0) castling.wQ=false; if (fr===7&&fc===7) castling.wK=false; }
-    else { if (fr===0&&fc===0) castling.bQ=false; if (fr===0&&fc===7) castling.bK=false; }
+    if (p.color==="w") { if (fr===SIZE-1&&fc===0) castling.wQ=false; if (fr===SIZE-1&&fc===SIZE-1) castling.wK=false; }
+    else { if (fr===0&&fc===0) castling.bQ=false; if (fr===0&&fc===SIZE-1) castling.bK=false; }
   }
   const tr=move.r, tc=move.c;
-  if (tr===7&&tc===0) castling.wQ=false; if (tr===7&&tc===7) castling.wK=false;
-  if (tr===0&&tc===0) castling.bQ=false; if (tr===0&&tc===7) castling.bK=false;
+  if (tr===SIZE-1&&tc===0) castling.wQ=false; if (tr===SIZE-1&&tc===SIZE-1) castling.wK=false;
+  if (tr===0&&tc===0) castling.bQ=false; if (tr===0&&tc===SIZE-1) castling.bK=false;
   if (move.doubleStep) epTarget = {r:(fr+move.r)/2, c:fc};
   return {
     board, castling, epTarget,
@@ -1786,7 +1877,7 @@ function snapLegal(snap, r, c) {
 
 function allMoves(snap) {
   const out = [];
-  for (let r=0;r<8;r++) for (let c=0;c<8;c++) {
+  for (let r=0;r<SIZE;r++) for (let c=0;c<SIZE;c++) {
     const p = snap.board[r][c];
     if (p && p.color === snap.turn && !isSleeping(snap, r, c)) {
       for (const m of snapLegal(snap, r, c)) out.push({fr:r, fc:c, move:m});
@@ -1845,7 +1936,7 @@ function minimax(snap, depth, alpha, beta, aiColor) {
 }
 
 function kingMissing(snap, color) {
-  for (let r=0;r<8;r++) for (let c=0;c<8;c++) {
+  for (let r=0;r<SIZE;r++) for (let c=0;c<SIZE;c++) {
     const p = snap.board[r][c];
     if (p && p.type==="K" && p.color===color) return false;
   }
@@ -1893,8 +1984,9 @@ function aiMove() {
     return;
   }
 
-  const start = snapshotFromState(state);
-  const depth = 3;
+const start = snapshotFromState(state);
+  // Big boards branch enormously: shallow out the search so it stays snappy.
+  const depth = SIZE >= 12 ? 1 : SIZE === 10 ? 2 : 3;
   const moves = orderMoves(start, allMoves(start));
   if (moves.length === 0) { aiThinking = false; return; }
   let best = moves[0], bestVal = -Infinity, alpha = -Infinity, beta = Infinity;
@@ -1943,12 +2035,13 @@ function aiFinishPlacement() {
   const me = state.aiColor;
   if (!state.placementMode) { aiThinking = false; render(); return; }
   // Place preferentially just behind pawns or near center on own side
-  const spots = [];
-  const lo = me === "w" ? 4 : 0;
-  const hi = me === "w" ? 7 : 3;
-  for (let r=lo;r<=hi;r++) for (let c=0;c<8;c++) if (!state.board[r][c]) {
+const spots = [];
+  const lo = me === "w" ? Math.ceil(SIZE / 2) : 0;
+  const hi = me === "w" ? SIZE - 1 : Math.floor(SIZE / 2) - 1;
+  for (let r=lo;r<=hi;r++) for (let c=0;c<SIZE;c++) if (!state.board[r][c]) {
     // prefer central files
-    const centerness = 4 - Math.abs(c - 3.5);
+    const mid = (SIZE - 1) / 2;
+    const centerness = mid - Math.abs(c - mid);
     spots.push({r, c, centerness});
   }
   if (!spots.length) { aiThinking = false; render(); return; }
@@ -1968,6 +2061,7 @@ function isTargetable(r, c, kind) {
   if (kind === "confuse") return p && p.color !== state.turn && !state.confused.some(x => x.r===r && x.c===c);
   if (kind === "piratify") return p && p.color === state.turn && !state.piratify.some(x => x.r===r && x.c===c) && !state.thief.some(x => x.r===r && x.c===c);
   if (kind === "thief") return p && p.color === state.turn && !state.piratify.some(x => x.r===r && x.c===c) && !state.thief.some(x => x.r===r && x.c===c);
+  if (kind === "curse") return p && p.color !== state.turn && !state.cursed.some(x => x.r===r && x.c===c);
   if (kind === "anyEmpty") return !p;
   if (kind === "dispelable") {
     if (state.blocked.some(b => b.r===r && b.c===c)) return true;
@@ -1976,6 +2070,7 @@ function isTargetable(r, c, kind) {
 if (p && p.bounty) return true;
     if (state.piratify.some(x => x.r===r && x.c===c)) return true;
     if (state.thief.some(x => x.r===r && x.c===c)) return true;
+    if (state.cursed.some(x => x.r===r && x.c===c)) return true;
     return false;
   }
   if (kind === "pushable") {
@@ -2012,8 +2107,9 @@ function updateStatus() {
       confuse: "click an enemy piece to confuse (cannot re-target a confused piece)",
 piratify: "click one of your pieces to piratify it (cannot re-target a piratified piece)",
       thief: "click one of your pieces to make it a thief (cannot be a pirate thief)",
+      curse: "click an enemy piece to curse it (it pays you $1 each move)",
       anyEmpty: "click any empty square to block",
-      dispelable: "click a wall / sleeping / confused / bountied / piratified / thief piece to dispel",
+      dispelable: "click a wall / sleeping / confused / bountied / piratified / thief / cursed piece to dispel",
       pushable: "click a piece to push it back 3 squares",
       ownPiece: "click one of your pieces to piratify it",
     };
@@ -2216,10 +2312,11 @@ function onSquareClick(e) {
 
 // ---- Shop / placement ----
 function isPlaceable(r, c, color) {
-  // Own half: rows 4-7 for white, 0-3 for black. Must be empty.
+  // Own half: white takes the top half, black the bottom half. On odd-sized
+  // boards the exact center row belongs to nobody (no placement there).
   if (state.board[r][c]) return false;
-  if (color === "w") return r >= 4;
-  return r <= 3;
+  if (color === "w") return r >= Math.ceil(SIZE / 2);
+  return r < Math.floor(SIZE / 2);
 }
 
 function buyPiece(slotIndex) {
@@ -2433,6 +2530,9 @@ case "piratify":
     case "thief":
       state.targetMode = { kind: "thief", spellId: id };
       break;
+    case "curse":
+      state.targetMode = { kind: "curse", spellId: id };
+      break;
     case "summon":
       // Summon: place a random piece on your side; ends your turn.
       state.placementMode = true;
@@ -2557,6 +2657,7 @@ function strikeLightning(r, c) {
 function clearPieceEffects(r, c) {
   state.piratify = state.piratify.filter(x => !(x.r===r && x.c===c));
   state.thief = state.thief.filter(x => !(x.r===r && x.c===c));
+  state.cursed = state.cursed.filter(x => !(x.r===r && x.c===c));
   state.confused = state.confused.filter(x => !(x.r===r && x.c===c));
   // A removed piece can no longer be sleeping either.
   const si = state.sleeping.findIndex(s => s.r===r && s.c===c);
@@ -2565,7 +2666,7 @@ function clearPieceEffects(r, c) {
 
 function spellKillRandom() {
   const mine = [], foes = [];
-  for (let r=0;r<8;r++) for (let c=0;c<8;c++) {
+  for (let r=0;r<SIZE;r++) for (let c=0;c<SIZE;c++) {
     const p = state.board[r][c];
     if (p && p.type !== "K") (p.color === state.turn ? mine : foes).push({r,c});
   }
@@ -2584,7 +2685,7 @@ function spellKillRandom() {
 
 function spellBounty() {
   const myCands = [], foeCands = [];
-  for (let r=0;r<8;r++) for (let c=0;c<8;c++) {
+  for (let r=0;r<SIZE;r++) for (let c=0;c<SIZE;c++) {
     const p = state.board[r][c];
     if (p && p.type !== "K") {
       if (p.color === state.turn) myCands.push({r,c});
@@ -2678,20 +2779,28 @@ function handleTargetClick(r, c) {
     if (state.piratify.some(x => x.r===r && x.c===c) || state.thief.some(x => x.r===r && x.c===c)) { render(); return; }
     state.thief.push({ r, c });
     finishSpell(`${state.turn==="w"?"W":"B"}:Thief@${sqName(r,c)}`);
+  } else if (tm.kind === "curse") {
+    const p = state.board[r][c];
+    if (!p || p.color === state.turn) { render(); return; }
+    if (state.cursed.some(x => x.r===r && x.c===c)) { render(); return; }
+    state.cursed.push({ r, c, owner: state.turn });
+    finishSpell(`${state.turn==="w"?"W":"B"}:Curse@${sqName(r,c)}`);
   } else if (tm.kind === "dispelable") {
     const blockedIdx = state.blocked.findIndex(b => b.r===r && b.c===c);
     const sleepIdx = state.sleeping.findIndex(s => s.r===r && s.c===c);
     const confIdx = state.confused.findIndex(x => x.r===r && x.c===c);
 const pirIdx = state.piratify.findIndex(x => x.r===r && x.c===c);
-    const thfIdx = state.thief.findIndex(x => x.r===r && x.c===c);
+const thfIdx = state.thief.findIndex(x => x.r===r && x.c===c);
+    const curIdx = state.cursed.findIndex(x => x.r===r && x.c===c);
     const p = state.board[r][c];
-    if (blockedIdx < 0 && sleepIdx < 0 && confIdx < 0 && pirIdx < 0 && thfIdx < 0 && !(p && p.bounty)) { render(); return; }
+    if (blockedIdx < 0 && sleepIdx < 0 && confIdx < 0 && pirIdx < 0 && thfIdx < 0 && curIdx < 0 && !(p && p.bounty)) { render(); return; }
     let what = "";
     if (blockedIdx >= 0) { state.blocked.splice(blockedIdx,1); what = "wall"; }
     if (sleepIdx >= 0) { state.sleeping.splice(sleepIdx,1); what = what ? what+"/sleep" : "sleep"; }
     if (confIdx >= 0) { state.confused.splice(confIdx,1); what = what ? what+"/confusion" : "confusion"; }
 if (pirIdx >= 0) { state.piratify.splice(pirIdx,1); what = what ? what+"/piratify" : "piratify"; }
     if (thfIdx >= 0) { state.thief.splice(thfIdx,1); what = what ? what+"/thief" : "thief"; }
+    if (curIdx >= 0) { state.cursed.splice(curIdx,1); what = what ? what+"/curse" : "curse"; }
     if (p && p.bounty) { p.bounty = null; what = what ? what+"/bounty" : "bounty"; }
     finishSpell(`${state.turn==="w"?"W":"B"}:Dispel@${sqName(r,c)}(${what})`);
   } else if (tm.kind === "pushable") {
@@ -2705,16 +2814,19 @@ if (pirIdx >= 0) { state.piratify.splice(pirIdx,1); what = what ? what+"/piratif
       tr = nr; moved++;
     }
     if (moved === 0) { render(); return; }
-    // Move a sleeping marker along with the piece
+// Move a sleeping marker along with the piece
     const si = state.sleeping.findIndex(s => s.r===r && s.c===c);
     if (si >= 0) state.sleeping[si].r = tr;
+    // Curse marker travels with its piece too (a push is not a "move" so no fee)
+    const ci = state.cursed.findIndex(x => x.r===r && x.c===c);
+    if (ci >= 0) state.cursed[ci].r = tr;
     state.board[tr][c] = p;
     state.board[r][c] = null;
     finishSpell(`${state.turn==="w"?"W":"B"}:Push@${sqName(r,c)}?${sqName(tr,c)}`);
   }
 }
 
-function sqName(r, c) { return "abcdefgh"[c] + (8 - r); }
+function sqName(r, c) { return BOARD_LETTERS[c] + (SIZE - r); }
 
 const TIP_EL = document.getElementById("pieceTip");
 let TIP_TIMER = null;
@@ -2733,6 +2845,7 @@ function renderTip(r, c, sq) {
   if (p.platinum) statuses.push("platinum (+$3 per capture)");
   if (state.piratify.some(x => x.r===r && x.c===c)) statuses.push("piratified (+$2 per capture)");
   if (state.thief.some(x => x.r===r && x.c===c)) statuses.push("thief (steals $1 per capture)");
+  if (state.cursed.some(x => x.r===r && x.c===c)) statuses.push("cursed (pays $1 each time it moves)");
   if (state.confused.some(x => x.r===r && x.c===c)) statuses.push("confused (moves randomly)");
   if (state.blocked.some(b => b.r===r && b.c===c)) statuses.push("blocked");
   let html = `<span class="tip-name">${name}</span>`;
@@ -2811,6 +2924,7 @@ state.money = prev.money;
 state.confused = prev.confused.map(b=>({...b}));
 state.piratify = prev.piratify.map(b=>({...b}));
       state.thief = prev.thief.map(b=>({...b}));
+      state.cursed = prev.cursed.map(b=>({...b}));
       state.targetMode = prev.targetMode ? {...prev.targetMode} : null;
       state.noCapture = { w: prev.noCapture.w, b: prev.noCapture.b };
       state.extraTurns = { w: prev.extraTurns.w, b: prev.extraTurns.b };
@@ -2901,6 +3015,18 @@ function enableAI() {
 
 
 document.getElementById("resetBtn").addEventListener("click", reset);
+document.querySelectorAll(".sizebtn").forEach(btn => {
+  btn.addEventListener("click", () => {
+    const s = +btn.dataset.size;
+    if (s === 0) {
+      const opts = [5, 8, 10, 12, 15];
+      SIZE = opts[Math.floor(Math.random() * opts.length)];
+    } else {
+      SIZE = s;
+    }
+    reset();
+  });
+});
 document.getElementById("aiBtn").addEventListener("click", enableAI);
 document.getElementById("flipBtn").addEventListener("click", () => {
   flipped = !flipped;
