@@ -112,6 +112,25 @@
   #moneybar .wallet.b { background: #1a1a1a; color: #f0d9b5; border: 1px solid #555; }
   #moneybar .wallet.active { outline: 3px solid #ffd24a; }
 
+  #streaks {
+    display: flex;
+    gap: 30px;
+    margin: 2px 0 10px;
+    font-size: 0.85rem;
+    font-weight: 600;
+  }
+  .streak-row { display: flex; align-items: center; gap: 6px; }
+  .streak-label { padding: 2px 8px; border-radius: 4px; }
+  .streak-label.w { background: #e8eef5; color: #1e2a3a; }
+  .streak-label.b { background: #1a1a1a; color: #f0d9b5; border: 1px solid #555; }
+  .streak-segs { display: flex; gap: 3px; }
+  .streak-seg {
+    width: 26px; height: 22px; line-height: 22px;
+    text-align: center; font-size: 0.7rem;
+    background: #222838; color: #667; border: 1px solid #3a4a5a; border-radius: 4px;
+  }
+  .streak-seg.on { background: #ffd24a; color: #151515; font-weight: 800; border-color: #ffd24a; }
+
   #shop {
     margin-top: 12px;
     display: flex;
@@ -386,6 +405,29 @@
   .piece.centaur[data-side="b"] img {
     filter: invert(1) drop-shadow(0 1px 1px rgba(0,0,0,0.5));
   }
+  /* Shooter: a gun-toting piece using its own sprite */
+  .piece.shooter, .glyph.shooter {
+    position: relative;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+  }
+  .piece.shooter img, .glyph.shooter img {
+    width: 1.3em;
+    height: 1.3em;
+    display: block;
+    filter: drop-shadow(0 1px 1px rgba(0,0,0,0.5));
+  }
+  /* Black-side shooters get inverted colors to match the side */
+  .piece.shooter[data-side="b"] img {
+    filter: invert(1) drop-shadow(0 1px 1px rgba(0,0,0,0.5));
+  }
+  /* Fake Knight: an upside-down knight (can't jump) */
+  .piece.fakeknight, .glyph.fakeknight {
+    position: relative;
+    display: inline-block;
+    transform: rotate(180deg);
+  }
   /* Pirate marker for a piratifyed piece */
   .piece.piratifyed {
     position: relative;
@@ -488,6 +530,10 @@
     <div id="walletW" class="wallet w">White: $10</div>
     <div id="walletB" class="wallet b">Black: $10</div>
   </div>
+  <div id="streaks">
+    <div class="streak-row"><span class="streak-label w">WR</span><div class="streak-segs" id="streakW"></div></div>
+    <div class="streak-row"><span class="streak-label b">BR</span><div class="streak-segs" id="streakB"></div></div>
+  </div>
   <div id="board"></div>
   <div id="pieceTip" class="piece-tip"></div>
   <div id="shopWrap">
@@ -525,12 +571,12 @@ const PIECE_GLYPH = {
 };
 // Fix discrepancies (use filled glyphs for both colors via text-color; we use standard unicode):
 const GLYPH = {
-  P:"\u265F", N:"\u265E", B:"\u265D", R:"\u265C", Q:"\u265B", K:"\u265A", C:"\ud83d\udc2b", G:"\ud83e\udd97", D:"\u265F", A:"\u265E", S:"\u265F", H:"\u265E", M:"\ud83d\udc00", T:"\ud83d\udc31"
+  P:"\u265F", N:"\u265E", B:"\u265D", R:"\u265C", Q:"\u265B", K:"\u265A", C:"\ud83d\udc2b", G:"\ud83e\udd97", D:"\u265F", A:"\u265E", S:"\u265F", H:"\u265E", M:"\ud83d\udc00", T:"\ud83d\udc31", X:"\u265E", F:"\u265E"
 };
 
 const PIECE_NAME = {
   P:"Pawn", N:"Knight", B:"Bishop", R:"Rook", Q:"Queen", K:"King",
-  C:"Camel", G:"Cricket", D:"D-Pawn", A:"Amazon", S:"Soldier", H:"Centaur", M:"Rat", T:"Cat"
+  C:"Camel", G:"Cricket", D:"D-Pawn", A:"Amazon", S:"Soldier", H:"Centaur", M:"Rat", T:"Cat", X:"Shooter", F:"Fake Knight"
 };
 
 const PIECE_MOVES = {
@@ -542,13 +588,16 @@ const PIECE_MOVES = {
   K:"One square in any direction; may castle",
   C:"Camel: an extended knight leaper (3,1); can leap",
   G:"Cricket: 1 diagonal step (no capture) or 2 diagonal leap (jumps, can capture)",
-  D:"Diagonal pawn: moves diagonally, captures straight ahead; auto-promotes to Amazon",
-  S:"Soldier: moves and captures 1 straight forward; auto-promotes to Amazon",
+  D:"Diagonal pawn: moves diagonally, captures straight ahead; can retreat backwards diagonally; auto-promotes to Amazon",
+  S:"Soldier: moves and captures 1 straight forward; can side-step 1; auto-promotes to Amazon",
   H:"Centaur: combines knight and king moves",
   M:"Rat: slides up to 2 squares in any direction; cannot jump",
-  T:"Cat (color). Moves 1 square in any direction; captures up to 2 away. Can jump"
+  T:"Cat (color). Moves 1 square in any direction; captures up to 2 away. Can jump",
+  X:"Shooter: moves 1 square in any direction (no capture); can shoot one enemy in the 5x5 ring around it (not the 3x3)",
+  F:"Fake Knight: goes 1-2 forward or 2 forward then 1 sideways; can move or capture anywhere on the path. Cannot jump"
 };
 
+const SHOOTER_IMG = `<img src="data:image/png;base64,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">`;
 const CENTAUR_SVG = `<img src="data:image/gif;base64,R0lGODlhMgAyAJH/AP///zMzM8DAwAAAACH5BAEAAAIALAAAAAAyADIAQAL/lI+py+3fxoA0SYCzzjKE8Q3biEnQhXkByW7qZj6q1440q1byXZO5DgwKg7EhRYJMHlDFpFOH8vFw01GRcVv1bDbPtTLzJKq1nxEUcqrXnY/xDRey4/Av3YBs5WFRq13RR6WVMbP1hyDSNfjSwghz1LG1xYhEQSYJMOgSEMRpkBVWOCn25vnpKGlWqolJaHoHGysLezjLMGdbUZt7O8G7pGRRKTwsFwhQ2Weyp1F8kqgnUnjMBykZmUnt96Dtyurds6vt+K2B2uwbAZ3CE9ZItgucednqGH9w3qqInL4zr/9v0z0EouqVm9fJU7tQ8+ixewUGFESHmyACUSUg3zuLGUYKYsI4RGMqjgkBborjhY1KJyl/uXypoAAAOw==">`;
 
 const BOARD_EL = document.getElementById("board");
@@ -597,6 +646,8 @@ function initialState() {
     noCapture: { w: 0, b: 0 },
     extraTurns: { w: 0, b: 0 },
     money: { w: 10, b: 10 },
+    captureStreak: { w: 0, b: 0 },   // escalating capture reward tier (2nd/3rd +$1, 4th +$2, 5th +$3, 6th+ +$4)
+    capturedThisTurn: { w: false, b: false }, // whether each player captured on their latest turn
     shop: [],
     shopTurns: 0,          // turns since shop last refreshed (refreshes every 3)
     spellTurns: 0,         // turns since spells last refreshed (refreshes every 3)
@@ -626,11 +677,11 @@ function initialState() {
   };
 }
 
-const PIECE_VALUE = { P:1, N:3, B:3, R:5, Q:9, C:2, G:1, D:1, A:12, S:1, H:7, M:5, T:5 };
+const PIECE_VALUE = { P:1, N:3, B:3, R:5, Q:9, C:2, G:1, D:1, A:12, S:1, H:7, M:5, T:5, X:5, F:4 };
 // Uniform-random pool: each piece type is equally likely
-const SHOP_POOL = ["P","N","B","R","Q","C","G","D","S","H","M","T"];
+const SHOP_POOL = ["P","N","B","R","Q","C","G","D","S","H","M","T","X","F"];
 // Uniform-random pool for the Summon spell: every piece in the game, including the Amazon.
-const SUMMON_POOL = ["P","N","B","R","Q","C","G","D","S","H","M","T","A"];
+const SUMMON_POOL = ["P","N","B","R","Q","C","G","D","S","H","M","T","A","X","F"];
 
 // Roll a shop modifier: golden 99/2000 (4.95%), platinum 1/2000 (0.05%),
 // free 5%, pricier (+1$) 5%, discount (-1$) 5%, normal 80%.
@@ -698,14 +749,14 @@ const SPELLS = {
 };
 const SPELL_POOL = Object.keys(SPELLS);
 function randomSpell() { return SPELL_POOL[Math.floor(Math.random()*SPELL_POOL.length)]; }
-// Roll a spell modifier: cheap (-$1) 5%, pricier (+$1) 5%, double 5%,
-// random-extra 5%, normal 80%.
+// Roll a spell modifier: cheap (-$1) 1.25%, pricier (+$1) 1.25%, double 1.25%,
+// random-extra 1.25%, normal 95%.
 function rollSpellMod() {
   const r = Math.random();
-  if (r < 0.05) return "cheap";
-  if (r < 0.10) return "pricier";
-  if (r < 0.15) return "double";
-  if (r < 0.20) return "random";
+  if (r < 0.0125) return "cheap";
+  if (r < 0.025) return "pricier";
+  if (r < 0.0375) return "double";
+  if (r < 0.05) return "random";
   return "normal";
 }
 function refillSpells() {
@@ -739,6 +790,8 @@ function cloneStateForHistory(s) {
     moveLog: [...s.moveLog],
     gameOver: s.gameOver,
     money: { w: s.money.w, b: s.money.b },
+    captureStreak: { w: s.captureStreak.w, b: s.captureStreak.b },
+    capturedThisTurn: { w: !!s.capturedThisTurn.w, b: !!s.capturedThisTurn.b },
     shop: [...s.shop],
     shopTurns: s.shopTurns,
     spellTurns: s.spellTurns,
@@ -776,6 +829,40 @@ function blockedSet(s){ const set = new Set(); for (const b of s.blocked) set.ad
 function isSleeping(s, r, c){ return s.sleeping.some(x => x.r===r && x.c===c); }
 
 // Generate pseudo-legal moves from (r,c) on board, respecting castling rights & ep.
+// Fake Knight: presses forward toward the enemy — forward 1, forward 2, or
+// forward 2 then 1 sideways. It can move or capture at ANY square along that
+// path, so it cannot jump: the deeper squares need the earlier ones empty.
+function fakeKnightReach(br, bc, board, blk) {
+  const s = new Set();
+  const p = board[br][bc];
+  if (!p) return s;
+  const dir = p.color === "w" ? -1 : 1;
+  for (let k = 1; k <= 2; k++) {
+    const rr = br + dir * k, cc = bc;
+    if (!inBounds(rr, cc)) break;
+    if (blk && blk.has(rr + "," + cc)) break;
+    const t = board[rr][cc];
+    if (t && t.color === p.color) break;
+    s.add(rr + "," + cc);
+    if (t) break;            // captured here; can't continue forward
+  }
+  // Forward-2-then-side squares need both forward squares clear.
+  const s1 = br + dir, s2 = br + 2 * dir;
+  const f1Blocked = !inBounds(s1, bc) || !!board[s1][bc] || (blk && blk.has(s1 + "," + bc));
+  const f2Blocked = !inBounds(s2, bc) || !!board[s2][bc] || (blk && blk.has(s2 + "," + bc));
+  if (!f1Blocked && !f2Blocked) {
+    for (const dc of [-1, 1]) {
+      const rr = s2, cc = bc + dc;
+      if (!inBounds(rr, cc)) continue;
+      if (blk && blk.has(rr + "," + cc)) continue;
+      const t = board[rr][cc];
+      if (t && t.color === p.color) continue;
+      s.add(rr + "," + cc);
+    }
+  }
+  return s;
+}
+
 function pseudoMoves(board, r, c, castling, epTarget, blocked) {
   const blk = blocked || new Set();
   const p = board[r][c];
@@ -835,6 +922,13 @@ function pseudoMoves(board, r, c, castling, epTarget, blocked) {
       const t = board[pr][pc];
       if (t && t.color !== color) moves.push({r:pr, c:pc, promotion: pr===promoRow, promoteTo:"A"});
     }
+    // NEW: retreat one square backwards diagonally (move only)
+    for (const dc of [-1,1]) {
+      const rr = r-dir, cc = c+dc;
+      if (!inBounds(rr,cc)) continue;
+      if (blk.has(rr+","+cc)) continue;
+      if (!board[rr][cc]) moves.push({r:rr, c:cc, promotion: rr===promoRow, promoteTo:"A"});
+    }
   }
   else if (p.type === "S") {
     // Soldier: moves AND captures exactly one square straight forward.
@@ -846,6 +940,42 @@ function pseudoMoves(board, r, c, castling, epTarget, blocked) {
     if (inBounds(fr, fc) && !blk.has(fr+","+fc)) {
       const t = board[fr][fc];
       if (!t || t.color !== color) moves.push({r:fr, c:fc, promotion: fr===promoRow, promoteTo:"A"});
+    }
+    // NEW: side-step one square left or right (move only)
+    for (const dc of [-1,1]) {
+      const sr = r, sc = c + dc;
+      if (!inBounds(sr, sc)) continue;
+      if (blk.has(sr+","+sc)) continue;
+      if (!board[sr][sc]) moves.push({r:sr, c:sc, promotion: sr===promoRow, promoteTo:"A"});
+    }
+  }
+  else if (p.type === "F") {
+    // Fake Knight: forward 1, forward 2, or forward 2 then 1 sideways;
+    // can move or capture anywhere on its path (cannot jump).
+    for (const sq of fakeKnightReach(r, c, board, blk)) {
+      const [pr, pc] = sq.split(",");
+      moves.push({r:+pr, c:+pc});
+    }
+  }
+  else if (p.type === "X") {
+    // Shooter: moves one square in any direction, but only onto empty squares
+    // (it cannot capture by landing).
+    for (let dr=-1;dr<=1;dr++) for (let dc=-1;dc<=1;dc++) {
+      if (dr===0 && dc===0) continue;
+      const rr = r+dr, cc = c+dc;
+      if (!inBounds(rr,cc)) continue;
+      if (blk.has(rr+","+cc)) continue;
+      if (!board[rr][cc]) moves.push({r:rr, c:cc});
+    }
+    // Shoot: capture any single enemy in the 5x5 ring around the shooter
+    // (Chebyshev distance exactly 2; the 3x3 around it is NOT attacked).
+    for (let dr=-2;dr<=2;dr++) for (let dc=-2;dc<=2;dc++) {
+      if (Math.max(Math.abs(dr), Math.abs(dc)) !== 2) continue;
+      const rr = r+dr, cc = c+dc;
+      if (!inBounds(rr,cc)) continue;
+      if (blk.has(rr+","+cc)) continue;
+      const t = board[rr][cc];
+      if (t && t.color !== color) moves.push({r:rr, c:cc, shoot:true});
     }
   }
   else if (p.type === "N") {
@@ -1013,6 +1143,22 @@ function squareAttacked(board, r, c, attackerColor) {
       if (t && t.color===attackerColor && t.type==="C") return true;
     }
   }
+  // Fake Knight: presses forward (1, 2, or 2-then-side); threatens any square
+  // it can move or capture to along its path.
+  for (let rr=0;rr<8;rr++) for (let cc=0;cc<8;cc++) {
+    const t=board[rr][cc];
+    if (t && t.color===attackerColor && t.type==="F" && fakeKnightReach(rr, cc, board).has(r+","+c)) return true;
+  }
+  // Shooter: threatens the 5x5 ring around itself (Chebyshev distance 2;
+  // the 3x3 immediately around it is NOT threatened).
+  for (let dr=-2;dr<=2;dr++) for (let dc=-2;dc<=2;dc++) {
+    if (Math.max(Math.abs(dr), Math.abs(dc)) !== 2) continue;
+    const rr=r+dr, cc=c+dc;
+    if (inBounds(rr,cc)) {
+      const t=board[rr][cc];
+      if (t && t.color===attackerColor && t.type==="X") return true;
+    }
+  }
   // Grasshopper (2,2 diagonal leaper, jumps over pieces)
   const goff = [[-2,-2],[-2,2],[2,-2],[2,2]];
   for (const [dr,dc] of goff) {
@@ -1135,6 +1281,11 @@ function simulateMove(s, fr, fc, move) {
     // captured pawn is on same row as mover, same col as target
     board[fr][move.c] = null;
   }
+  // Shooter firing: the target is destroyed but the shooter does not move.
+  if (move.shoot) {
+    board[move.r][move.c] = null;
+    return { board, castling, epTarget };
+  }
   // Move piece (with promotion)
   board[fr][fc] = null;
   board[move.r][move.c] = move.promotion && move.promoteTo
@@ -1192,7 +1343,7 @@ function makeMove(fr, fc, move, promoteTo) {
   state.castling = sim.castling;
   state.epTarget = sim.epTarget;
 
-  // Captures: mover earns half the captured piece's value; bounty adds $1 on top.
+// Captures: mover earns half the captured piece's value; bounty adds $1 on top.
   if (capturedAny) {
     const cap = captured || capturedEP;
     const capType = captured ? captured.type : "P"; // en passant captures a pawn
@@ -1204,15 +1355,22 @@ function makeMove(fr, fc, move, promoteTo) {
     if (p.golden) state.money[p.color] += 1;
     // Platinum piece: earns +$3 for each capture it makes
     if (p.platinum) state.money[p.color] += 3;
+    // Capture streak: 2nd/3rd in a row +$1, 4th +$2, 5th +$3, 6th+ +$4.
+    state.capturedThisTurn[p.color] = true;
+    state.captureStreak[p.color] = Math.min(6, state.captureStreak[p.color] + 1);
+    const streak = state.captureStreak[p.color];
+    if (streak >= 2) {
+      state.money[p.color] += streak === 2 || streak === 3 ? 1 : streak === 4 ? 2 : streak === 5 ? 3 : 4;
+    }
   }
   // A captured piece takes its diffuse effects with it (piratify/confused/sleep
   // markers must not linger for the next piece to pick up). En-passant victims
   // die on the square they were captured on.
   if (captured) clearPieceEffects(move.r, move.c);
   if (capturedEP) clearPieceEffects(fr, move.c);
-  // Piratify marker travels with its piece
+  // Piratify marker travels with its piece (a shooter that fires stays put)
   const plIdx = state.piratify.findIndex(x => x.r===fr && x.c===fc);
-  if (plIdx >= 0) state.piratify[plIdx] = { r: move.r, c: move.c };
+  if (plIdx >= 0 && !move.shoot) state.piratify[plIdx] = { r: move.r, c: move.c };
 
   // halfmove clock
   if (movedType==="P" || capturedAny) state.halfmove = 0;
@@ -1233,6 +1391,7 @@ function makeMove(fr, fc, move, promoteTo) {
   } else {
     if (state.turn==="b") state.fullmove++;
     state.noCapture[state.turn] = Math.max(0, state.noCapture[state.turn] - 1);
+    settleTurnEnd(state.turn);
     state.turn = opp(state.turn);
     onTurnStart(state.turn);
   }
@@ -1367,6 +1526,11 @@ function render() {
           span.classList.add("centaur");
           span.dataset.side = p.color;
           span.innerHTML = CENTAUR_SVG;
+        } else if (p.type === "X") {
+          // Shooter: uses its own sprite (fixed colors; inverted on black's side).
+          span.classList.add("shooter");
+          span.dataset.side = p.color;
+          span.innerHTML = SHOOTER_IMG;
         } else {
           span.textContent = GLYPH[p.type];
         }
@@ -1387,6 +1551,8 @@ function render() {
         if (p.type === "S") span.classList.add("soldier");
         // Diagonal pawn (D) looks distinct with a green ring/underline.
         if (p.type === "D") span.classList.add("dpawn");
+        // Fake Knight: upside-down knight
+        if (p.type === "F") span.classList.add("fakeknight");
         // Amazon (A): knight topped with a crown
         if (p.type === "A") span.classList.add("amazon");
         // Piratified piece gets a pirate marker
@@ -1435,10 +1601,11 @@ function render() {
       BOARD_EL.appendChild(sq);
     }
   }
-  renderShop();
+renderShop();
   renderSpells();
   updateMoney();
   updateStatus();
+  updateStreaks();
   document.getElementById("cancelBtn").style.display =
     (state.placementMode || state.targetMode) ? "inline-block" : "none";
   document.getElementById("skipBtn").style.display =
@@ -1461,7 +1628,7 @@ function render() {
 let aiThinking = false;
 
 // ---- AI opponent: minimax with alpha-beta pruning ----
-const PIECE_SCORE = { P:100, N:320, B:330, R:500, Q:900, C:250, G:150, D:100, A:1400, S:100, H:600, K:20000 };
+const PIECE_SCORE = { P:100, N:320, B:330, R:500, Q:900, C:250, G:150, D:100, A:1400, S:100, H:600, K:20000, F:220, X:500 };
 // Piece-square tables (from white's perspective; mirrored for black)
 const PST = {
   P: [[0,0,0,0,0,0,0,0],[50,50,50,50,50,50,50,50],[10,10,20,30,30,20,10,10],
@@ -1545,6 +1712,17 @@ function applyMove(snap, fr, fc, move, promoteTo) {
   const castling = {...snap.castling};
   let epTarget = null;
   if (move.enpassant) board[fr][move.c] = null;
+  // Shooter firing: target is destroyed, shooter stays put.
+  if (move.shoot) {
+    board[move.r][move.c] = null;
+    return {
+      board, castling, epTarget,
+      turn: opp(snap.turn),
+      blocked: snap.blocked.map(b=>({...b})),
+      sleeping: snap.sleeping.map(b=>({...b})),
+      money: snap.money,
+    };
+  }
   board[fr][fc] = null;
   board[move.r][move.c] = move.promotion && promoteTo
     ? {type: promoteTo, color: p.color, bounty: p.bounty||null, golden: p.golden||false, platinum: p.platinum||false}
@@ -1875,7 +2053,9 @@ function renderShop() {
       const CAN = canCast() && state.money[state.turn] >= cost;
       const glyphHTML = piece === "H"
         ? `<div class="glyph centaur" style="color:#1a1a1a">${CENTAUR_SVG}</div>`
-        : `<div class="glyph${piece==="D" ? " dpawn" : ""}${piece==="A" ? " amazon" : ""}${piece==="S" ? " soldier" : ""}">${GLYPH[piece]}</div>`;
+        : piece === "X"
+        ? `<div class="glyph shooter" style="color:#1a1a1a">${SHOOTER_IMG}</div>`
+        : `<div class="glyph${piece==="D" ? " dpawn" : ""}${piece==="A" ? " amazon" : ""}${piece==="S" ? " soldier" : ""}${piece==="F" ? " fakeknight" : ""}">${GLYPH[piece]}</div>`;
       const modLabel = e.mod === "golden" ? '<span class="shop-mod mod-golden">GOLD</span>'
         : e.mod === "free" ? '<span class="shop-mod mod-free">FREE</span>'
         : e.mod === "pricier" ? '<span class="shop-mod mod-pricier">+$1</span>'
@@ -1905,6 +2085,21 @@ function updateMoney() {
   bEl.textContent = `Black: $${state.money.b}`;
   wEl.classList.toggle("active", state.turn === "w" && !state.gameOver);
   bEl.classList.toggle("active", state.turn === "b" && !state.gameOver);
+}
+
+// Capture-streak bars (1-5): each segment lights up as the streak climbs.
+function updateStreaks() {
+  for (const color of ["w", "b"]) {
+    const el = document.getElementById(color === "w" ? "streakW" : "streakB");
+    if (!el) continue;
+    el.innerHTML = "";
+    for (let i = 1; i <= 5; i++) {
+      const seg = document.createElement("span");
+      seg.className = "streak-seg" + (i <= state.captureStreak[color] ? " on" : "");
+      seg.textContent = i;
+      el.appendChild(seg);
+    }
+  }
 }
 
 function onSquareClick(e) {
@@ -2066,6 +2261,7 @@ function placePiece(r, c) {
   } else {
     if (state.turn === "b") state.fullmove++;
     state.noCapture[state.turn] = Math.max(0, state.noCapture[state.turn] - 1);
+    settleTurnEnd(state.turn);
     state.turn = opp(state.turn);
     state.lastMove = {from:{r,c}, to:{r,c}, placed:true};
     onTurnStart(state.turn);
@@ -2097,6 +2293,14 @@ function endTurnChecks() {
     state.gameOver = true;
     STATUS_EL.textContent = "Stalemate — Draw";
   }
+}
+
+// Run whenever a player's turn ends: sweep their capture streak back to 0 if
+// they didn't capture this turn.
+function settleTurnEnd(color) {
+  if (!state.capturedThisTurn[color]) state.captureStreak[color] = 0;
+  state.capturedThisTurn[color] = false;
+  rebuildHistorySel();
 }
 
 // ---- Spells ----
@@ -2283,6 +2487,7 @@ function spellEndTurnSkip(grantMoney = true) {
   if (state.turn === "b") state.fullmove++;
   state.moveLog.push(grantMoney ? "(skip +$3)" : "(skip)");
   state.noCapture[state.turn] = Math.max(0, state.noCapture[state.turn] - 1);
+  settleTurnEnd(state.turn);
   // A skipped turn still passes a turn: advance both refresh timers by 1.
   state.shopTurns += 1;
   state.spellTurns += 1;
@@ -2532,7 +2737,9 @@ function cancelPlacement() {
       state.lastMove = prev.lastMove;
       state.moveLog = prev.moveLog;
       state.gameOver = prev.gameOver;
-      state.money = prev.money;
+state.money = prev.money;
+      state.captureStreak = { w: prev.captureStreak.w, b: prev.captureStreak.b };
+      state.capturedThisTurn = { w: !!prev.capturedThisTurn.w, b: !!prev.capturedThisTurn.b };
       state.shop = prev.shop;
       state.shopTurns = prev.shopTurns;
       state.spellTurns = prev.spellTurns;
@@ -2578,7 +2785,9 @@ state.confused = prev.confused.map(b=>({...b}));
   state.lastMove = prev.lastMove;
   state.moveLog = prev.moveLog;
   state.gameOver = prev.gameOver;
-  state.money = prev.money;
+state.money = prev.money;
+  state.captureStreak = { w: prev.captureStreak.w, b: prev.captureStreak.b };
+  state.capturedThisTurn = { w: !!prev.capturedThisTurn.w, b: !!prev.capturedThisTurn.b };
   state.shop = prev.shop;
   state.shopTurns = prev.shopTurns;
   state.spellTurns = prev.spellTurns;
