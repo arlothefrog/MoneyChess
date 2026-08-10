@@ -110,26 +110,7 @@
   #moneybar .wallet { padding: 4px 12px; border-radius: 6px; }
   #moneybar .wallet.w { background: #e8eef5; color: #1e2a3a; }
   #moneybar .wallet.b { background: #1a1a1a; color: #f0d9b5; border: 1px solid #555; }
-  #moneybar .wallet.active { outline: 3px solid #ffd24a; }
-
-  #streaks {
-    display: flex;
-    gap: 30px;
-    margin: 2px 0 10px;
-    font-size: 0.85rem;
-    font-weight: 600;
-  }
-  .streak-row { display: flex; align-items: center; gap: 6px; }
-  .streak-label { padding: 2px 8px; border-radius: 4px; }
-  .streak-label.w { background: #e8eef5; color: #1e2a3a; }
-  .streak-label.b { background: #1a1a1a; color: #f0d9b5; border: 1px solid #555; }
-  .streak-segs { display: flex; gap: 3px; }
-  .streak-seg {
-    width: 26px; height: 22px; line-height: 22px;
-    text-align: center; font-size: 0.7rem;
-    background: #222838; color: #667; border: 1px solid #3a4a5a; border-radius: 4px;
-  }
-  .streak-seg.on { background: #ffd24a; color: #151515; font-weight: 800; border-color: #ffd24a; }
+#moneybar .wallet.active { outline: 3px solid #ffd24a; }
 
   #shop {
     margin-top: 12px;
@@ -576,11 +557,7 @@
   <div id="status">White to move</div>
   <div id="moneybar">
     <div id="walletW" class="wallet w">White: $10</div>
-    <div id="walletB" class="wallet b">Black: $10</div>
-  </div>
-  <div id="streaks">
-    <div class="streak-row"><span class="streak-label w">WR</span><div class="streak-segs" id="streakW"></div></div>
-    <div class="streak-row"><span class="streak-label b">BR</span><div class="streak-segs" id="streakB"></div></div>
+<div id="walletB" class="wallet b">Black: $10</div>
   </div>
   <div id="board"></div>
   <div id="pieceTip" class="piece-tip"></div>
@@ -703,17 +680,32 @@ function makeRandomBackRank() {
   return arr;
 }
 
+// Same multiset of pieces as `from`, but in a different order (used so both
+// players field identical pieces yet from different starting squares).
+function shuffledBack(from) {
+  const arr = from.slice();
+  for (let i = arr.length - 1; i > 0; i--) {
+    const j = Math.floor(Math.random() * (i + 1));
+    [arr[i], arr[j]] = [arr[j], arr[i]];
+  }
+  if (arr.length > 1 && arr.every((v, k) => v === from[k])) {
+    [arr[0], arr[1]] = [arr[1], arr[0]];
+  }
+  return arr;
+}
+
 function initialState() {
-  const back = RANDOM960 ? makeRandomBackRank() : makeBackRank();
+  const backW = RANDOM960 ? makeRandomBackRank() : makeBackRank();
+  const backB = RANDOM960 ? shuffledBack(backW) : backW;
   const board = [];
   for (let r = 0; r < SIZE; r++) {
     const row = [];
     for (let c = 0; c < SIZE; c++) {
       let p = null;
-      if (r === 0) p = {type: back[c], color: "b"};
+      if (r === 0) p = {type: backB[c], color: "b"};
       else if (r === 1) p = {type: "P", color: "b"};
       else if (r === SIZE - 2) p = {type: "P", color: "w"};
-      else if (r === SIZE - 1) p = {type: back[c], color: "w"};
+      else if (r === SIZE - 1) p = {type: backW[c], color: "w"};
       row.push(p);
     }
     board.push(row);
@@ -737,10 +729,8 @@ function initialState() {
     moveCount: 0,
     gameStarted: false,
     noCapture: { w: 0, b: 0 },
-    extraTurns: { w: 0, b: 0 },
+extraTurns: { w: 0, b: 0 },
     money: { w: 10, b: 10 },
-    captureStreak: { w: 0, b: 0 },   // escalating capture reward tier (2nd/3rd +$1, 4th +$2, 5th +$3, 6th+ +$4)
-    capturedThisTurn: { w: false, b: false }, // whether each player captured on their latest turn
     shop: [],
     shopTurns: 0,          // turns since shop last refreshed (refreshes every 3)
     spellTurns: 0,         // turns since spells last refreshed (refreshes every 3)
@@ -885,10 +875,8 @@ function cloneStateForHistory(s) {
     fullmove: s.fullmove,
     lastMove: s.lastMove ? {from:{...s.lastMove.from}, to:{...s.lastMove.to}} : null,
     moveLog: [...s.moveLog],
-    gameOver: s.gameOver,
+gameOver: s.gameOver,
     money: { w: s.money.w, b: s.money.b },
-    captureStreak: { w: s.captureStreak.w, b: s.captureStreak.b },
-    capturedThisTurn: { w: !!s.capturedThisTurn.w, b: !!s.capturedThisTurn.b },
     shop: [...s.shop],
     shopTurns: s.shopTurns,
     spellTurns: s.spellTurns,
@@ -1465,19 +1453,12 @@ function makeMove(fr, fc, move, promoteTo) {
       const oppColor = opp(p.color);
       const gain = Math.min(1, state.money[oppColor]);
       state.money[oppColor] -= gain;
-      state.money[p.color] += gain;
+state.money[p.color] += gain;
     }
     // Golden piece: earns +$1 for each capture it makes
     if (p.golden) state.money[p.color] += 1;
     // Platinum piece: earns +$3 for each capture it makes
     if (p.platinum) state.money[p.color] += 3;
-    // Capture streak: 2nd/3rd in a row +$1, 4th +$2, 5th +$3, 6th+ +$4.
-    state.capturedThisTurn[p.color] = true;
-    state.captureStreak[p.color] = Math.min(6, state.captureStreak[p.color] + 1);
-    const streak = state.captureStreak[p.color];
-    if (streak >= 2) {
-      state.money[p.color] += streak === 2 || streak === 3 ? 1 : streak === 4 ? 2 : streak === 5 ? 3 : 4;
-    }
   }
   // A captured piece takes its diffuse effects with it (piratify/confused/sleep
   // markers must not linger for the next piece to pick up). En-passant victims
@@ -1739,7 +1720,6 @@ renderShop();
   renderSpells();
   updateMoney();
   updateStatus();
-  updateStreaks();
   document.getElementById("cancelBtn").style.display =
     (state.placementMode || state.targetMode) ? "inline-block" : "none";
   document.getElementById("skipBtn").style.display =
@@ -2238,21 +2218,6 @@ function updateMoney() {
   bEl.classList.toggle("active", state.turn === "b" && !state.gameOver);
 }
 
-// Capture-streak bars (1-5): each segment lights up as the streak climbs.
-function updateStreaks() {
-  for (const color of ["w", "b"]) {
-    const el = document.getElementById(color === "w" ? "streakW" : "streakB");
-    if (!el) continue;
-    el.innerHTML = "";
-    for (let i = 1; i <= 5; i++) {
-      const seg = document.createElement("span");
-      seg.className = "streak-seg" + (i <= state.captureStreak[color] ? " on" : "");
-      seg.textContent = i;
-      el.appendChild(seg);
-    }
-  }
-}
-
 function onSquareClick(e) {
   if (state.gameOver || pendingPromotion) return;
   // Tax Gain / Summon 2x decision: movement is locked until the pending free
@@ -2447,11 +2412,8 @@ function endTurnChecks() {
   }
 }
 
-// Run whenever a player's turn ends: sweep their capture streak back to 0 if
-// they didn't capture this turn.
+// Run whenever a player's turn ends.
 function settleTurnEnd(color) {
-  if (!state.capturedThisTurn[color]) state.captureStreak[color] = 0;
-  state.capturedThisTurn[color] = false;
   rebuildHistorySel();
 }
 
@@ -2916,12 +2878,10 @@ function cancelPlacement() {
       state.halfmove = prev.halfmove;
       state.fullmove = prev.fullmove;
       state.lastMove = prev.lastMove;
-      state.moveLog = prev.moveLog;
-      state.gameOver = prev.gameOver;
-state.money = prev.money;
-      state.captureStreak = { w: prev.captureStreak.w, b: prev.captureStreak.b };
-      state.capturedThisTurn = { w: !!prev.capturedThisTurn.w, b: !!prev.capturedThisTurn.b };
-      state.shop = prev.shop;
+state.moveLog = prev.moveLog;
+state.gameOver = prev.gameOver;
+  state.money = prev.money;
+  state.shop = prev.shop;
       state.shopTurns = prev.shopTurns;
       state.spellTurns = prev.spellTurns;
       state.placementMode = prev.placementMode;
@@ -2969,8 +2929,6 @@ state.piratify = prev.piratify.map(b=>({...b}));
   state.moveLog = prev.moveLog;
   state.gameOver = prev.gameOver;
 state.money = prev.money;
-  state.captureStreak = { w: prev.captureStreak.w, b: prev.captureStreak.b };
-  state.capturedThisTurn = { w: !!prev.capturedThisTurn.w, b: !!prev.capturedThisTurn.b };
   state.shop = prev.shop;
   state.shopTurns = prev.shopTurns;
   state.spellTurns = prev.spellTurns;
