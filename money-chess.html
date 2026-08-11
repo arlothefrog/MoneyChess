@@ -24,6 +24,13 @@
     min-height: 1.4em;
     text-align: center;
   }
+  #seedEl {
+    margin: -6px 0 10px;
+    font-size: 0.8rem;
+    color: #8a8a7a;
+    text-align: center;
+    user-select: all;
+  }
   #board {
     display: grid;
     grid-template-columns: repeat(8, 60px);
@@ -555,6 +562,7 @@
 <body>
   <h1>MONEY CHESS</h1>
   <div id="status">White to move</div>
+  <div id="seedEl"></div>
   <div id="moneybar">
     <div id="walletW" class="wallet w">White: $10</div>
 <div id="walletB" class="wallet b">Black: $10</div>
@@ -603,6 +611,34 @@
 let SIZE = 8;           // current board edge length (5 / 8 / 10 / 12 / 15)
 let RANDOM960 = false;  // Chess 960 mode: back rank filled with random pieces
 const BOARD_LETTERS = "abcdefghijklmno";   // up to 15 files wide
+
+// ---- Seeded randomness ----
+// All in-game random draws (shop rolls, spells, 960 back rank, confused pieces,
+// AI dice) go through gRng(), which is fully deterministic from {SEED, RNG_COUNTER}.
+// The seed is auto-generated at game start (players never choose it) and shown
+// during play; online, both clients share the same seed and stay in sync.
+let SEED = 0;            // current game's random seed (auto-generated)
+let RNG_COUNTER = 0;     // how many seeded draws have been consumed so far
+function mix32(x) {
+  x = Math.imul(x ^ (x >>> 16), 0x85EBCA6B);
+  x = Math.imul(x ^ (x >>> 13), 0xC2B2AE35);
+  return (x ^ (x >>> 16)) >>> 0;
+}
+function gRng() {
+  RNG_COUNTER++;
+  return mix32((SEED ^ Math.imul(RNG_COUNTER, 0x9E3779B9)) >>> 0) / 4294967296;
+}
+// Roll a fresh seed for a new game. The only non-deterministic draw is this
+// seed itself; everything downstream is reproducible from it.
+function newSeed() {
+  SEED = Math.floor(Math.random() * 0xFFFFFFFF);
+  RNG_COUNTER = 0;
+  updateSeedLabel();
+}
+function updateSeedLabel() {
+  const el = document.getElementById("seedEl");
+  if (el) el.textContent = "Seed " + SEED;
+}
 
 // ---- Piece representation: {type, color} where type in P,N,B,R,Q,K and color in 'w','b' ----
 const PIECE_GLYPH = {
@@ -671,11 +707,11 @@ const RANDOM_BACK_POOL = ["P","N","B","R","Q","C","G","D","A","S","H","M","T","X
 function makeRandomBackRank() {
   const n = SIZE;
   const arr = new Array(n).fill(null);
-  const kingCol = Math.floor(Math.random() * n);
+  const kingCol = Math.floor(gRng() * n);
   arr[kingCol] = "K";
   for (let c = 0; c < n; c++) {
     if (c === kingCol) continue;
-    arr[c] = RANDOM_BACK_POOL[Math.floor(Math.random() * RANDOM_BACK_POOL.length)];
+    arr[c] = RANDOM_BACK_POOL[Math.floor(gRng() * RANDOM_BACK_POOL.length)];
   }
   return arr;
 }
@@ -753,7 +789,7 @@ const SHOP_POOL = ["P","N","B","R","Q","C","G","D","S","H","M","T","X","F"];
 // Roll a shop modifier: golden 99/2000 (4.95%), platinum 1/2000 (0.05%),
 // free 5%, pricier (+1$) 5%, discount (-1$) 5%, normal 80%.
 function rollShopMod() {
-  const r = Math.random();
+  const r = gRng();
   if (r < 0.0495) return "golden";    // gold tile surround; +$1 each time it captures
   if (r < 0.05) return "platinum";    // platinum tile surround; +$3 each time it captures
   if (r < 0.10) return "free";        // shows/costs $0
@@ -762,7 +798,7 @@ function rollShopMod() {
   return "normal";
 }
 function randomShopPiece() {
-  return { p: SHOP_POOL[Math.floor(Math.random() * SHOP_POOL.length)], mod: rollShopMod() };
+  return { p: SHOP_POOL[Math.floor(gRng() * SHOP_POOL.length)], mod: rollShopMod() };
 }
 
 function refillShop() {
@@ -816,11 +852,11 @@ piratify: { name:"Piratify",   cost:3, glyph:"¤↯", desc:"Marks one of your pi
 curse:      { name:"Curse",      cost:3, glyph:"☠",  desc:"Curses an enemy piece so it loses $1 every time it moves (permanent until dispelled)" },
 };
 const SPELL_POOL = Object.keys(SPELLS);
-function randomSpell() { return SPELL_POOL[Math.floor(Math.random()*SPELL_POOL.length)]; }
+function randomSpell() { return SPELL_POOL[Math.floor(gRng()*SPELL_POOL.length)]; }
 // Roll a spell modifier: cheap (-$1) 1.25%, pricier (+$1) 1.25%, double 1.25%,
 // random-extra 1.25%, normal 95%.
 function rollSpellMod() {
-  const r = Math.random();
+  const r = gRng();
   if (r < 0.0125) return "cheap";
   if (r < 0.025) return "pricier";
   if (r < 0.0375) return "double";
@@ -2125,7 +2161,7 @@ const start = snapshotFromState(state);
     state.confused.splice(cidx, 1);
     const cm = legalMoves(state, best.fr, best.fc);
     if (cm.length) {
-      const rand = cm[Math.floor(Math.random()*cm.length)];
+      const rand = cm[Math.floor(gRng()*cm.length)];
       best = { fr: best.fr, fc: best.fc, move: rand };
     }
   }
@@ -2173,7 +2209,7 @@ function aiPlacementScore(me, enemy, piece, r, c) {
   if (attacked) score += defended ? -150 : -600;
   else score += 70;
   if (defended) score += 40;
-  score += Math.random() * 8;                          // tiny variety
+  score += gRng() * 8;                          // tiny variety
   return score;
 }
 
@@ -2218,8 +2254,8 @@ function aiConsiderBuy(me) {
   const spotScore = chosenScore - (PIECE_VALUE[state.shop[chosen].p] || 0) * 30;
   const safeSpot = spotScore > -120;
   const rich = state.money[me] - cost >= 7;
-  if (safeSpot && (rich || Math.random() < 0.6)) return chosen;
-  if (rich && Math.random() < 0.5) return chosen;   // flush with cash: gamble on the risky square
+  if (safeSpot && (rich || gRng() < 0.6)) return chosen;
+  if (rich && gRng() < 0.5) return chosen;   // flush with cash: gamble on the risky square
   return null;
 }
 
@@ -2439,7 +2475,7 @@ function onSquareClick(e) {
       if (cidx >= 0) {
         state.confused.splice(cidx, 1);
         const legal = legalMoves(state, state.selected.r, state.selected.c);
-        const rand = legal[Math.floor(Math.random()*legal.length)];
+        const rand = legal[Math.floor(gRng()*legal.length)];
         if (!rand) return;
         if (rand.promotion) {
           if (rand.promoteTo) {
@@ -2810,9 +2846,9 @@ function spellKillRandom() {
     if (p && p.type !== "K") (p.color === state.turn ? mine : foes).push({r,c});
   }
   if (!mine.length && !foes.length) { refundSpellNoEffect("killRandom"); return; }
-  const pool = (Math.random() < 0.75 ? foes : mine);
+  const pool = (gRng() < 0.75 ? foes : mine);
   if (!pool.length) { refundSpellNoEffect("killRandom"); return; }
-  const t = pool[Math.floor(Math.random()*pool.length)];
+  const t = pool[Math.floor(gRng()*pool.length)];
   const victim = state.board[t.r][t.c];
   applyBountyIfAny(victim);
   state.board[t.r][t.c] = null;
@@ -2833,9 +2869,9 @@ function spellBounty() {
   }
   // Bounty a single caster piece, but TWO enemy pieces.
   if (!myCands.length || foeCands.length < 2) { refundSpellNoEffect("bounty"); return; }
-  const mine = myCands[Math.floor(Math.random()*myCands.length)];
-  const f1 = foeCands.splice(Math.floor(Math.random()*foeCands.length), 1)[0];
-  const f2 = foeCands.splice(Math.floor(Math.random()*foeCands.length), 1)[0];
+  const mine = myCands[Math.floor(gRng()*myCands.length)];
+  const f1 = foeCands.splice(Math.floor(gRng()*foeCands.length), 1)[0];
+  const f2 = foeCands.splice(Math.floor(gRng()*foeCands.length), 1)[0];
   state.board[mine.r][mine.c] = { ...state.board[mine.r][mine.c], bounty: state.turn };
   state.board[f1.r][f1.c] = { ...state.board[f1.r][f1.c], bounty: state.turn };
   state.board[f2.r][f2.c] = { ...state.board[f2.r][f2.c], bounty: state.turn };
@@ -3132,11 +3168,12 @@ function showPromotion() {
 
 function reset() {
   aiThinking = false;
-  state = initialState();
-  refillShop();
-  refillSpells();
-  onTurnStart("w");
-  render();
+  newSeed();
+state = initialState();
+refillShop();
+refillSpells();
+onTurnStart("w");
+render();
 }
 
 function enableAI() {
@@ -3158,7 +3195,7 @@ document.querySelectorAll(".sizebtn").forEach(btn => {
     const s = +btn.dataset.size;
     if (s === 0) {
       const opts = [5, 8, 10, 12, 15];
-      SIZE = opts[Math.floor(Math.random() * opts.length)];
+      SIZE = opts[Math.floor(gRng() * opts.length)];
     } else {
       SIZE = s;
     }
@@ -3176,6 +3213,7 @@ document.getElementById("skipBtn").addEventListener("click", () => {
   });
   document.getElementById("skipSpellBtn").addEventListener("click", skipFollowUpSpell);
 
+newSeed();
 state = initialState();
 refillShop();
 refillSpells();
