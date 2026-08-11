@@ -557,6 +557,20 @@
   #skipBtn:hover { background:#6f5a45; }
   #skipSpellBtn { display: none; background:#3a4a5a; border-color:#556a80; font-weight:600; }
   #skipSpellBtn:hover { background:#4a5f6f; }
+  #netHostBtn, #netJoinBtn { background:#2a3a5a; border-color:#45649a; font-weight:600; }
+  #netHostBtn:hover, #netJoinBtn:hover { background:#3a4f7a; }
+  #netRoom {
+    width: 96px;
+    padding: 4px 8px;
+    border-radius: 6px;
+    border: 1px solid #45649a;
+    background: #10141c;
+    color: #f0d9b5;
+    font-size: 0.85rem;
+  }
+  .net-status { font-size: 0.85rem; color: #8fd48f; margin-left: 4px; }
+  .net-status.err { color: #ff9a9a; }
+
 </style>
 </head>
 <body>
@@ -591,6 +605,10 @@
     <button id="aiBtn">Play vs AI</button>
     <button id="flipBtn">Flip Board</button>
     <button id="resetBtn">Reset</button>
+    <button id="netHostBtn">Host Online</button>
+    <input id="netRoom" placeholder="Room code" size="10" autocomplete="off" spellcheck="false" />
+    <button id="netJoinBtn">Join</button>
+    <span id="netStatus" class="net-status"></span>
     <button id="cancelBtn">Cancel Placement</button>
     <button id="skipBtn">Skip Turn</button>
     <button id="skipSpellBtn">Skip Spell</button>
@@ -1451,6 +1469,10 @@ function simulateMove(s, fr, fc, move) {
 function makeMove(fr, fc, move, promoteTo) {
   state.history.push(cloneStateForHistory(state));
   state.gameStarted = true;
+  // A confused piece has its confusion removed when it moves (it just made a
+  // random move). Handled here so every path (click, AI, net command) agrees.
+  const confIdx = state.confused.findIndex(x => x.r===fr && x.c===fc);
+  if (confIdx >= 0) state.confused.splice(confIdx, 1);
   const p = state.board[fr][fc];
   const movedType = p.type;
   const captured = state.board[move.r][move.c];
@@ -1751,9 +1773,9 @@ document.getElementById("skipBtn").style.display =
     (state.freeSpellId && state.followUpOwner === state.turn &&
      !state.taxSkipPending) ? "inline-block" : "none";
 document.getElementById("aiBtn").style.display =
-    (state.aiOpponent || state.gameStarted || state.gameOver) ? "none" : "inline-block";
+    (state.aiOpponent || state.gameStarted || state.gameOver || netMode) ? "none" : "inline-block";
   document.getElementById("sizePicker").style.display =
-    (state.gameStarted || state.gameOver) ? "none" : "inline-flex";
+    (state.gameStarted || state.gameOver || netMode) ? "none" : "inline-flex";
   document.querySelectorAll(".sizebtn").forEach(b => {
     b.classList.toggle("active", +b.dataset.size === SIZE);
   });
@@ -2158,7 +2180,6 @@ const start = snapshotFromState(state);
   // Confused AI piece: ignore the computed move and pick a random legal one instead.
   const cidx = state.confused.findIndex(x => x.r===best.fr && x.c===best.fc);
   if (cidx >= 0) {
-    state.confused.splice(cidx, 1);
     const cm = legalMoves(state, best.fr, best.fc);
     if (cm.length) {
       const rand = cm[Math.floor(gRng()*cm.length)];
@@ -2374,7 +2395,7 @@ function renderSpells() {
     card.title = SPELLS[id].desc;
     const sp = SPELLS[id];
     const effCost = spellEffCost(id, freeCard ? "normal" : mod);
-    const CAN = canCast(i) && (state.freeCast || state.freeSpellId === id || state.money[state.turn] >= effCost);
+    const CAN = canCast(i) && netCanAct() && (state.freeCast || state.freeSpellId === id || state.money[state.turn] >= effCost);
     const modLabel = (!freeCard && (mod === "cheap" ? '<div class="spell-mod mod-cheap">-$1</div>'
       : mod === "pricier" ? '<div class="spell-mod mod-pricier">+$1</div>'
       : mod === "double" ? '<div class="spell-mod mod-double">2x</div>'
@@ -2400,7 +2421,7 @@ function renderShop() {
     } else {
       const piece = e.p;
       const cost = shopPrice(e);
-      const CAN = canCast() && state.money[state.turn] >= cost;
+      const CAN = canCast() && netCanAct() && state.money[state.turn] >= cost;
       const glyphHTML = piece === "H"
         ? `<div class="glyph centaur" style="color:#1a1a1a">${CENTAUR_SVG}</div>`
         : piece === "X"
@@ -2439,6 +2460,7 @@ function updateMoney() {
 
 function onSquareClick(e) {
   if (state.gameOver || pendingPromotion) return;
+  if (!netCanAct()) return;
   // Tax Gain 2x decision: movement is locked until the pending free extra is
   // played or the player chooses Skip Turn.
   if (state.taxSkipPending) return;
@@ -2473,7 +2495,6 @@ function onSquareClick(e) {
       // legal square instead; then remove the confusion.
       const cidx = state.confused.findIndex(x => x.r===state.selected.r && x.c===state.selected.c);
       if (cidx >= 0) {
-        state.confused.splice(cidx, 1);
         const legal = legalMoves(state, state.selected.r, state.selected.c);
         const rand = legal[Math.floor(gRng()*legal.length)];
         if (!rand) return;
@@ -3185,13 +3206,233 @@ function enableAI() {
 }
 
 
-document.getElementById("resetBtn").addEventListener("click", reset);
+// ============ ONLINE MULTIPLAYER (PeerJS P2P) ============
+// Host is White and authoritative; Guest is Black. Both run the same engine.
+// The host broadcasts full state snapshots after every mutation; the guest
+// only sends intent commands and renders the host's snapshots. Randomness is
+// already shared via SEED, so replay stays deterministic.
+let netMode = null;        // null | "host" | "guest"
+let MY_COLOR = null;       // "w" host, "b" guest
+let netPeer = null;
+let netConn = null;
+let netStateFlag = false;  // suppress host broadcast while adopting state
+const NET_ORIG = {};
+
+function netEnsurePeerJS(cb) {
+  if (window.Peer) { cb(); return; }
+  const s = document.createElement("script");
+  s.src = "https://unpkg.com/peerjs@1.5.4/dist/peerjs.min.js";
+  s.onload = cb;
+  s.onerror = () => { netStatus("PeerJS failed to load (offline?).", true); netUninstall(); };
+  document.head.appendChild(s);
+}
+
+function netStatus(txt, err) {
+  const el = document.getElementById("netStatus");
+  if (el) { el.textContent = txt; el.classList.toggle("err", !!err); }
+}
+function netSend(obj) {
+  if (netConn && netConn.open) { try { netConn.send(obj); } catch (e) {} }
+}
+function netMyTurn() { return !netMode || state.turn === MY_COLOR; }
+function netCanAct() { return netMyTurn() && !state.gameOver; }
+
+function netCloneState() {
+  const s = JSON.parse(JSON.stringify(state));
+  s.history = [];  // the guest never needs undo snapshots; keeps payloads small
+  return s;
+}
+
+function netBroadcast() {
+  if (netMode !== "host" || !netConn || netStateFlag) return;
+  netSend({ t: "st", seed: SEED, counter: RNG_COUNTER, size: SIZE, rand960: RANDOM960, state: netCloneState() });
+}
+
+// Host: run the original mutation, then broadcast the new authoritative state.
+function netWrapHost(name) {
+  NET_ORIG[name] = window[name];
+  window[name] = function () {
+    const r = NET_ORIG[name].apply(this, arguments);
+    netBroadcast();
+    return r;
+  };
+}
+
+// Guest: turn each state mutation into a command for the host.
+function netInterceptGuest(name, cmd) {
+  NET_ORIG[name] = window[name];
+  window[name] = function () {
+    const a = arguments;
+    if (cmd === "move") netSend({ t: "cmd", kind: "move", fr: a[0], fc: a[1], move: a[2], promoteTo: a[3] });
+    else if (cmd === "buy") netSend({ t: "cmd", kind: "buy", slot: a[0] });
+    else if (cmd === "place") netSend({ t: "cmd", kind: "place", r: a[0], c: a[1] });
+    else if (cmd === "cast") netSend({ t: "cmd", kind: "cast", slot: a[0] });
+    else if (cmd === "castTarget") netSend({ t: "cmd", kind: "castTarget", r: a[0], c: a[1] });
+    else netSend({ t: "cmd", kind: cmd });
+  };
+}
+
+function netInstallHost() {
+  netMode = "host"; MY_COLOR = "w";
+  netWrapHost("makeMove");
+  netWrapHost("buyPiece");
+  netWrapHost("placePiece");
+  netWrapHost("castSpell");
+  netWrapHost("finishSpell");
+  netWrapHost("skipFollowUpSpell");
+  netWrapHost("spellEndTurnSkip");
+  netWrapHost("cancelPlacement");
+  render();
+}
+function netInstallGuest() {
+  netMode = "guest"; MY_COLOR = "b";
+  netInterceptGuest("makeMove", "move");
+  netInterceptGuest("buyPiece", "buy");
+  netInterceptGuest("placePiece", "place");
+  netInterceptGuest("castSpell", "cast");
+  netInterceptGuest("handleTargetClick", "castTarget");
+  netInterceptGuest("skipFollowUpSpell", "skipSpell");
+  netInterceptGuest("spellEndTurnSkip", "skip");
+  netInterceptGuest("cancelPlacement", "cancel");
+  render();
+}
+function netUninstall() {
+  for (const k in NET_ORIG) { if (NET_ORIG[k]) window[k] = NET_ORIG[k]; }
+  for (const k in NET_ORIG) delete NET_ORIG[k];
+  netMode = null; MY_COLOR = null; netConn = null; netPeer = null;
+  netStatus("");
+  render();
+}
+
+// Guest adopts a full snapshot from the host.
+function netAdopt(d) {
+  if (typeof d.seed === "number") { SEED = d.seed; RNG_COUNTER = d.counter || 0; }
+  if (typeof d.size === "number") SIZE = d.size;
+  if (typeof d.rand960 === "boolean") RANDOM960 = d.rand960;
+  netStateFlag = true;
+  state = d.state;
+  pendingPromotion = null;
+  netStateFlag = false;
+  updateSeedLabel();
+  rebuildHistorySel();
+  render();
+}
+
+// Host receives a guest command. Only act when it is Black's turn.
+function netHandleCmd(d) {
+  if (netMode !== "host" || state.gameOver || state.turn !== "b") return;
+  switch (d.kind) {
+    case "move":
+      makeMove(d.fr, d.fc, d.move, d.promoteTo || undefined);
+      break;
+    case "buy":
+      buyPiece(d.slot);
+      break;
+    case "place":
+      if (state.placementMode) placePiece(d.r, d.c);
+      break;
+    case "cast":
+      castSpell(d.slot);
+      break;
+    case "castTarget":
+      if (state.targetMode) handleTargetClick(d.r, d.c);
+      break;
+    case "skipSpell":
+      skipFollowUpSpell();
+      break;
+    case "skip":
+      if (state.taxSkipPending) spellEndTurnSkip(false);
+      break;
+    case "cancel":
+      if (state.targetMode || state.placementMode) cancelPlacement();
+      break;
+  }
+}
+
+function netOnData(d) {
+  if (!d || typeof d !== "object") return;
+  if (netMode === "host" && d.t === "cmd") netHandleCmd(d);
+  else if (netMode === "guest" && d.t === "init") {
+    netAdopt(d);
+    netStatus("Connected. You are Black — White's move.");
+  } else if (netMode === "guest" && d.t === "st") netAdopt(d);
+}
+
+function netMakeCode() {
+  const chars = "abcdefghjkmnpqrstuvwxyz23456789";
+  let s = "mc";
+  for (let i = 0; i < 5; i++) s += chars[Math.floor(Math.random() * chars.length)];
+  return s;
+}
+
+function netStartHost() {
+  if (netMode) return;
+  netEnsurePeerJS(() => {
+    if (netMode) return;
+    if (!window.Peer) { netStatus("PeerJS not loaded.", true); return; }
+    netInstallHost();
+    const code = netMakeCode();
+    netPeer = new Peer(code);
+    netStatus("Starting host…");
+    netPeer.on("open", () => {
+      netStatus("Host ready. Share room: " + code);
+      if (navigator.clipboard && navigator.clipboard.writeText) navigator.clipboard.writeText(code).catch(() => {});
+    });
+    netPeer.on("connection", (conn) => {
+      netConn = conn;
+      conn.on("open", () => {
+        netStatus("Guest joined. You are White — Black's move.");
+        netSend({ t: "init", seed: SEED, counter: RNG_COUNTER, size: SIZE, rand960: RANDOM960, state: netCloneState() });
+      });
+      conn.on("data", netOnData);
+      conn.on("close", () => { netUninstall(); });
+    });
+    netPeer.on("error", (err) => {
+      if (netConn) return;
+      netStatus("Host error: " + (err && err.type ? err.type : err), true);
+      netUninstall();
+    });
+  });
+}
+
+function netJoin() {
+  if (netMode) return;
+  netEnsurePeerJS(() => {
+    if (netMode) return;
+    if (!window.Peer) { netStatus("PeerJS not loaded.", true); return; }
+    const code = (document.getElementById("netRoom").value || "").trim().toLowerCase();
+    if (!/^[a-z0-9-]+$/.test(code)) { netStatus("Enter a valid room code.", true); return; }
+    netInstallGuest();
+    netStatus("Connecting to " + code + "…");
+    netPeer = new Peer();
+    netPeer.on("open", () => {
+      const conn = netPeer.connect(code, { reliable: true });
+      netConn = conn;
+      conn.on("open", () => { netStatus("Connected. Waiting for host snapshot…"); });
+      conn.on("data", netOnData);
+      conn.on("close", () => { netUninstall(); });
+      conn.on("error", (err) => { netStatus("Join error: " + (err && err.type ? err.type : err), true); netUninstall(); });
+    });
+    netPeer.on("error", (err) => {
+      if (netConn) return;
+      netStatus("Join error: " + (err && err.type ? err.type : err), true);
+      netUninstall();
+    });
+  });
+}
+
+document.getElementById("netHostBtn").addEventListener("click", netStartHost);
+document.getElementById("netJoinBtn").addEventListener("click", netJoin);
+
+document.getElementById("resetBtn").addEventListener("click", () => { if (netMode) return; reset(); });
 document.getElementById("randBtn").addEventListener("click", () => {
+  if (netMode) return;
   RANDOM960 = !RANDOM960;
   reset();
 });
 document.querySelectorAll(".sizebtn").forEach(btn => {
   btn.addEventListener("click", () => {
+    if (netMode) return;
     const s = +btn.dataset.size;
     if (s === 0) {
       const opts = [5, 8, 10, 12, 15];
@@ -3202,7 +3443,7 @@ document.querySelectorAll(".sizebtn").forEach(btn => {
     reset();
   });
 });
-document.getElementById("aiBtn").addEventListener("click", enableAI);
+document.getElementById("aiBtn").addEventListener("click", () => { if (netMode) return; enableAI(); });
 document.getElementById("flipBtn").addEventListener("click", () => {
   flipped = !flipped;
   render();
