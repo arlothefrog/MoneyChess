@@ -1,7 +1,7 @@
 <!DOCTYPE html>
-<html lang="en">
-<head>
-<meta charset="UTF-8">
+<!-- saved from url=(0044)https://arlothefrog.com/money-chess-dev.html -->
+<html lang="en"><head><meta http-equiv="Content-Type" content="text/html; charset=UTF-8">
+
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>Two-Player Chess</title>
 <style>
@@ -155,12 +155,37 @@
     margin-top: 4px;
   }
   .shop-mod.mod-golden { color: #3a2f00; background: #ffd700; }
-  .shop-mod.mod-free { color: #04320a; background: #35e06a; }
   .shop-mod.mod-pricier { color: #5a1b00; background: #ff9a4a; }
   .shop-mod.mod-discount { color: #001f47; background: #6fc0ff; }
   .shop-mod.mod-platinum { color: #2b2b33; background: #e6e8ea; }
   .shop-card.golden { border-color: #ffd700; box-shadow: 0 0 8px 1px rgba(255,215,0,0.55); }
   .shop-card.platinum { border-color: #e6e8ea; box-shadow: 0 0 8px 1px rgba(230,232,234,0.6); }
+
+  /* A small preview of the next offer sitting just under its current card. */
+  .card-col { display: flex; flex-direction: column; align-items: center; gap: 4px; }
+  .shop-next, .spell-next {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    gap: 4px;
+    width: 100%;
+    box-sizing: border-box;
+    border: 1px dashed #5a6a80;
+    border-radius: 6px;
+    background: rgba(42, 58, 82, 0.35);
+    color: #9ab;
+    font-size: 0.55rem;
+    font-weight: 700;
+    letter-spacing: 1px;
+    line-height: 1;
+    padding: 3px 4px;
+    opacity: 0.8;
+  }
+  .shop-next { min-height: 22px; }
+  .shop-next .glyph { font-size: 15px; }
+  .spell-next { min-height: 20px; border-color: #6a5388; color: #c9b6e8; }
+  .spell-next .nxglyph { font-size: 13px; }
+  .nxlabel { white-space: nowrap; }
 
   #shopWrap { display: flex; flex-direction: column; align-items: center; }
   #shopTitle { font-size: 0.85rem; letter-spacing: 1px; margin-bottom: 4px; color: #9ab; }
@@ -315,6 +340,8 @@
     100% { box-shadow: 0 0 0 0 rgba(255, 240, 0, 0); }
   }
   .piece.tint-white { filter: grayscale(100%) brightness(2.2); }
+  /* White pawns: solid black pawn pixels flipped to white via invert */
+  .piece.pawn-iw, .glyph.pawn-iw { color: #000; filter: grayscale(100%) invert(1) brightness(2); }
   .piece.tint-black { filter: grayscale(100%) brightness(0.25); }
   .piece.cat-black { filter: grayscale(100%) brightness(0.55); }
   .piece.dpawn, .glyph.dpawn {
@@ -322,7 +349,7 @@
   }
   /* Second head of the two-headed pawn: a smaller pawn offset on top */
   .piece.dpawn::after, .glyph.dpawn::after {
-    content: "\265F";
+    content: var(--dhead, "\265F");
     position: absolute;
     left: 52%;
     top: -12%;
@@ -576,42 +603,43 @@
 <body>
   <h1>MONEY CHESS</h1>
   <div id="status">White to move</div>
-  <div id="seedEl"></div>
+  <div id="seedEl">Seed 1798042622</div>
   <div id="moneybar">
-    <div id="walletW" class="wallet w">White: $10</div>
+    <div id="walletW" class="wallet w active">White: $10</div>
 <div id="walletB" class="wallet b">Black: $10</div>
   </div>
-  <div id="board"></div>
-  <div id="pieceTip" class="piece-tip"></div>
+  <div id="board" style="grid-template-columns: repeat(8, 60px); grid-template-rows: repeat(8, 60px); --sq: 60px;"><div class="square light" data-r="0" data-c="0"><span class="piece" style="color: rgb(26, 26, 26);">♜</span></div><div class="square dark" data-r="0" data-c="1"><span class="piece" style="color: rgb(26, 26, 26);">♞</span></div><div class="square light" data-r="0" data-c="2"><span class="piece" style="color: rgb(26, 26, 26);">♝</span></div><div class="square dark" data-r="0" data-c="3"><span class="piece" style="color: rgb(26, 26, 26);">♛</span></div><div class="square light" data-r="0" data-c="4"><span class="piece" style="color: rgb(26, 26, 26);">♚</span></div><div class="square dark" data-r="0" data-c="5"><span class="piece" style="color: rgb(26, 26, 26);">♝</span></div><div class="square light" data-r="0" data-c="6"><span class="piece" style="color: rgb(26, 26, 26);">♞</span></div><div class="square dark" data-r="0" data-c="7"><span class="piece" style="color: rgb(26, 26, 26);">♜</span></div><div class="square dark" data-r="1" data-c="0"><span class="piece" style="color: rgb(26, 26, 26);">♟︎</span></div><div class="square light" data-r="1" data-c="1"><span class="piece" style="color: rgb(26, 26, 26);">♟︎</span></div><div class="square dark" data-r="1" data-c="2"><span class="piece" style="color: rgb(26, 26, 26);">♟︎</span></div><div class="square light" data-r="1" data-c="3"><span class="piece" style="color: rgb(26, 26, 26);">♟︎</span></div><div class="square dark" data-r="1" data-c="4"><span class="piece" style="color: rgb(26, 26, 26);">♟︎</span></div><div class="square light" data-r="1" data-c="5"><span class="piece" style="color: rgb(26, 26, 26);">♟︎</span></div><div class="square dark" data-r="1" data-c="6"><span class="piece" style="color: rgb(26, 26, 26);">♟︎</span></div><div class="square light" data-r="1" data-c="7"><span class="piece" style="color: rgb(26, 26, 26);">♟︎</span></div><div class="square light" data-r="2" data-c="0"></div><div class="square dark" data-r="2" data-c="1"></div><div class="square light" data-r="2" data-c="2"></div><div class="square dark" data-r="2" data-c="3"></div><div class="square light" data-r="2" data-c="4"></div><div class="square dark" data-r="2" data-c="5"></div><div class="square light" data-r="2" data-c="6"></div><div class="square dark" data-r="2" data-c="7"></div><div class="square dark" data-r="3" data-c="0"></div><div class="square light" data-r="3" data-c="1"></div><div class="square dark" data-r="3" data-c="2"></div><div class="square light" data-r="3" data-c="3"></div><div class="square dark" data-r="3" data-c="4"></div><div class="square light" data-r="3" data-c="5"></div><div class="square dark" data-r="3" data-c="6"></div><div class="square light" data-r="3" data-c="7"></div><div class="square light" data-r="4" data-c="0"></div><div class="square dark" data-r="4" data-c="1"></div><div class="square light" data-r="4" data-c="2"></div><div class="square dark" data-r="4" data-c="3"></div><div class="square light" data-r="4" data-c="4"></div><div class="square dark" data-r="4" data-c="5"></div><div class="square light" data-r="4" data-c="6"></div><div class="square dark" data-r="4" data-c="7"></div><div class="square dark" data-r="5" data-c="0"></div><div class="square light" data-r="5" data-c="1"></div><div class="square dark" data-r="5" data-c="2"></div><div class="square light" data-r="5" data-c="3"></div><div class="square dark" data-r="5" data-c="4"></div><div class="square light" data-r="5" data-c="5"></div><div class="square dark" data-r="5" data-c="6"></div><div class="square light" data-r="5" data-c="7"></div><div class="square light" data-r="6" data-c="0"><span class="piece pawn-iw" style="color: rgb(0, 0, 0);">♟︎</span></div><div class="square dark" data-r="6" data-c="1"><span class="piece pawn-iw" style="color: rgb(0, 0, 0);">♟︎</span></div><div class="square light" data-r="6" data-c="2"><span class="piece pawn-iw" style="color: rgb(0, 0, 0);">♟︎</span></div><div class="square dark" data-r="6" data-c="3"><span class="piece pawn-iw" style="color: rgb(0, 0, 0);">♟︎</span></div><div class="square light" data-r="6" data-c="4"><span class="piece pawn-iw" style="color: rgb(0, 0, 0);">♟︎</span></div><div class="square dark" data-r="6" data-c="5"><span class="piece pawn-iw" style="color: rgb(0, 0, 0);">♟︎</span></div><div class="square light" data-r="6" data-c="6"><span class="piece pawn-iw" style="color: rgb(0, 0, 0);">♟︎</span></div><div class="square dark" data-r="6" data-c="7"><span class="piece pawn-iw" style="color: rgb(0, 0, 0);">♟︎</span></div><div class="square dark" data-r="7" data-c="0"><span class="piece" style="color: rgb(255, 255, 255);">♜</span></div><div class="square light" data-r="7" data-c="1"><span class="piece" style="color: rgb(255, 255, 255);">♞</span></div><div class="square dark" data-r="7" data-c="2"><span class="piece" style="color: rgb(255, 255, 255);">♝</span></div><div class="square light" data-r="7" data-c="3"><span class="piece" style="color: rgb(255, 255, 255);">♛</span></div><div class="square dark" data-r="7" data-c="4"><span class="piece" style="color: rgb(255, 255, 255);">♚</span></div><div class="square light" data-r="7" data-c="5"><span class="piece" style="color: rgb(255, 255, 255);">♝</span></div><div class="square dark" data-r="7" data-c="6"><span class="piece" style="color: rgb(255, 255, 255);">♞</span></div><div class="square light" data-r="7" data-c="7"><span class="piece" style="color: rgb(255, 255, 255);">♜</span></div></div>
+  <div id="pieceTip" class="piece-tip" style="display: none;"></div>
   <div id="shopWrap">
     <div id="shopTitle">SHOP — buy &amp; place on your side (costs your move)</div>
-    <div id="shop"></div>
-    <div id="shopRefreshBar"><div id="shopRefreshFill"></div></div>
+    <div id="shop"><div class="card-col"><div class="shop-card"><div class="glyph pawn-iw">♟︎</div><div class="price">$1</div></div><div class="shop-next"><div class="glyph fakeknight">♞</div><span class="nxlabel">NEXT</span></div></div><div class="card-col"><div class="shop-card"><div class="glyph">♝</div><div class="price">$3</div></div><div class="shop-next"><div class="glyph pawn-iw">♟︎</div><span class="nxlabel">NEXT</span></div></div><div class="card-col"><div class="shop-card"><div class="glyph">♝</div><div class="price">$3</div></div><div class="shop-next"><div class="glyph">🐀</div><span class="nxlabel">NEXT</span></div></div></div>
+    <div id="shopRefreshBar"><div id="shopRefreshFill" style="width: 0%;"></div></div>
     <div id="spellTitle">SPELLS — free action, one per turn (reshuffle on use)</div>
-    <div id="spellRefreshBar"><div id="spellRefreshFill"></div></div>
-    <div id="spells"></div>
+    <div id="spellRefreshBar"><div id="spellRefreshFill" style="width: 0%;"></div></div>
+    <div id="spells"><div class="card-col"><div class="spell-card"><div class="sname">Echo</div><div class="sglyph">↻</div><div class="sprice">$5</div></div><div class="spell-next"><span class="nxglyph">¤↯</span><span class="nxlabel">NEXT</span></div></div><div class="card-col"><div class="spell-card"><div class="sname">Confusion</div><div class="sglyph">¿</div><div class="sprice">$4</div></div><div class="spell-next"><span class="nxglyph">💰</span><span class="nxlabel">NEXT</span></div></div><div class="card-col"><div class="spell-card"><div class="sname">Wall</div><div class="sglyph">▣</div><div class="sprice">$1</div></div><div class="spell-next"><span class="nxglyph">↻</span><span class="nxlabel">NEXT</span></div></div></div>
   </div>
 <div id="controls">
-    <span id="sizePicker">
+    <span id="sizePicker" style="display: inline-flex;">
       <span id="sizeLabel">Board:</span>
       <button class="sizebtn" data-size="5">5x5</button>
-      <button class="sizebtn" data-size="8">8x8</button>
+      <button class="sizebtn active" data-size="8">8x8</button>
       <button class="sizebtn" data-size="10">10x10</button>
       <button class="sizebtn" data-size="12">12x12</button>
       <button class="sizebtn" data-size="15">15x15</button>
       <button class="sizebtn" data-size="0">Random</button>
       <button id="randBtn" title="Chess 960: back rank filled with random pieces">960</button>
     </span>
-    <button id="aiBtn">Play vs AI</button>
+    <button id="aiBtn" style="display: inline-block;">Play vs AI</button>
     <button id="flipBtn">Flip Board</button>
     <button id="resetBtn">Reset</button>
     <button id="netHostBtn">Host Online</button>
-    <input id="netRoom" placeholder="Room code" size="10" autocomplete="off" spellcheck="false" />
+    <input id="netRoom" placeholder="Room code" size="10" autocomplete="off" spellcheck="false">
     <button id="netJoinBtn">Join</button>
+    <button id="netCloseBtn" style="display:none">Close Room</button>
     <span id="netStatus" class="net-status"></span>
-    <button id="cancelBtn">Cancel Placement</button>
-    <button id="skipBtn">Skip Turn</button>
-    <button id="skipSpellBtn">Skip Spell</button>
+    <button id="cancelBtn" style="display: none;">Cancel Placement</button>
+    <button id="skipBtn" style="display: none;">Skip Turn</button>
+    <button id="skipSpellBtn" style="display: none;">Skip Spell</button>
     <select id="history" size="1" style="max-width:200px"></select>
   </div>
 
@@ -644,7 +672,12 @@ function mix32(x) {
 }
 function gRng() {
   RNG_COUNTER++;
-  return mix32((SEED ^ Math.imul(RNG_COUNTER, 0x9E3779B9)) >>> 0) / 4294967296;
+  return gRngAt(RNG_COUNTER);
+}
+// Pure draw at an explicit counter, without touching RNG_COUNTER (used both by
+// gRng() itself and by the "next offer" previews, which must not consume draws).
+function gRngAt(counter) {
+  return mix32((SEED ^ Math.imul(counter, 0x9E3779B9)) >>> 0) / 4294967296;
 }
 // Roll a fresh seed for a new game. The only non-deterministic draw is this
 // seed itself; everything downstream is reproducible from it.
@@ -667,6 +700,14 @@ const PIECE_GLYPH = {
 const GLYPH = {
   P:"\u265F", N:"\u265E", B:"\u265D", R:"\u265C", Q:"\u265B", K:"\u265A", C:"\ud83d\udc2b", G:"\ud83e\udd97", D:"\u265F", A:"\u265E", S:"\u265F", H:"\u265E", M:"\ud83d\udc00", T:"\ud83d\udc31", X:"\u265E", F:"\u265E"
 };
+
+// Both sides use the same solid U+265F pawn shape. Black renders it dark
+// (#1a1a1a). The white side gets the `pawn-iw` class, which paints the base
+// black and applies `filter: invert(1)` so the pixels flip to white on every
+// platform — even ones where U+265F ignores CSS `color`.
+function pawnGlyph() {
+  return "\u265F\uFE0E";
+}
 
 const PIECE_NAME = {
   P:"Pawn", N:"Knight", B:"Bishop", R:"Rook", Q:"Queen", K:"King",
@@ -771,11 +812,13 @@ function initialState() {
 extraTurns: { w: 0, b: 0 },
     money: { w: 10, b: 10 },
     shop: [],
-    shopTurns: 0,          // turns since shop last refreshed (refreshes every 3)
-    spellTurns: 0,         // turns since spells last refreshed (refreshes every 3)
+    nextShop: [],          // upcoming shop offers; the shop consumes from this queue
+    nextSpells: [],        // upcoming spell offers; refills consume from this queue
+    shopTurns: 0,          // turns since shop last refreshed (refreshes every 4)
+    spellTurns: 0,         // turns since spells last refreshed (refreshes every 4)
     placementMode: false,
     placementPiece: null,   // piece type to place
-    placementMod: null,     // shop modifier of the piece being placed (golden/free/pricier/normal)
+    placementMod: null,     // shop modifier of the piece being placed (golden/pricier/normal)
     placementIsSpell: false,  // spell-based placement doesn't end turn
     placementSpellId: null,
     pendingRefillShopSlot: null,  // shop slot whose next piece rolls only after placement
@@ -805,22 +848,21 @@ const PIECE_VALUE = { P:1, N:3, B:3, R:5, Q:9, C:2, G:1, D:1, A:12, S:1, H:7, M:
 const SHOP_POOL = ["P","N","B","R","Q","C","G","D","S","H","M","T","X","F"];
 
 // Roll a shop modifier: golden 99/2000 (4.95%), platinum 1/2000 (0.05%),
-// free 5%, pricier (+1$) 5%, discount (-1$) 5%, normal 80%.
-function rollShopMod() {
-  const r = gRng();
+// pricier (+1$) 5%, discount (-1$) 5%, normal 90%. No free pieces.
+function rollShopMod(rng) {
+  const r = (rng || gRng)();
   if (r < 0.0495) return "golden";    // gold tile surround; +$1 each time it captures
   if (r < 0.05) return "platinum";    // platinum tile surround; +$3 each time it captures
-  if (r < 0.10) return "free";        // shows/costs $0
-  if (r < 0.15) return "pricier";     // costs +$1 more
-  if (r < 0.20) return "discount";    // costs $1 less
+  if (r < 0.075) return "pricier";    // costs +$1 more
+  if (r < 0.10) return "discount";    // costs $1 less
   return "normal";
 }
-function randomShopPiece() {
-  return { p: SHOP_POOL[Math.floor(gRng() * SHOP_POOL.length)], mod: rollShopMod() };
+function randomShopPiece(rng) {
+  return { p: SHOP_POOL[Math.floor((rng || gRng)() * SHOP_POOL.length)], mod: rollShopMod(rng) };
 }
 
 function refillShop() {
-  while (state.shop.length < 3) state.shop.push(randomShopPiece());
+  while (state.shop.length < 3) state.shop.push(takeNextShop());
 }
 
 // Effective shop price for an entry, honoring free / pricier modifiers.
@@ -828,23 +870,22 @@ function refillShop() {
 const SHOP_PRICE = { T: 4 };
 function shopPrice(e) {
   const base = SHOP_PRICE[e.p] !== undefined ? SHOP_PRICE[e.p] : PIECE_VALUE[e.p];
-  if (e.mod === "free") return 0;
   if (e.mod === "pricier") return base + 1;
   if (e.mod === "discount") return Math.max(0, base - 1);
   return base;
 }
 
-// Called whenever a turn ends: the shop and spells refresh independently
-// every 3 turns.
+// Called whenever a turn ends: the shop and spells refresh independently —
+// the shop and spells both refresh every 4 turns.
 function tickShopRefresh() {
   state.shopTurns += 1;
-  if (state.shopTurns >= 3) {
+  if (state.shopTurns >= 4) {
     state.shopTurns = 0;
     state.shop = [];
     refillShop();
   }
   state.spellTurns += 1;
-  if (state.spellTurns >= 3) {
+  if (state.spellTurns >= 4) {
     state.spellTurns = 0;
     refillSpells();
     renderSpells();
@@ -856,7 +897,7 @@ function tickShopRefresh() {
 const SPELLS = {
   moneySkip:  { name:"Tax Gain",    cost:0, glyph:"+3$", desc:"+$3 and skip your turn" },
   killRandom: { name:"Lightning",   cost:1, glyph:"⚡",  desc:"75% strike enemy, 25% strike your piece (random non-king)" },
-  killPawn:   { name:"Snipe Pawn",  cost:2, glyph:"×P", desc:"Kill an enemy pawn of your choice" },
+  killPawn:   { name:"Snipe Pawn",  cost:2, glyph:"×P", desc:"Kill an enemy pawn of your choice (normal, D-pawn, soldier)" },
   block:      { name:"Wall",        cost:1, glyph:"▣",  desc:"Block a square this & next turn" },
   sleep:      { name:"Sleep",       cost:4, glyph:"Zz", desc:"Enemy piece can't move next turn" },
   bounty:     { name:"Bounty",      cost:0, glyph:"★",  desc:"Bounties 1 of your pieces + 2 enemy pieces; you earn +$1 when each is captured (red halo)" },
@@ -870,11 +911,14 @@ piratify: { name:"Piratify",   cost:3, glyph:"¤↯", desc:"Marks one of your pi
 curse:      { name:"Curse",      cost:3, glyph:"☠",  desc:"Curses an enemy piece so it loses $1 every time it moves (permanent until dispelled)" },
 };
 const SPELL_POOL = Object.keys(SPELLS);
-function randomSpell() { return SPELL_POOL[Math.floor(gRng()*SPELL_POOL.length)]; }
+function randomSpell(rng) {
+  const r = rng || gRng;
+  return SPELL_POOL[Math.floor(r()*SPELL_POOL.length)];
+}
 // Roll a spell modifier: cheap (-$1) 1.25%, pricier (+$1) 1.25%, double 1.25%,
 // random-extra 1.25%, normal 95%.
-function rollSpellMod() {
-  const r = gRng();
+function rollSpellMod(rng) {
+  const r = (rng || gRng)();
   if (r < 0.0125) return "cheap";
   if (r < 0.025) return "pricier";
   if (r < 0.0375) return "double";
@@ -885,9 +929,31 @@ function refillSpells() {
   state.spells = [];
   state.spellMods = [];
   for (let i=0;i<3;i++) {
-    state.spells.push(randomSpell());
-    state.spellMods.push(rollSpellMod());
+    const nx = takeNextSpells();
+    state.spells.push(nx.id);
+    state.spellMods.push(nx.mod);
   }
+}
+// The "next offer" strips show the upcoming shop/spell offers, kept as queues
+// in state.nextShop / state.nextSpells. Real refills consume from these queues,
+// so the preview is ALWAYS exactly what will appear next — unlike peeking the
+// shared RNG stream, this is immune to intervening draws (AI dice, Lightning,
+// Confusion, a purchase elsewhere, etc.). The queues themselves are topped up
+// from the same seeded gRng source (advancing RNG_COUNTER as before), so
+// determinism and network counter sync are unchanged.
+function ensureNextShop(n) {
+  while (state.nextShop.length < n) state.nextShop.push(randomShopPiece());
+}
+function ensureNextSpells(n) {
+  while (state.nextSpells.length < n) state.nextSpells.push({ id: randomSpell(), mod: rollSpellMod() });
+}
+function takeNextShop() {
+  ensureNextShop(3);
+  return state.nextShop.shift();
+}
+function takeNextSpells() {
+  ensureNextSpells(3);
+  return state.nextSpells.shift();
 }
 // Effective cast price after the cheap/pricier modifier (min 0).
 function spellEffCost(id, mod) {
@@ -1391,11 +1457,20 @@ function inCheck(board, color) {
 }
 
 // Get legal moves for a piece. Kings may be captured (no check filtering).
+// A cursed piece is frozen in place while its owner has no money to pay the
+// per-move toll (a shooter may still fire from where it stands — that isn't a move).
+function cursedFrozen(s, r, c) {
+  const p = s.board[r][c];
+  return !!p && !!s.cursed && s.cursed.some(x => x.r===r && x.c===c) && (s.money[p.color] || 0) <= 0;
+}
+
 function legalMoves(s, r, c) {
   const piece = s.board[r][c];
   if (!piece || piece.color !== s.turn) return [];
   if (isSleeping(s, r, c)) return [];   // sleeping pieces can't move
   let moves = pseudoMoves(s.board, r, c, s.castling, s.epTarget, blockedSet(s));
+  // Frozen by a curse (owner has $0): no moving, only standing shots remain.
+  if (cursedFrozen(s, r, c)) moves = moves.filter(m => m.shoot);
   // Echo spell: no captures allowed this/extra turn
   if (s.noCapture && s.noCapture[s.turn] > 0) {
     moves = moves.filter(m => {
@@ -1467,6 +1542,11 @@ function simulateMove(s, fr, fc, move) {
 
 // Apply move into the live state, push history, etc.
 function makeMove(fr, fc, move, promoteTo) {
+  const mover = state.board[fr][fc];
+  // A cursed piece is frozen while its owner has no money to pay the toll; a
+  // shooter may still fire from where it stands (that isn't a move).
+  if (mover && state.cursed.some(x => x.r===fr && x.c===fc)
+      && !move.shoot && (state.money[mover.color] || 0) <= 0) return;
   state.history.push(cloneStateForHistory(state));
   state.gameStarted = true;
   // A confused piece has its confusion removed when it moves (it just made a
@@ -1597,6 +1677,7 @@ function onTurnStart(color) {
     }
   }
   // Spell slots are NOT reshuffled at turn start — they only change when cast.
+  if (state.gameStarted && turnIsMine(color)) playDing();
 }
 
 // One-turn effects (walls / sleeps) survive exactly one full turn of the opponent,
@@ -1652,6 +1733,7 @@ function hasAnyLegalMove(s) {
 
 // ---- Rendering ----
 function render() {
+  hideStaleTooltip();
   BOARD_EL.innerHTML = "";
   const sqLen = SIZE <= 8 ? 60 : SIZE <= 10 ? 52 : SIZE <= 12 ? 46 : 40;
   BOARD_EL.style.gridTemplateColumns = `repeat(${SIZE}, ${sqLen}px)`;
@@ -1684,6 +1766,12 @@ function render() {
           span.classList.add("shooter");
           span.dataset.side = p.color;
           span.innerHTML = SHOOTER_IMG;
+        } else if (p.type === "P" || p.type === "D" || p.type === "S") {
+          span.textContent = pawnGlyph();
+          if (p.color === "w") {
+            span.classList.add("pawn-iw");
+            span.style.color = "#000";
+          }
         } else {
           span.textContent = GLYPH[p.type];
         }
@@ -1703,7 +1791,10 @@ function render() {
         // Soldier: pawn wearing a helmet
         if (p.type === "S") span.classList.add("soldier");
         // Diagonal pawn (D) looks distinct with a green ring/underline.
-        if (p.type === "D") span.classList.add("dpawn");
+        if (p.type === "D") {
+          span.classList.add("dpawn");
+          span.style.setProperty("--dhead", '"\\265F"');
+        }
         // Fake Knight: upside-down knight
         if (p.type === "F") span.classList.add("fakeknight");
         // Amazon (A): knight topped with a crown
@@ -1780,6 +1871,7 @@ document.getElementById("aiBtn").style.display =
     b.classList.toggle("active", +b.dataset.size === SIZE);
   });
   document.getElementById("randBtn").classList.toggle("active", RANDOM960);
+  netRefreshCloseBtn();
   if (state.aiOpponent && !aiThinking && state.turn === state.aiColor && !state.gameOver
       && !state.placementMode && !state.targetMode && !pendingPromotion) {
     aiThinking = true;
@@ -1916,7 +2008,9 @@ function snapLegal(snap, r, c) {
   if (isSleeping(snap, r, c)) return [];
   const color = snap.turn;
   const p = snap.board[r][c];
-  const pm = pseudoMoves(snap.board, r, c, snap.castling, snap.epTarget, blockedSet(snap));
+  let pm = pseudoMoves(snap.board, r, c, snap.castling, snap.epTarget, blockedSet(snap));
+  // A cursed piece whose owner has $0 is frozen: no moving, only standing shots.
+  if (cursedFrozen(snap, r, c)) pm = pm.filter(m => m.shoot);
   const inCheckNow = snapInCheck(snap, color);
   const out = [];
   for (const m of pm) {
@@ -2167,31 +2261,74 @@ function aiMove() {
 const start = snapshotFromState(state);
   // Big boards branch enormously: shallow out the search so it stays snappy.
   const depth = SIZE >= 12 ? 1 : SIZE === 10 ? 2 : 3;
-  const moves = orderMoves(start, allMoves(start), 0);
-  if (moves.length === 0) { aiThinking = false; return; }
-  let best = moves[0], bestVal = -Infinity, alpha = -Infinity, beta = Infinity;
-  for (const mv of moves) {
-    const promo = mv.move.promotion ? "Q" : null;
-    const child = applyMove(start, mv.fr, mv.fc, mv.move, promo);
-    const v = minimax(child, depth - 1, alpha, beta, me, 1);
-    if (v > bestVal) { bestVal = v; best = mv; }
-    if (v > alpha) alpha = v;
+  let moves;
+  try {
+    moves = orderMoves(start, allMoves(start), 0);
+  } catch (e) {
+    // A snapshot/search hiccup (e.g. a piece frozen by a curse with $0) must
+    // never freeze the AI on its turn — fall back to the live board.
+    moves = [];
   }
-  // Confused AI piece: ignore the computed move and pick a random legal one instead.
-  const cidx = state.confused.findIndex(x => x.r===best.fr && x.c===best.fc);
-  if (cidx >= 0) {
-    const cm = legalMoves(state, best.fr, best.fc);
-    if (cm.length) {
-      const rand = cm[Math.floor(gRng()*cm.length)];
-      best = { fr: best.fr, fc: best.fc, move: rand };
+  if (moves.length === 0) {
+    // No legal moves: same as the stalemate check after a move, the game ends
+    // instead of leaving the AI permanently stuck on its own turn.
+    aiThinking = false;
+    if (!state.gameOver) {
+      state.gameOver = true;
+      rebuildHistorySel();
+    }
+    render();
+    return;
+  }
+  try {
+    let best = moves[0], bestVal = -Infinity, alpha = -Infinity, beta = Infinity;
+    for (const mv of moves) {
+      const promo = mv.move.promotion ? "Q" : null;
+      const child = applyMove(start, mv.fr, mv.fc, mv.move, promo);
+      const v = minimax(child, depth - 1, alpha, beta, me, 1);
+      if (v > bestVal) { bestVal = v; best = mv; }
+      if (v > alpha) alpha = v;
+    }
+    // Confused AI piece: ignore the computed move and pick a random legal one instead.
+    const cidx = state.confused.findIndex(x => x.r===best.fr && x.c===best.fc);
+    if (cidx >= 0) {
+      const cm = legalMoves(state, best.fr, best.fc);
+      if (cm.length) {
+        const rand = cm[Math.floor(gRng()*cm.length)];
+        best = { fr: best.fr, fc: best.fc, move: rand };
+      }
+    }
+    // The search plans on a snapshot, but the live position can differ (a piece
+    // may have become curse-frozen with $0). If the chosen move was skipped,
+    // play any currently legal move so the AI never stalls on its turn.
+    const srcBefore = state.board[best.fr][best.fc];
+    if (best.move.promotion) {
+      makeMove(best.fr, best.fc, {...best.move, promoteTo: "Q"});
+    } else {
+      makeMove(best.fr, best.fc, best.move);
+    }
+    if (!best.move.shoot && state.board[best.fr][best.fc] === srcBefore) aiFallbackMove(me);
+  } catch (e) {
+    aiFallbackMove(me);
+  } finally {
+    aiThinking = false;
+  }
+}
+
+// Emergency escape hatch: if the chosen move can't be applied, play any
+// currently legal move (chosen at random) so the AI always advances the game.
+function aiFallbackMove(me) {
+  for (let r = 0; r < SIZE; r++) {
+    for (let c = 0; c < SIZE; c++) {
+      const p = state.board[r][c];
+      if (!p || p.color !== me) continue;
+      const lm = legalMoves(state, r, c);
+      if (!lm.length) continue;
+      const mv = lm[Math.floor(gRng() * lm.length)];
+      makeMove(r, c, mv.promotion ? {...mv, promoteTo: "Q"} : mv);
+      return;
     }
   }
-  if (best.move.promotion) {
-    makeMove(best.fr, best.fc, {...best.move, promoteTo: "Q"});
-  } else {
-    makeMove(best.fr, best.fc, best.move);
-  }
-  aiThinking = false;
 }
 
 // Pick the best empty square on `me`'s half to place a held piece (a shop buy).
@@ -2301,7 +2438,7 @@ function aiFinishPlacement() {
 
 function isTargetable(r, c, kind) {
   const p = state.board[r][c];
-  if (kind === "enemyPawn") return p && p.type==="P" && p.color !== state.turn;
+  if (kind === "enemyPawn") return p && (p.type === "P" || p.type === "D" || p.type === "S") && p.color !== state.turn;
   if (kind === "enemyPiece") return p && p.color !== state.turn;
   if (kind === "ownPiece") return p && p.color === state.turn;
   if (kind === "confuse") return p && p.color !== state.turn && !state.confused.some(x => x.r===r && x.c===c);
@@ -2366,7 +2503,6 @@ STATUS_EL.textContent = `${prefix}${who} — ${msgs[state.targetMode.kind]||"tar
       const base = SHOP_PRICE[state.placementPiece] !== undefined ? SHOP_PRICE[state.placementPiece] : PIECE_VALUE[state.placementPiece];
       const paid = state.placementMod === "pricier"
         ? base + 1
-        : state.placementMod === "free" ? 0
         : state.placementMod === "discount" ? Math.max(0, base - 1)
         : base;
       STATUS_EL.textContent = `${prefix}${who}: place the ${state.placementPiece} on your side ($${paid} paid)`;
@@ -2380,9 +2516,19 @@ STATUS_EL.textContent = `${prefix}${who} — ${msgs[state.targetMode.kind]||"tar
   STATUS_EL.textContent = t;
 }
 
+// Glyph markup for a shop piece (shared by the card and its next-piece preview).
+function pieceGlyphHTML(piece) {
+  if (piece === "H") return `<div class="glyph centaur" style="color:#1a1a1a">${CENTAUR_SVG}</div>`;
+  if (piece === "X") return `<div class="glyph shooter" style="color:#1a1a1a">${SHOOTER_IMG}</div>`;
+  return `<div class="glyph${piece==="D" ? " dpawn" : ""}${piece==="A" ? " amazon" : ""}${piece==="S" ? " soldier" : ""}${piece==="F" ? " fakeknight" : ""}${(piece==="P"||piece==="D"||piece==="S") && state.turn === "w" ? " pawn-iw" : ""}"${piece==="D" ? ` style="--dhead:'\\265F'"` : ""}>${piece==="P" || piece==="D" || piece==="S" ? pawnGlyph() : GLYPH[piece]}</div>`;
+}
+
 function renderSpells() {
+  hideStaleTooltip();
   const el = document.getElementById("spells");
   el.innerHTML = "";
+  ensureNextSpells(3);
+  const nextSpells = state.nextSpells;
   for (let i=0;i<state.spells.length;i++) {
     const id = state.spells[i];
     const mod = state.spellMods[i] || "normal";
@@ -2392,7 +2538,6 @@ function renderSpells() {
     const freeCard = state.freeCast || state.freeSpellId === id;
     const card = document.createElement("div");
     card.className = "spell-card";
-    card.title = SPELLS[id].desc;
     const sp = SPELLS[id];
     const effCost = spellEffCost(id, freeCard ? "normal" : mod);
     const CAN = canCast(i) && netCanAct() && (state.freeCast || state.freeSpellId === id || state.money[state.turn] >= effCost);
@@ -2402,18 +2547,40 @@ function renderSpells() {
       : mod === "random" ? '<div class="spell-mod mod-random">RND</div>' : "")) || "";
     card.innerHTML = `<div class="sname">${sp.name}</div><div class="sglyph">${sp.glyph}</div>${modLabel}<div class="sprice">$${effCost}</div>`;
     card.classList.toggle("disabled", !CAN);
+    card.addEventListener("mouseenter", () => showSpellTip(id, freeCard ? "normal" : mod, effCost, card));
+    card.addEventListener("mouseleave", hidePieceTip);
     if (CAN) card.addEventListener("click", () => castSpell(i));
-    el.appendChild(card);
+    const col = document.createElement("div");
+    col.className = "card-col";
+    col.appendChild(card);
+    const nx = nextSpells[i];
+    if (nx && nx.id) {
+      const nxSp = SPELLS[nx.id];
+      const nxModTxt = nx.mod === "cheap" ? " -$1" : nx.mod === "pricier" ? " +$1"
+        : nx.mod === "double" ? " 2x" : nx.mod === "random" ? " RND" : "";
+      const tile = document.createElement("div");
+      tile.className = "spell-next";
+      tile.innerHTML = `<span class="nxglyph">${nxSp.glyph}</span><span class="nxlabel">NEXT${nxModTxt}</span>`;
+      tile.addEventListener("mouseenter", () => showSpellTip(nx.id, nx.mod, spellEffCost(nx.id, nx.mod), tile, "Next:"));
+      tile.addEventListener("mouseleave", hidePieceTip);
+      col.appendChild(tile);
+    }
+    el.appendChild(col);
   }
   const sfill = document.getElementById("spellRefreshFill");
-  if (sfill) sfill.style.width = `${(state.spellTurns / 3) * 100}%`;
+  if (sfill) sfill.style.width = `${(state.spellTurns / 4) * 100}%`;
 }
 
 function renderShop() {
+  hideStaleTooltip();
   const shop = document.getElementById("shop");
   shop.innerHTML = "";
+  ensureNextShop(3);
+  const nextPieces = state.nextShop;
   for (let i=0;i<3;i++) {
     const e = state.shop[i];
+    const col = document.createElement("div");
+    col.className = "card-col";
     const card = document.createElement("div");
     card.className = "shop-card";
     if (!e) {
@@ -2422,13 +2589,8 @@ function renderShop() {
       const piece = e.p;
       const cost = shopPrice(e);
       const CAN = canCast() && netCanAct() && state.money[state.turn] >= cost;
-      const glyphHTML = piece === "H"
-        ? `<div class="glyph centaur" style="color:#1a1a1a">${CENTAUR_SVG}</div>`
-        : piece === "X"
-        ? `<div class="glyph shooter" style="color:#1a1a1a">${SHOOTER_IMG}</div>`
-        : `<div class="glyph${piece==="D" ? " dpawn" : ""}${piece==="A" ? " amazon" : ""}${piece==="S" ? " soldier" : ""}${piece==="F" ? " fakeknight" : ""}">${GLYPH[piece]}</div>`;
+      const glyphHTML = pieceGlyphHTML(piece);
       const modLabel = e.mod === "golden" ? '<span class="shop-mod mod-golden">GOLD</span>'
-        : e.mod === "free" ? '<span class="shop-mod mod-free">FREE</span>'
         : e.mod === "pricier" ? '<span class="shop-mod mod-pricier">+$1</span>'
         : e.mod === "discount" ? '<span class="shop-mod mod-discount">-$1</span>'
         : e.mod === "platinum" ? '<span class="shop-mod mod-platinum">PLAT</span>' : "";
@@ -2440,13 +2602,26 @@ function renderShop() {
       card.addEventListener("mouseenter", () => showShopTip(e, card));
       card.addEventListener("mouseleave", hidePieceTip);
     }
-    shop.appendChild(card);
+    col.appendChild(card);
+    const nx = nextPieces[i];
+    if (nx) {
+      const nxModTxt = nx.mod === "golden" ? " GOLD"
+        : nx.mod === "pricier" ? " +$1" : nx.mod === "discount" ? " -$1"
+        : nx.mod === "platinum" ? " PLAT" : "";
+      const tile = document.createElement("div");
+      tile.className = "shop-next";
+      tile.innerHTML = `${pieceGlyphHTML(nx.p)}<span class="nxlabel">NEXT${nxModTxt}</span>`;
+      tile.addEventListener("mouseenter", () => showShopTip(nx, tile, "Next:"));
+      tile.addEventListener("mouseleave", hidePieceTip);
+      col.appendChild(tile);
+    }
+    shop.appendChild(col);
   }
   // Refresh bars: full width = ready to refresh, narrows right after a refresh.
   const fill = document.getElementById("shopRefreshFill");
-  if (fill) fill.style.width = `${(state.shopTurns / 3) * 100}%`;
+  if (fill) fill.style.width = `${(state.shopTurns / 4) * 100}%`;
   const sfill = document.getElementById("spellRefreshFill");
-  if (sfill) sfill.style.width = `${(state.spellTurns / 3) * 100}%`;
+  if (sfill) sfill.style.width = `${(state.spellTurns / 4) * 100}%`;
 }
 
 function updateMoney() {
@@ -2587,7 +2762,7 @@ const placedType = state.placementPiece;
 
   // Bought piece placed successfully: now reveal the next piece for that slot.
   if (typeof state.pendingRefillShopSlot === "number") {
-    state.shop[state.pendingRefillShopSlot] = randomShopPiece();
+    state.shop[state.pendingRefillShopSlot] = takeNextShop();
     state.pendingRefillShopSlot = null;
   }
   // Bought piece placement ends the turn (or grants the extra turn if Echo pending)
@@ -2938,7 +3113,7 @@ function handleTargetClick(r, c) {
   if (!tm) return;
   if (tm.kind === "enemyPawn") {
     const p = state.board[r][c];
-    if (!p || p.type !== "P" || p.color === state.turn) { render(); return; }
+    if (!p || (p.type !== "P" && p.type !== "D" && p.type !== "S") || p.color === state.turn) { render(); return; }
     applyBountyIfAny(p);
     state.board[r][c] = null;
     clearPieceEffects(r, c);
@@ -3028,7 +3203,8 @@ const TIP_EL = document.getElementById("pieceTip");
 let TIP_TIMER = null;
 function showPieceTip(r, c, sq) {
   clearTimeout(TIP_TIMER);
-  TIP_TIMER = setTimeout(() => { renderTip(r, c, sq); }, 1500);
+  TIP_EL._pending = sq;
+  TIP_TIMER = setTimeout(() => { TIP_EL._pending = null; renderTip(r, c, sq); }, 1500);
 }
 function renderTip(r, c, sq) {
   const p = state.board[r][c];
@@ -3041,7 +3217,11 @@ function renderTip(r, c, sq) {
   if (p.platinum) statuses.push("platinum (+$3 per capture)");
   if (state.piratify.some(x => x.r===r && x.c===c)) statuses.push("piratified (+$2 per capture)");
   if (state.thief.some(x => x.r===r && x.c===c)) statuses.push("thief (steals $1 per capture)");
-  if (state.cursed.some(x => x.r===r && x.c===c)) statuses.push("cursed (loses $1 each time it moves)");
+  if (state.cursed.some(x => x.r===r && x.c===c)) {
+    statuses.push((state.money[p.color] || 0) <= 0
+      ? "cursed (frozen — no money to move)"
+      : "cursed (loses $1 each time it moves)");
+  }
   if (state.confused.some(x => x.r===r && x.c===c)) statuses.push("confused (moves randomly)");
   if (state.blocked.some(b => b.r===r && b.c===c)) statuses.push("blocked");
   let html = `<span class="tip-name">${name}</span>`;
@@ -3049,18 +3229,34 @@ function renderTip(r, c, sq) {
   html += `<div class="tip-moves">Moves: ${PIECE_MOVES[p.type] || "—"}</div>`;
   showTip(html, sq);
 }
-function showShopTip(e, card) {
+function showShopTip(e, card, label) {
   clearTimeout(TIP_TIMER);
+  TIP_EL._pending = card;
   TIP_TIMER = setTimeout(() => {
+    TIP_EL._pending = null;
     const name = PIECE_NAME[e.p] || e.p;
     const mod = e.mod === "golden" ? " (golden, +$1 per capture)"
       : e.mod === "platinum" ? " (platinum, +$3 per capture)"
-      : e.mod === "free" ? " (free)" : e.mod === "pricier" ? " (+$1)" : e.mod === "discount" ? " (-$1)" : "";
-    const html = `<span class="tip-name">${name}</span><div class="tip-status">Shop: $${shopPrice(e)}${mod}</div><div class="tip-moves">Moves: ${PIECE_MOVES[e.p] || "—"}</div>`;
+      : e.mod === "pricier" ? " (+$1)" : e.mod === "discount" ? " (-$1)" : "";
+    const html = `<span class="tip-name">${label ? label + " " : ""}${name}</span><div class="tip-status">Shop: $${shopPrice(e)}${mod}</div><div class="tip-moves">Moves: ${PIECE_MOVES[e.p] || "—"}</div>`;
+    showTip(html, card);
+  }, 1500);
+}
+function showSpellTip(id, mod, cost, card, label) {
+  clearTimeout(TIP_TIMER);
+  TIP_EL._pending = card;
+  TIP_TIMER = setTimeout(() => {
+    TIP_EL._pending = null;
+    const sp = SPELLS[id];
+    const modTxt = mod === "cheap" ? " (-$1)" : mod === "pricier" ? " (+$1)"
+      : mod === "double" ? (id === "echo" ? " (2x: gives 2 extra turns, no captures)" : " (2x: also casts this same spell once more for free)")
+      : mod === "random" ? " (random: also grants one random extra spell for free)" : "";
+    const html = `<span class="tip-name">${label ? label + " " : ""}${sp.name}</span><div class="tip-status">Cost: $${cost}${modTxt}</div><div class="tip-moves">${sp.desc}</div>`;
     showTip(html, card);
   }, 1500);
 }
 function showTip(html, sq) {
+  TIP_EL._anchor = sq;
   TIP_EL.innerHTML = html;
   TIP_EL.style.display = "block";
   const rect = sq.getBoundingClientRect();
@@ -3075,7 +3271,18 @@ function showTip(html, sq) {
 function hidePieceTip() {
   clearTimeout(TIP_TIMER);
   TIP_TIMER = null;
+  TIP_EL._anchor = null;
+  TIP_EL._pending = null;
   TIP_EL.style.display = "none";
+}
+// If a re-render replaced the element a tooltip is anchored to (or is about to
+// show for), drop the stale tooltip: its data is outdated, and the fresh
+// element under the cursor will reschedule its own tooltip on mouseenter.
+function hideStaleTooltip() {
+  if ((TIP_EL._anchor || TIP_EL._pending) &&
+      !document.body.contains(TIP_EL._anchor || TIP_EL._pending)) {
+    hidePieceTip();
+  }
 }
 
 function cancelPlacement() {
@@ -3205,18 +3412,116 @@ function enableAI() {
   render();
 }
 
+// ============ TURN DING ============
+// A short synthesized chime announces when it becomes this player's turn
+// (in online multiplayer, against the AI, or in a hotseat game).
+let dingCtx = null;
+function playDing() {
+  try {
+    const AC = window.AudioContext || window.webkitAudioContext;
+    if (!AC) return;
+    dingCtx = dingCtx || new AC();
+    if (dingCtx.state === "suspended") dingCtx.resume();
+    const t = dingCtx.currentTime;
+    const osc = dingCtx.createOscillator();
+    const gain = dingCtx.createGain();
+    osc.type = "sine";
+    osc.frequency.setValueAtTime(880, t);
+    osc.frequency.exponentialRampToValueAtTime(1320, t + 0.18);
+    gain.gain.setValueAtTime(0.0001, t);
+    gain.gain.exponentialRampToValueAtTime(0.25, t + 0.02);
+    gain.gain.exponentialRampToValueAtTime(0.0001, t + 0.4);
+    osc.connect(gain);
+    gain.connect(dingCtx.destination);
+    osc.start(t);
+    osc.stop(t + 0.4);
+  } catch (e) {}
+}
+
+// Is the player whose turn is starting the one the local human should be told about?
+function turnIsMine(color) {
+  if (state.gameOver) return false;
+  if (netMode) return color === MY_COLOR;
+  if (state.aiOpponent) return color === (state.aiColor === "w" ? "b" : "w");
+  return true; // hotseat: every turn belongs to someone at this screen
+}
+
+function dingOnMyTurn() {
+  if (state.gameStarted && turnIsMine(state.turn)) playDing();
+}
+
 
 // ============ ONLINE MULTIPLAYER (PeerJS P2P) ============
-// Host is White and authoritative; Guest is Black. Both run the same engine.
+// Host is authoritative and is randomly assigned White or Black when a room
+// starts; the Guest gets the opposite color. Both run the same engine.
 // The host broadcasts full state snapshots after every mutation; the guest
 // only sends intent commands and renders the host's snapshots. Randomness is
 // already shared via SEED, so replay stays deterministic.
 let netMode = null;        // null | "host" | "guest"
-let MY_COLOR = null;       // "w" host, "b" guest
+let MY_COLOR = null;       // "w"/"b" whichever color this client plays
+let netHostColor = null;   // the host's color, assigned randomly when a room starts
+function colorName(c) { return c === "w" ? "White" : c === "b" ? "Black" : "?"; }
 let netPeer = null;
 let netConn = null;
 let netStateFlag = false;  // suppress host broadcast while adopting state
 const NET_ORIG = {};
+
+// Host resume + guest grace-period state.
+// A disconnected host persists its authoritative session to localStorage so the
+// same browser can reload and re-host the identical room (same code + same state).
+// A guest whose host dropped keeps the game alive for a short grace period and
+// keeps retrying the room code instead of ending immediately.
+let netRoomCode = null;        // the room code the host is currently hosting on
+let netRejoining = false;      // guest is in the rejoin grace loop (blocks input)
+let netRejoinDeadline = 0;     // when the guest's rejoin grace runs out
+let netRejoinTimer = null;     // guest rejoin retry timer
+let netSaveTimer = null;       // debounced host session saver
+let netIdRetries = 0;          // how many times a resumed host id re-registration has retried
+let netJoinTimer = null;       // fresh-join "host never answered" timeout
+const NET_SAVE_KEY = "moneyChessNetHostSession";
+const NET_GUEST_GRACE_MS = 120000;  // how long a guest waits for its host to return
+const NET_REJOIN_RETRY_MS = 3000;   // guest reconnect attempt interval
+const NET_HOST_ID_RETRY_MS = 4000;  // retry re-registering a busy room id
+const NET_JOIN_TIMEOUT_MS = 10000;  // how long a fresh join waits for the host to answer
+
+function netStoreGet() { try { return localStorage.getItem(NET_SAVE_KEY); } catch (e) { return null; } }
+function netStoreSet(v) { try { localStorage.setItem(NET_SAVE_KEY, v); } catch (e) {} }
+function netStoreDel() { try { localStorage.removeItem(NET_SAVE_KEY); } catch (e) {} }
+
+// Host: snapshot the authoritative session so a reloaded tab can resume it.
+function netSaveHostSession() {
+  if (netMode !== "host" || netStateFlag) return;
+  if (state.gameOver) { netStoreDel(); return; }
+  if (!netRoomCode) return;
+  const snap = JSON.parse(JSON.stringify(state));
+  snap.history = [];  // undo snapshots are not worth persisting
+  netStoreSet(JSON.stringify({ code: netRoomCode, seed: SEED, counter: RNG_COUNTER, size: SIZE, rand960: RANDOM960, hostColor: MY_COLOR, state: snap }));
+}
+function netQueueSave() {
+  if (netMode !== "host") return;
+  if (netSaveTimer) return;
+  netSaveTimer = setTimeout(() => { netSaveTimer = null; netSaveHostSession(); }, 300);
+}
+function netLoadHostSession() {
+  const raw = netStoreGet();
+  if (!raw) return null;
+  try {
+    const s = JSON.parse(raw);
+    if (!s || !s.code || !s.state || s.state.gameOver) return null;
+    return s;
+  } catch (e) { return null; }
+}
+
+// End net mode with a final status message (used when giving up on a disconnection).
+function netEndNet(msg) {
+  clearTimeout(netRejoinTimer); netRejoinTimer = null;
+  clearTimeout(netJoinTimer); netJoinTimer = null;
+  netRejoining = false;
+  const room = (document.getElementById("netRoom").value || "").trim();
+  netUninstall();
+  if (room) document.getElementById("netRoom").value = room;
+  if (msg) netStatus(msg, true);
+}
 
 function netEnsurePeerJS(cb) {
   if (window.Peer) { cb(); return; }
@@ -3235,7 +3540,7 @@ function netSend(obj) {
   if (netConn && netConn.open) { try { netConn.send(obj); } catch (e) {} }
 }
 function netMyTurn() { return !netMode || state.turn === MY_COLOR; }
-function netCanAct() { return netMyTurn() && !state.gameOver; }
+function netCanAct() { return netMyTurn() && !state.gameOver && !netRejoining; }
 
 function netCloneState() {
   const s = JSON.parse(JSON.stringify(state));
@@ -3245,6 +3550,7 @@ function netCloneState() {
 
 function netBroadcast() {
   if (netMode !== "host" || !netConn || netStateFlag) return;
+  netSaveHostSession();
   netSend({ t: "st", seed: SEED, counter: RNG_COUNTER, size: SIZE, rand960: RANDOM960, state: netCloneState() });
 }
 
@@ -3272,8 +3578,8 @@ function netInterceptGuest(name, cmd) {
   };
 }
 
-function netInstallHost() {
-  netMode = "host"; MY_COLOR = "w";
+function netInstallHost(color) {
+  netMode = "host"; MY_COLOR = color || "w";
   netWrapHost("makeMove");
   netWrapHost("buyPiece");
   netWrapHost("placePiece");
@@ -3284,8 +3590,9 @@ function netInstallHost() {
   netWrapHost("cancelPlacement");
   render();
 }
-function netInstallGuest() {
-  netMode = "guest"; MY_COLOR = "b";
+function netInstallGuest(color) {
+  // Placeholder color until the host's init snapshot arrives and sets the real one.
+  netMode = "guest"; MY_COLOR = color || "b";
   netInterceptGuest("makeMove", "move");
   netInterceptGuest("buyPiece", "buy");
   netInterceptGuest("placePiece", "place");
@@ -3299,7 +3606,12 @@ function netInstallGuest() {
 function netUninstall() {
   for (const k in NET_ORIG) { if (NET_ORIG[k]) window[k] = NET_ORIG[k]; }
   for (const k in NET_ORIG) delete NET_ORIG[k];
+  if (netPeer && typeof netPeer.destroy === "function") { try { netPeer.destroy(); } catch (e) {} }
+  clearTimeout(netRejoinTimer); netRejoinTimer = null;
+  clearTimeout(netJoinTimer); netJoinTimer = null;
+  netRejoining = false;
   netMode = null; MY_COLOR = null; netConn = null; netPeer = null;
+  netRoomCode = null;
   netStatus("");
   render();
 }
@@ -3313,14 +3625,17 @@ function netAdopt(d) {
   state = d.state;
   pendingPromotion = null;
   netStateFlag = false;
+  clearTimeout(netRejoinTimer); netRejoinTimer = null;
+  netRejoining = false;
   updateSeedLabel();
   rebuildHistorySel();
+  dingOnMyTurn();
   render();
 }
 
-// Host receives a guest command. Only act when it is Black's turn.
+// Host receives a guest command. Only act when it is the GUEST's turn.
 function netHandleCmd(d) {
-  if (netMode !== "host" || state.gameOver || state.turn !== "b") return;
+  if (netMode !== "host" || state.gameOver || state.turn !== opp(MY_COLOR)) return;
   switch (d.kind) {
     case "move":
       makeMove(d.fr, d.fc, d.move, d.promoteTo || undefined);
@@ -3352,9 +3667,16 @@ function netHandleCmd(d) {
 function netOnData(d) {
   if (!d || typeof d !== "object") return;
   if (netMode === "host" && d.t === "cmd") netHandleCmd(d);
-  else if (netMode === "guest" && d.t === "init") {
+  else if (netMode === "guest" && d.t === "end") {
+    // The host closed the room on purpose: the game is over, not just paused.
+    netEndNet(d.reason === "host-closed"
+      ? "The host closed the room — the game has ended."
+      : "The game has ended.");
+  } else if (netMode === "guest" && d.t === "init") {
+    if (d.hostColor === "w" || d.hostColor === "b") MY_COLOR = opp(d.hostColor);   // guest gets the other color
     netAdopt(d);
-    netStatus("Connected. You are Black — White's move.");
+    netStatus("Connected. You are " + colorName(MY_COLOR) + " — " +
+      (state.turn === MY_COLOR ? "your move." : colorName(opp(MY_COLOR)) + "'s move."));
   } else if (netMode === "guest" && d.t === "st") netAdopt(d);
 }
 
@@ -3370,27 +3692,84 @@ function netStartHost() {
   netEnsurePeerJS(() => {
     if (netMode) return;
     if (!window.Peer) { netStatus("PeerJS not loaded.", true); return; }
-    netInstallHost();
-    const code = netMakeCode();
-    netPeer = new Peer(code);
-    netStatus("Starting host…");
-    netPeer.on("open", () => {
-      netStatus("Host ready. Share room: " + code);
-      if (navigator.clipboard && navigator.clipboard.writeText) navigator.clipboard.writeText(code).catch(() => {});
+    const saved = netLoadHostSession();
+    if (saved) {
+      // Resume an interrupted host session: same room code + same state so the
+      // guest (still in its grace period) can reconnect to an identical game.
+      SEED = saved.seed;
+      RNG_COUNTER = saved.counter || 0;
+      SIZE = saved.size;
+      RANDOM960 = saved.rand960;
+      netHostColor = saved.hostColor || "w";
+      netStateFlag = true;
+      state = saved.state;
+      pendingPromotion = null;
+      netStateFlag = false;
+      netInstallHost(netHostColor);
+      netStartHostPeer(saved.code, true);
+      dingOnMyTurn();
+    } else {
+      // Fresh room: the host's color is a coin flip (the guest gets the other).
+      netHostColor = gRng() < 0.5 ? "w" : "b";
+      netInstallHost(netHostColor);
+      netStartHostPeer(netMakeCode(), false);
+    }
+  });
+}
+
+function netStartHostPeer(code, resumed) {
+  netRoomCode = code;
+  netPeer = new Peer(code);
+  netStatus(resumed ? "Resuming room " + code + "…" : "Connecting to room " + code + "…");
+  netPeer.on("open", () => {
+    netIdRetries = 0;
+    netSaveHostSession();
+    netStatus("Host ready. Share room: " + code);
+    if (navigator.clipboard && navigator.clipboard.writeText) navigator.clipboard.writeText(code).catch(() => {});
+  });
+  netPeer.on("error", (err) => {
+    // A just-reloaded tab may still have its old Peer instance registering.
+    // Keep the SAME room code for resumption so the guest can still rejoin;
+    // a fresh host just picks a new random code.
+    if (err && err.type === "unavailable-id" && resumed) {
+      try { netPeer.destroy(); } catch (e) {}
+      netPeer = null;
+      netIdRetries++;
+      netStatus("Room id still registering — retrying…" +
+        (netIdRetries > 2 ? " Close any other tab that is still hosting this room." : ""));
+      setTimeout(() => { if (netMode === "host") netStartHostPeer(code, true); }, NET_HOST_ID_RETRY_MS);
+      return;
+    }
+    if (err && err.type === "unavailable-id" && !resumed) {
+      try { netPeer.destroy(); } catch (e) {}
+      netPeer = null;
+      netStartHostPeer(netMakeCode(), false);
+      return;
+    }
+    if (netConn) return;
+    netStatus("Host error: " + (err && err.type ? err.type : err), true);
+    netUninstall();
+  });
+  netPeer.on("connection", (conn) => {
+    // A finished game is closed for good: nobody can (re)join a concluded game.
+    if (state.gameOver) { try { conn.close(); } catch (e) {} return; }
+    // A stale previous guest connection lingers after a re-join: drop it so
+    // only the newest guest connection is treated as live.
+    if (netConn && netConn !== conn) { try { netConn.close(); } catch (e) {} netConn = null; }
+    netConn = conn;
+    conn.on("open", () => {
+      netStatus("Guest joined. You are " + colorName(MY_COLOR) + " — " +
+        (state.turn === MY_COLOR ? "your move." : colorName(opp(MY_COLOR)) + "'s move."));
+      netSend({ t: "init", seed: SEED, counter: RNG_COUNTER, size: SIZE, rand960: RANDOM960, hostColor: MY_COLOR, state: netCloneState() });
     });
-    netPeer.on("connection", (conn) => {
-      netConn = conn;
-      conn.on("open", () => {
-        netStatus("Guest joined. You are White — Black's move.");
-        netSend({ t: "init", seed: SEED, counter: RNG_COUNTER, size: SIZE, rand960: RANDOM960, state: netCloneState() });
-      });
-      conn.on("data", netOnData);
-      conn.on("close", () => { netUninstall(); });
-    });
-    netPeer.on("error", (err) => {
-      if (netConn) return;
-      netStatus("Host error: " + (err && err.type ? err.type : err), true);
-      netUninstall();
+    conn.on("data", netOnData);
+    conn.on("close", () => {
+      if (netConn === conn) netConn = null;
+      // Keep the room open so the guest can rejoin later, unless the game has
+      // already ended (then there is nothing left to rejoin into).
+      if (state.gameOver) { netUninstall(); return; }
+      netStatus("Guest left — room stays open. They can rejoin with code: " + code);
+      render();
     });
   });
 }
@@ -3402,27 +3781,151 @@ function netJoin() {
     if (!window.Peer) { netStatus("PeerJS not loaded.", true); return; }
     const code = (document.getElementById("netRoom").value || "").trim().toLowerCase();
     if (!/^[a-z0-9-]+$/.test(code)) { netStatus("Enter a valid room code.", true); return; }
+    // Joining a code this browser previously hosted means the user is really
+    // trying to take their HOST seat back. While they are gone the room is not
+    // hosted, so a guest rejoin against it could never connect — resume hosting
+    // on the same code instead so the waiting guest reconnects to them.
+    const mine = netLoadHostSession();
+    if (mine && mine.code === code) {
+      netStatus("You were hosting " + code + " — resuming the room as host…");
+      netStartHost();
+      return;
+    }
     netInstallGuest();
     netStatus("Connecting to " + code + "…");
     netPeer = new Peer();
     netPeer.on("open", () => {
       const conn = netPeer.connect(code, { reliable: true });
       netConn = conn;
-      conn.on("open", () => { netStatus("Connected. Waiting for host snapshot…"); });
+      let everOpen = false;   // did the host ever answer? (drop vs never-found)
+      clearTimeout(netJoinTimer);
+      netJoinTimer = setTimeout(() => {
+        // The host never answered: treat it as "no such game" rather than a
+        // long fake "reconnecting" countdown that other players don't share.
+        if (netMode === "guest" && !everOpen && !netRejoining) {
+          netEndNet("Error: This game cannot be found.");
+        }
+      }, NET_JOIN_TIMEOUT_MS);
+      conn.on("open", () => {
+        everOpen = true;
+        clearTimeout(netJoinTimer);
+        netStatus("Connected. Waiting for host snapshot…");
+      });
       conn.on("data", netOnData);
-      conn.on("close", () => { netUninstall(); });
-      conn.on("error", (err) => { netStatus("Join error: " + (err && err.type ? err.type : err), true); netUninstall(); });
+      conn.on("close", () => {
+        if (netConn !== conn) return;
+        clearTimeout(netJoinTimer);
+        if (everOpen) netGuestStartRejoin(code);
+        else netEndNet("Error: This game cannot be found.");
+      });
+      conn.on("error", (err) => {
+        if (netConn !== conn) return;
+        clearTimeout(netJoinTimer);
+        const ty = err && err.type;
+        if (!everOpen && ty === "peer-unavailable") {
+          netEndNet("Error: This game cannot be found.");
+          return;
+        }
+        if (everOpen) {
+          netStatus("Connection lost — retrying…");
+          netGuestStartRejoin(code);
+        } else {
+          netEndNet("Error: This game cannot be found.");
+        }
+      });
     });
-    netPeer.on("error", (err) => {
-      if (netConn) return;
-      netStatus("Join error: " + (err && err.type ? err.type : err), true);
-      netUninstall();
+    netPeer.on("error", () => {
+      if (netConn && netConn.open) return;
+      clearTimeout(netJoinTimer);
+      netEndNet("Error: This game cannot be found.");
     });
   });
 }
 
+// Guest dropped (host likely lost its connection). Give the host a grace period
+// to re-appear on the same room code instead of ending the game immediately.
+function netGuestStartRejoin(code) {
+  if (netRejoining) return;
+  netRejoining = true;
+  netRejoinDeadline = Date.now() + NET_GUEST_GRACE_MS;
+  if (netPeer && typeof netPeer.destroy === "function") { try { netPeer.destroy(); } catch (e) {} }
+  netPeer = null;
+  netConn = null;
+  netStatus("Disconnected — retrying the room… the game ends in " +
+    Math.max(1, Math.round(NET_GUEST_GRACE_MS / 1000)) + "s if the host doesn't return.");
+  netGuestRejoinTick(code);
+}
+
+function netGuestRejoinTick(code) {
+  clearTimeout(netRejoinTimer); netRejoinTimer = null;
+  if (!netRejoining) return;
+  if (state.gameOver) { netStatus("The game has ended.", true); netEndNet(""); return; }
+  if (Date.now() > netRejoinDeadline) {
+    netEndNet("The host did not return — the game has ended.");
+    return;
+  }
+  const remain = Math.max(1, Math.ceil((netRejoinDeadline - Date.now()) / 1000));
+  if (!netConn || !netConn.open) {
+    netStatus("Reconnecting… " + remain + "s left before the game ends.");
+    if (!netPeer) {
+      netPeer = new Peer();
+      netPeer.on("error", () => { if (netRejoining) { try { netPeer.destroy(); } catch (e) {} netPeer = null; } });
+    }
+    if (netPeer && netPeer.open) {
+      const conn = netPeer.connect(code, { reliable: true });
+      conn.on("open", () => {
+        if (!netRejoining) return;
+        netConn = conn;
+        netStatus("Reconnected. Waiting for host snapshot…");
+        conn.on("data", netOnData);
+        conn.on("close", () => { if (netConn === conn) { netConn = null; netGuestStartRejoin(code); } });
+        conn.on("error", () => { if (netConn === conn) { netConn = null; netGuestStartRejoin(code); } });
+      });
+      conn.on("error", () => { try { conn.close(); } catch (e) {} });
+    }
+  }
+  netRejoinTimer = setTimeout(() => netGuestRejoinTick(code), netRejoining ? NET_REJOIN_RETRY_MS : 0);
+}
+
+// Show the Close Room button whenever a room is live or a host session lingers.
+function netRefreshCloseBtn() {
+  const el = document.getElementById("netCloseBtn");
+  if (!el) return;
+  el.style.display = (netMode || netLoadHostSession()) ? "inline-block" : "none";
+}
+
+// End the room / net session for good. As host this tears down the Peer and
+// deletes the saved session, so the room code stops being shared and won't be
+// offered again on the next page load (no "share room" lingering all night).
+// As guest it just leaves the room.
+function netCloseRoom() {
+  const wasHost = netMode === "host";
+  const hadSession = !!netLoadHostSession();
+  const room = (document.getElementById("netRoom").value || "").trim();
+  if (wasHost || hadSession) netStoreDel();
+  clearTimeout(netSaveTimer); netSaveTimer = null;
+  // Tear down and report. If a guest is connected, first tell them the room is
+  // CLOSED (game over) so they don't just think the host dropped — give the
+  // message a moment to flush before destroying the peer.
+  const finish = () => {
+    const msg = wasHost ? "Room closed — " + (room || "that room code") + " is no longer hosted."
+      : hadSession ? "Saved room cleared."
+      : "Left the room.";
+    netUninstall();
+    if (room) document.getElementById("netRoom").value = room;
+    netStatus(msg);
+  };
+  if (wasHost && netConn && netConn.open) {
+    try { netConn.send({ t: "end", reason: "host-closed" }); } catch (e) {}
+    setTimeout(finish, 300);
+  } else {
+    finish();
+  }
+}
+
 document.getElementById("netHostBtn").addEventListener("click", netStartHost);
 document.getElementById("netJoinBtn").addEventListener("click", netJoin);
+document.getElementById("netCloseBtn").addEventListener("click", netCloseRoom);
 
 document.getElementById("resetBtn").addEventListener("click", () => { if (netMode) return; reset(); });
 document.getElementById("randBtn").addEventListener("click", () => {
@@ -3448,11 +3951,30 @@ document.getElementById("flipBtn").addEventListener("click", () => {
   flipped = !flipped;
   render();
 });
-document.getElementById("cancelBtn").addEventListener("click", cancelPlacement);
+document.getElementById("cancelBtn").addEventListener("click", () => {
+  if (netCanAct()) cancelPlacement();
+});
 document.getElementById("skipBtn").addEventListener("click", () => {
-    if (state.taxSkipPending) spellEndTurnSkip(false);
+  if (netCanAct() && state.taxSkipPending) spellEndTurnSkip(false);
   });
-  document.getElementById("skipSpellBtn").addEventListener("click", skipFollowUpSpell);
+  document.getElementById("skipSpellBtn").addEventListener("click", () => {
+    if (netCanAct()) skipFollowUpSpell();
+  });
+
+// Persist the host session as the tab unloads so an interrupted host game can
+// be resumed after a reload. The guest keeps its grace-period retry running.
+try { window.addEventListener("pagehide", () => { if (netMode === "host") netSaveHostSession(); }); } catch (e) {}
+
+// If this browser was hosting a room before, prefill the room code so a single
+// "Start Host" click resumes the exact same session.
+{
+  const prev = netLoadHostSession();
+  const el = document.getElementById("netRoom");
+  if (prev && el && !(el.value || "").trim()) {
+    el.value = prev.code;
+    netStatus("Saved room " + prev.code + " — click Start Host to resume it (Join on this code also resumes hosting).");
+  }
+}
 
 newSeed();
 state = initialState();
@@ -3461,5 +3983,6 @@ refillSpells();
 onTurnStart("w");
 render();
 </script>
-</body>
-</html>
+
+
+</body></html>
