@@ -1,0 +1,392 @@
+﻿<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Money Chess â€” Rules &amp; Implementation Specification</title>
+<style>
+  :root {
+    --bg: #10141c;
+    --panel: #1f2c3d;
+    --panel2: #243349;
+    --border: #3a5066;
+    --text: #e8eef5;
+    --muted: #9fb3c8;
+    --gold: #ffd24a;
+    --blue: #4d9fff;
+    --red: #ff6b6b;
+    --green: #8fd48f;
+  }
+  * { box-sizing: border-box; }
+  body {
+    margin: 0;
+    padding: 32px 16px;
+    background: var(--bg);
+    color: var(--text);
+    font-family: "Segoe UI", system-ui, sans-serif;
+    line-height: 1.55;
+  }
+  main { max-width: 900px; margin: 0 auto; }
+  h1 {
+    font-size: 2rem;
+    letter-spacing: 4px;
+    color: var(--gold);
+    margin: 0 0 4px;
+  }
+  .subtitle { color: var(--muted); margin: 0 0 8px; }
+  h2 {
+    font-size: 1.35rem;
+    border-bottom: 2px solid var(--border);
+    padding-bottom: 6px;
+    margin: 40px 0 12px;
+    color: var(--blue);
+  }
+  h3 { color: var(--gold); margin: 22px 0 8px; }
+  p { margin: 8px 0; }
+  ul, ol { margin: 8px 0; padding-left: 22px; }
+  li { margin: 4px 0; }
+  code, .mono {
+    font-family: Consolas, "Cascadia Code", monospace;
+    background: rgba(77, 159, 255, 0.12);
+    border: 1px solid rgba(77, 159, 255, 0.25);
+    border-radius: 5px;
+    padding: 1px 6px;
+    font-size: 0.88em;
+    color: #bfe0ff;
+  }
+  table {
+    width: 100%;
+    border-collapse: collapse;
+    margin: 12px 0;
+    font-size: 0.93rem;
+  }
+  th, td {
+    border: 1px solid var(--border);
+    padding: 7px 10px;
+    text-align: left;
+    vertical-align: top;
+  }
+  th { background: var(--panel); color: var(--gold); }
+  tr:nth-child(even) td { background: rgba(255,255,255,0.02); }
+  .card {
+    background: var(--panel);
+    border: 1px solid var(--border);
+    border-radius: 10px;
+    padding: 14px 18px;
+    margin: 14px 0;
+  }
+  .alert {
+    background: rgba(255, 107, 107, 0.08);
+    border: 1px solid rgba(255, 107, 107, 0.4);
+    border-radius: 10px;
+    padding: 14px 18px;
+    margin: 14px 0;
+  }
+  .alert h3 { color: var(--red); margin-top: 0; }
+  .glyph { display: inline-block; text-align: center; min-width: 26px; }
+  .tag {
+    display: inline-block;
+    background: var(--panel2);
+    border: 1px solid var(--border);
+    border-radius: 6px;
+    padding: 1px 8px;
+    font-size: 0.78rem;
+    color: var(--muted);
+    margin-right: 4px;
+  }
+  .sep { color: var(--muted); }
+</style>
+</head>
+<body>
+<main>
+  <h1>MONEY CHESS</h1>
+  <p class="subtitle">Rules, mechanics &amp; implementation specification â€” for human players and AI coding agents.</p>
+  <p>
+    This document is the authoritative specification of <span class="mono">money-chess.html</span>.
+    It describes how the game <em>actually behaves</em> (read from the source code), notes where the
+    behaviour differs from stated intent, and lists the key functions an agent will need when modifying the game.
+  </p>
+
+  <div class="card">
+    <strong>How to run the game:</strong> open <span class="mono">money-chess.html</span> in any modern
+    browser. It is a single self-contained HTML file (no build step, no dependencies). Online play loads
+    PeerJS from a CDN at runtime and therefore needs internet access for that feature only. There is also a
+    <span class="mono">Readme.html</span> (this file) and <span class="mono">AGENTS.md</span>.
+  </div>
+
+  <h2>1. Starting a game (the menu)</h2>
+  <p>Before any game, the page shows a menu overlay with three buttons:</p>
+  <ul>
+    <li><strong>Start Game</strong> â€” closes the menu and begins a fresh, randomly seeded game.</li>
+    <li><strong>Sandbox</strong> â€” starts a normal local game (vs AI if enabled) with the <span class="mono">God Mode</span> button available (see Â§2). Online play buttons are hidden for the whole session; a normal Start Game restores them.</li>
+    <li><strong>Settings</strong> â€” Sound on/off. (Board size, 8x8/Chess&nbsp;960, is picked via the in-game control bar.)</li>
+  </ul>
+
+  <h2>2. Controls</h2>
+  <table>
+    <tr><th>Control</th><th>Purpose</th></tr>
+    <tr><td>Board button</td><td>Opens a picker with the board sizes (5x5 â€¦ 15x15, Random) and the <span class="mono">960</span> toggle; picking one starts a new game and closes the picker. Hidden once a game starts.</td></tr>
+    <tr><td><span class="mono">960</span></td><td>Toggle Chess 960 back ranks and start a new game.</td></tr>
+    <tr><td><span class="mono">Play vs AI</span></td><td>Enable the built-in AI as Black (human keeps White). Only offered before a game starts.</td></tr>
+    <tr><td><span class="mono">Flip Board</span></td><td>Rotate the rendered board 180 degrees so Black plays "from the bottom".</td></tr>
+    <tr><td><span class="mono">Reset</span></td><td>New seed + new game (local play only). Also restores the board settings to 8x8 and turns Chess 960 off (the size-menu highlight and 960 toggle update to match; picking a size or toggling 960 afterwards still re-applies that choice).</td></tr>
+    <tr><td><span class="mono">Piece Catalog</span></td><td>Popup reference of every piece in alphabetical order: each on an empty 8x8 board shown selected with its move dots, next to its name, shop cost and move description (the Cricket shows two enemy pieces â€” one adjacent diagonal, one at double-diagonal â€” so both movement modes are visible; the Cat shows five enemy pieces demonstrating its 2-square jump-captures and knight-square captures; the Shooter shows three enemies on its 2-square shot ring plus one adjacent enemy it cannot hurt). Scrollable.</td></tr>
+    <tr><td><span class="mono">Spell Catalog</span></td><td>Popup reference of every spell in alphabetical order: captioned demo board(s) showing the cast targeting view and/or the result (e.g. Piratify: all your pieces selectable â†’ a full starting board with one of White's knights piratified), next to name, cost and effect text. Scrollable.</td></tr>
+    <tr><td><span class="mono">God Mode</span> (Sandbox only)</td><td>Opens a cheat panel with four sections: <em>Money</em> (+$1/+$5/+$10/+$25 for either side), <em>Remove a piece</em> — a Snipe button that enters snipe mode: click any piece to destroy it (repeatedly, any number of pieces, no capture money awarded; destroying a king ends the game; Cancel exits snipe mode, and snipe edits are not logged in the move list), <em>Pieces</em> — pick a shop modifier (Normal/Golden/Platinum/+$1/−$1) then click any shop piece to place it for free anywhere in your legal placement zone (works exactly like a shop purchase incl. Cancel Placement); placing ends your turn like a purchase — and <em>Spells</em> — pick a spell modifier (Normal/−$1/+$1/Double/RND extra) then click any spell to cast it immediately for free through the normal pipeline (targeting, follow-ups, reshuffle all unchanged).</td></tr>
+    <tr><td><span class="mono">Host Online / Join / Close Room</span></td><td>Twoâ€‘player networking (see Â§10). Hidden while a Sandbox session is active.</td></tr>
+    <tr><td><span class="mono">Cancel Placement</span></td><td>Abort an unplaced shop purchase or a targeting spell (restores the pre-action state).</td></tr>
+    <tr><td><span class="mono">Skip Turn</span></td><td>Only appears for the Tax GainÃ—2 / RND forced decision; passes the turn (declining the offered free spell).</td></tr>
+    <tr><td><span class="mono">Skip Spell</span></td><td>Decline a free follow-up spell granted by a "2x"/"RND" modifier.</td></tr>
+    <tr><td>Move history dropdown</td><td>Display-only SAN-ish log. Selecting an entry does not rewind the board (see Known Issues).</td></tr>
+    <tr><td><span class="mono">â†</span> <span class="mono">current move</span> <span class="mono">â†’</span> review buttons</td><td>Step the board back/forward through the played moves â€” it really rewinds the position (board, money, shop and spells are shown as they were, with a "Reviewing move N" banner). The middle <span class="mono">current move</span> button jumps straight back to the current move. While reviewing, the board is display-only: every gameplay click is ignored (click <span class="mono">Resume live â–º</span>, the middle <span class="mono">current move</span> button, or <span class="mono">â†’</span> to the end to play again). If a new move is recorded while reviewing (e.g. the AI opponent replies), the game auto-returns to the live board so you always land on the current position. Extra-turn "free" spell placements are not separate review steps (only moves/buys/skips advance the move log). Disabled in online play.</td></tr>
+  </table>
+
+  <h2>3. Objective &amp; endings</h2>
+  <ul>
+    <li>Players are <strong>White</strong> (bottom) and <strong>Black</strong> (top). White moves first.</li>
+    <li><strong>Win: capture the enemy king.</strong> This is a king-capture variant â€” there is no checkmate
+      rule. Normally the game warns with "Check!" but does <em>not</em> force you to resolve it; if you leave your
+      king in danger your opponent simply captures it. Sole exception: your king may never walk onto an attacked
+      square, and castling may not pass through attacked squares.</li>
+    <li><strong>Draw:</strong> if the side to move has no legal moves, the game ends early with "Stalemate â€” Draw".</li>
+    <li>The status bar reports "White/Black wins (king captured)" or "Stalemate â€” Draw".</li>
+  </ul>
+
+  <h2>4. Turn structure</h2>
+  <p>Each turn you get, in any order: <strong>one piece action</strong> plus <strong>one optional free spell</strong>.</p>
+  <ol>
+    <li><strong>Move a piece</strong> (a normal chess move) â€” you may still cast a spell afterwards.</li>
+    <li><strong>Buy &amp; place from the shop</strong> â€” this <em>ends your turn</em> (it is intended to be "your move";
+      see Known Issues #8 for the move-then-buy double action).</li>
+    <li><strong>Cast one spell</strong> â€” a free action (per turn), no matter when; after casting you may still move.</li>
+  </ol>
+  <p>Notes:</p>
+  <ul>
+    <li>Casting a spell sets "spell used this turn"; a second spell is only possible via the <strong>Freecast</strong> spell
+      or a "2x"/"RND" free follow-up.</li>
+    <li><strong>Buying is blocked after casting</strong> a spell in the same turn, but <strong>buying after moving is currently possible</strong> (Design flaw, see #8).</li>
+    <li>The <strong>Echo</strong> spell grants an extra turn (no captures during it).</li>
+    <li><strong>Tax Gain</strong> grants +$3 and skips your move. With "2x" it forces a decision: take a second free Tax or press Skip Turn. With "RND" it banks the +$3 and offers one random spell immediately: cast it free (your turn then ends) or press Skip Turn â€” except if the rolled spell is <strong>Echo</strong>: its own extra turn keeps the turn with you instead of passing it.</li>
+  </ol>
+
+  <h2>5. Money &amp; economy</h2>
+  <ul>
+    <li>Each player starts with <strong>$10</strong> (<span class="mono">initialState()</span>).</li>
+    <li><strong>Capturing</strong> earns the mover <code>floor(value/2)</code> of the captured piece (e.g. pawn&nbsp;0, knight/bishop&nbsp;1, rook&nbsp;2, queen&nbsp;4, cat&nbsp;2, Amazon&nbsp;6).</li>
+    <li>Bounties add +$1; golden pieces +$1 per capture; platinum +$3 per capture; piratified pieces +$2 per capture; thieves take $1 from the opponent per capture.</li>
+    <li><strong>Tax Gain</strong> (+$3 and skip turn) is the only money "generation" spell.</li>
+    <li>Money is spent on <strong>shop pieces</strong> and on <strong>spell card costs</strong> (spells charge their printed price but do not consume your move).</li>
+  </ul>
+  <div class="alert">
+    <strong>Design note:</strong> spell cards display a price (<span class="mono">SPELLS[].cost</span>:
+    Tax Gain $0, Lightning $1, Snipe Pawn $2, Wall $1, Sleep $4, Bounty $0, Dispel $3, Echo $5, Push $3, Freecast $3,
+    Confusion $4, Piratify $3, Thief $3, Curse $3). Casting deducts this cost from the caster's money
+    (<span class="mono">castSpell</span>). So spells are a "free action" (they do not use your move) but they still cost their
+    printed price from your wallet, unless they are cast for free via Freecast or a "2x"/"RND" follow-up.
+  </div>
+
+  <h2>6. Pieces</h2>
+  <p>Internal letters (<span class="mono">type</span>), names, movement and matching shop prices
+  (<span class="mono">PIECE_VALUE</span>, with <span class="mono">SHOP_PRICE.T = 4</span> for the Cat):</p>
+  <table>
+    <tr><th>Letter</th><th>Name</th><th>Glyph</th><th>Shop</th><th>Movement (per code)</th></tr>
+    <tr><td>P</td><td>Pawn</td><td>â™Ÿ</td><td>$1</td><td>Move 1 forward (2 from start); capture diagonally forward; en passant; promotes to queen on last rank.</td></tr>
+    <tr><td>D</td><td>D-Pawn</td><td>â™Ÿ+head</td><td>$1</td><td>Moves 1 diagonally forward (no capture there); captures straight forward; may retreat 1 backwards diagonally (move only). Auto-promotes to <b>Amazon</b>.</td></tr>
+    <tr><td>S</td><td>Soldier</td><td>â™Ÿ+helm</td><td>$1</td><td>Moves &amp; captures 1 straight forward; may side-step 1 (move only). Auto-promotes to <b>Amazon</b>.</td></tr>
+    <tr><td>N</td><td>Knight</td><td>â™ž</td><td>$3</td><td>L-shaped leap (2,1). Cannot be blocked.</td></tr>
+    <tr><td>B</td><td>Bishop</td><td>â™</td><td>$3</td><td>Slides any distance diagonally; cannot jump.</td></tr>
+    <tr><td>R</td><td>Rook</td><td>â™œ</td><td>$5</td><td>Slides any distance orthogonally; cannot jump.</td></tr>
+    <tr><td>Q</td><td>Queen</td><td>â™›</td><td>$9</td><td>Rook + bishop; cannot jump.</td></tr>
+    <tr><td>K</td><td>King</td><td>â™š</td><td>â€”</td><td>One square any direction; may castle (see Â§9).</td></tr>
+    <tr><td>C</td><td>Camel</td><td>ðŸ«</td><td>$2</td><td>Extended knight leaper (3,1); can jump.</td></tr>
+    <tr><td>G</td><td>Cricket</td><td>ðŸ¦—</td><td>$1</td><td>1 diagonal step (move only) or 2-square diagonal leap (can jump &amp; capture).</td></tr>
+    <tr><td>A</td><td>Amazon</td><td>â™ž+crown</td><td>$12*</td><td>Queen + knight moves. Only obtained via D/S auto-promotion (its shop price exists only for reference; it is not in the shop pool).</td></tr>
+    <tr><td>H</td><td>Centaur</td><td>ðŸ¦„-like</td><td>$7</td><td>Knight + king moves.</td></tr>
+    <tr><td>M</td><td>Rat</td><td>ðŸ€</td><td>$5</td><td>Slides up to 2 squares in any of 8 directions; cannot jump.</td></tr>
+    <tr><td>T</td><td>Cat</td><td>ðŸ±</td><td>$4</td><td>Moves 1 square any of 8 directions; captures up to 2 away in those directions (leaps) and on knight squares (capture only, cannot land there). Shop price $4, capture value $5.</td></tr>
+    <tr><td>X</td><td>Shooter</td><td>sprite</td><td>$5</td><td>Moves 1 to an <em>empty</em> adjacent square (any direction, no capture-by-landing); instead shoots an enemy at Chebyshev distance exactly 2 (the 5Ã—5 ring), destroying it without moving.</td></tr>
+    <tr><td>F</td><td>Fake Knight</td><td>â™ž-flip</td><td>$4</td><td>Slides 1â€“2 straight in any direction, or 2 straight then 1 sideways; may move or capture at any square on the path; <em>cannot jump</em>.</td></tr>
+  </table>
+  <p>
+    The shop's piece pool is a uniform draw from
+    <span class="mono">SHOP_POOL = [P,N,B,R,Q,C,G,D,S,H,M,T,X,F]</span>. A is absent (only via promotion) and K is never sold.
+    The hover tooltips (<span class="mono">PIECE_MOVES</span>) describe the same rules.
+  </p>
+
+  <h2>7. Spells</h2>
+  <p>Cast one per turn as a free action (does not use your move). The card's printed price is paid from your wallet
+  unless the spell is free (Freecast or a "2x"/"RND" follow-up). Casting refreshes the spell shop
+  (<span class="mono">spellTurns = 0</span>).</p>
+  <table>
+    <tr><th>ID</th><th>Name</th><th>Cost</th><th>Effect</th></tr>
+    <tr><td colspan="4" style="background:rgba(255,255,255,0.03)"><strong>Instant</strong></td></tr>
+    <tr><td class="mono">moneySkip</td><td>Tax Gain</td><td>$0</td><td>+$3 and end your turn (skip your move). With "2x": you get +$3 and must either cast the free second Tax or press Skip Turn (<span class="mono">taxSkipPending = "double"</span> locks the board). With "RND": +$3 is banked and the rolled spell is offered immediately â€” cast it free (resolving it ends your turn, <span class="mono">taxSkipPending = "random"</span>) or press Skip Turn. Either choice ends the turn, EXCEPT a rolled <strong>Echo</strong>: resolving it keeps the turn with the caster (its own extra turn; <span class="mono">finishSpell</span> is called with the keep-Turn flag).</td></tr>
+    <tr><td class="mono">killRandom</td><td>Lightning</td><td>$1</td><td>âš¡ Strikes a random non-king piece: 75% enemy, 25% yours. Refunds if no valid target exists.</td></tr>
+    <tr><td class="mono">bounty</td><td>Bounty</td><td>$0</td><td>â˜… Marks 1 of your pieces + 2 enemy pieces; you earn +$1 whenever any marked piece is captured.</td></tr>
+    <tr><td class="mono">echo</td><td>Echo</td><td>$5</td><td>â†» Take an extra turn. No captures during the current and extra turn(s). Doubled: two extra turns.</td></tr>
+    <tr><td class="mono">precast</td><td>Freecast</td><td>$3</td><td>â™» Refresh the spell slots, then you can cast one of the spells for free.</td></tr>
+    <tr><td colspan="4" style="background:rgba(255,255,255,0.03)"><strong>Targeting (click a square; Cancel to abort)</strong></td></tr>
+    <tr><td class="mono">killPawn</td><td>Snipe Pawn</td><td>$2</td><td>Ã—P Destroy an enemy pawn (works on P, D-Pawn, Soldier).</td></tr>
+    <tr><td class="mono">block</td><td>Wall</td><td>$1</td><td>â–£ Block an empty square for this and the next turn (pieces cannot move into or through it).</td></tr>
+    <tr><td class="mono">sleep</td><td>Sleep</td><td>$4</td><td>Zz Enemy piece cannot move next turn.</td></tr>
+    <tr><td class="mono">dispel</td><td>Dispel</td><td>$3</td><td>âœ¦ Remove a wall / wake a sleeper / clear confusion / clear piratify or thief / clear a curse / remove a bounty.</td></tr>
+    <tr><td class="mono">push</td><td>Push</td><td>$3</td><td>â‡¦ Push a piece back up to 3 squares (direction depends on its color) or until blocked.</td></tr>
+    <tr><td class="mono">confuse</td><td>Confusion</td><td>$4</td><td>Â¿ Target a piece to move randomly the next time it moves.</td></tr>
+    <tr><td class="mono">piratify</td><td>Piratify</td><td>$3</td><td>Â¤â†¯ Mark <em>one of your own</em> pieces: earns +$2 per capture (cannot mark an already-piratified or thief piece).</td></tr>
+    <tr><td class="mono">thief</td><td>Thief</td><td>$3</td><td>ðŸ’° Mark <em>one of your own</em> pieces: steals $1 from the opponent per capture (clamped to their balance; not on a piratified piece).</td></tr>
+    <tr><td class="mono">curse</td><td>Curse</td><td>$3</td><td>â˜  Enemy piece loses $1 every time it moves; it is frozen entirely while its owner has $0 (shooters may still shoot in place).</td></tr>
+  </table>
+  <h3>Spell modifiers on shop cards</h3>
+  <ul>
+    <li><strong>cheap</strong> (âˆ’$1), <strong>pricier</strong> (+$1): the price shown is adjusted (<span class="mono">spellEffCost</span>).</li>
+    <li><strong>double</strong> (2x): after resolving, this same spell is offered again free. EchoÃ—2 gives two extra turns instead. Tax GainÃ—2 creates the forced Skip-Turn decision.</li>
+    <li><strong>random</strong> (RND): after resolving, one random spell is offered free. On Tax Gain the +$3 is banked first and the rolled spell must be cast right away (it ends the turn) or declined via Skip Turn â€” a rolled <strong>Echo</strong> is the exception: it grants its own extra turn so the caster keeps the turn.</li>
+    <li>The follow-up is shown as a single locked free card (<span class="mono">freeSpellId</span>); <strong>Skip Spell</strong> declines it.</li>
+    <li>A Tax-Gain follow-up (2x or RND) is always decided on the <em>current</em> turn via the Skip-Turn lock â€” it is never carried to a later turn.</li>
+  </ul>
+  <p>Modifier probabilities: cheap/pricier/double/random 1.25% each, normal 95%.</p>
+
+  <h2>8. Shop &amp; placement</h2>
+  <ul>
+    <li>Three piece cards are always offered; under each card a dashed <strong>NEXT</strong> tile previews the exact next offering.</li>
+    <li>A purchase deducts money, enters <strong>placement mode</strong>, and you click an empty square on <em>your</em> side
+      (White: lower half, Black: top half; the exact centre row of an odd board belongs to nobody). Placing ends your turn.</li>
+    <li>Prices: pawn $1, knight/bishop $3, rook $5, queen $9, camel $2, cricket $1, d-pawn $1, soldier $1, centaur $7,
+      rat $5, cat $4, shooter $5, fake knight $4. Modifiers adjust price: <strong>pricier</strong> +$1, <strong>discount</strong> âˆ’$1 (min $0).</li>
+    <li>Shop modifiers: golden 4.95%, platinum 0.05%, pricier 2.5%, discount 2.5%, normal 90%. <strong>Golden</strong> pieces gain
+      +$1 per capture (gold square glow); <strong>platinum</strong> +$3 per capture (silver glow). Discount/pricier affect price only.</li>
+    <li>The shop and the spell shop each refresh <em>independently</em> every 4 end-of-turn ticks
+      (<span class="mono">tickShopRefresh</span>); the refresh bar shows progress. Buying a piece resets the <em>shop</em> timer; casting a spell resets the <em>spell</em> timer.</li>
+    <li>A bought piece is only replaced in its slot after it is placed (<span class="mono">pendingRefillShopSlot</span>).</li>
+  </ul>
+
+  <h2>9. Board sizes, castling &amp; Chess 960</h2>
+  <ul>
+    <li>Board sizes: 5, 8, 10, 12, 15 (+ Random at menu/game start). Square rendering shrinks automatically.</li>
+    <li>The standard back rank (<span class="mono">makeBackRank</span>) is built symmetrically: King at the centre file, Queen
+      beside it, then Bishops/Knights/Rooks fanning out. <strong>Caveat:</strong> because the back rank is generated from the
+      centre, only certain sizes place a Rook on an edge file. <span class="mono">pseudoMoves</span> requires an edge Rook to
+      castle, so in practice <strong>castling works fully on the 8x8 board only</strong> (15x15 can in principle castle
+      queen-side, since its file-0 square is a Rook; 5x5 / 10x10 / 12x12 have no edge Rooks at all).
+      Known Issues #3.</li>
+    <li><strong>Chess 960</strong> (<span class="mono">RANDOM960</span>): the king is placed on a random file and every other file gets a
+      random piece from the roster (mirrored for both sides). <strong>Castling is disabled in 960 mode.</strong> The 960 back rank may
+      include duplicate pieces and even pawns on the back rank (see Known Issues #4).</li>
+  </ul>
+
+  <h2>10. Online multiplayer (PeerJS)</h2>
+  <ul>
+    <li>Two players, direct peer-to-peer, no server beyond PeerJS's broker. <strong>Host</strong> is authoritative and is assigned
+      White or Black at random (coin flip); the <strong>Guest</strong> gets the other colour and sends only intent commands.</li>
+    <li>Both clients use the same <span class="mono">SEED</span>, so shop/spell/random outcomes replay identically. The host broadcasts
+      full state snapshots after every mutation; the guest renders them and sends commands for its moves/buys/spells/targets.</li>
+    <li>Room codes: <span class="mono">mc</span> + 5 chars. The host's session is saved to <span class="mono">localStorage</span> so a reloaded
+      tab can resume the same room/code; a disconnected guest retries for a 120s grace period.</li>
+    <li>If the host closes the room intentionally, the game ends and the room is closed for good.</li>
+    <li>Controls: <strong>Host Online</strong> (generates a code to share, then waits for the guest to join), <strong>Join</strong> (enter a code), <strong>Close Room</strong>.</li>
+  </ul>
+
+  <h2>11. Seed &amp; determinism</h2>
+  <ul>
+    <li>Every game begins with a random 32-bit <span class="mono">SEED</span> (generated by <span class="mono">newSeed()</span>) displayed at the top
+      ("Seed â€¦"). It is shown but not editable.</li>
+    <li>All randomness (shop rolls, spell rolls, 960 ranks, confused piece moves, Lightning, AI dice, Random board size) flows through
+      <span class="mono">gRng()</span>, a deterministic PRNG seeded by <span class="mono">SEED</span> and a counter.
+      Two clients with the same seed+state reproduce identical games.</li>
+  </ul>
+
+  <h2>12. AI opponent</h2>
+  <ul>
+    <li>The AI plays Black when "Play vs AI" is clicked before a game. It uses minimax with alpha-beta, move ordering, killer &
+      history heuristics, and piece-square tables tuned for 8x8.</li>
+    <li>Search depth depends on board size: depth 3 on 8x8, 2 on 10x10, 1 on 12x12+.</li>
+    <li>It also decides to buy pieces from the shop (<span class="mono">aiConsiderBuy</span>) and place them well â€” unless it is in check,
+      a strong own piece is hanging, or a clearly winning capture is available. It declines shop buys on unsafe squares.</li>
+    <li>Safety nets: if its planned move can't be applied (e.g. a piece became curse-frozen), it plays any legal move
+      (<span class="mono">aiFallbackMove</span>); if it has no moves at all it ends the game as a stalemate draw.</li>
+  </ul>
+
+  <h2>13. Persistent effects (visual hints)</h2>
+  <table>
+    <tr><th>Effect</th><th>Visual</th><th>Details</th></tr>
+    <tr><td>Golden piece</td><td>Gold square glow</td><td>+$1 per capture. 4.95% of shop offers.</td></tr>
+    <tr><td>Platinum piece</td><td>Silver/platinum square glow</td><td>+$3 per capture. 0.05% of shop offers.</td></tr>
+    <tr><td>Bounty (red halo + "$")</td><td>Red halo and $ mark</td><td>Owner earns +$1 when that piece is captured.</td></tr>
+    <tr><td>Piratified (skull badge)</td><td>â˜  marker</td><td>Own piece earns +$2 per capture.</td></tr>
+    <tr><td>Thief (money bag badge)</td><td>ðŸ’° marker</td><td>Own piece steals $1 per capture from opponent.</td></tr>
+    <tr><td>Cursed (skull badge)</td><td>â˜  marker</td><td>Enemy piece loses $1 per move; frozen at $0.</td></tr>
+    <tr><td>Sleeping</td><td>Faded piece + ðŸ’¤</td><td>Cannot move this next turn.</td></tr>
+    <tr><td>Confused</td><td>Wobble + spinning â˜¯</td><td>Next move is random.</td></tr>
+    <tr><td>Wall</td><td>â–£ overlay</td><td>Blocked square (pieces can't move into/through).</td></tr>
+    <tr><td>Extra turn / no capture</td><td>Status text</td><td>Echo-related; captures filtered out of legal moves.</td></tr>
+  </table>
+
+  <h2>14. Key code landmarks (for agents)</h2>
+  <p>All game code lives in the single <span class="mono">&lt;script&gt;</span> of <span class="mono">money-chess.html</span>.
+  The most relevant functions:</p>
+  <ul>
+    <li><span class="mono">initialState()</span> â€” creates a fresh game state (board, money, shop/spell queues, effect lists).</li>
+    <li><span class="mono">pseudoMoves(board, r, c, castling, epTarget, blocked)</span> â€” all piece movement / captures / castle / shoot.</li>
+    <li><span class="mono">legalMoves(s, r, c)</span> â€” filters by sleeping, cursed-frozen, and Echo no-capture rules.</li>
+    <li><span class="mono">squareAttacked(board, r, c, attackerColor)</span> â€” attack map used for king safety, placement, AI.</li>
+    <li><span class="mono">makeMove(fr, fc, move, promoteTo)</span> â€” applies a move to live state, money, captures, effects, turn switch.</li>
+    <li><span class="mono">simulateMove / applyMove</span> â€” move application on cloned boards (history / AI search).</li>
+    <li><span class="mono">buyPiece(id) / placePiece(r,c)</span> â€” shop purchase and placement; both end turns per rules.</li>
+    <li><span class="mono">castSpell(slot) / finishSpell(txt, keepTurn) / applySpellFollowUp() / skipFollowUpSpell()</span> â€” spell pipeline. <span class="mono">finishSpell</span>'s optional <span class="mono">keepTurn</span> flag is set only by <span class="mono">spellEcho</span>: a rolled Echo under Tax Gain RND keeps the caster's turn (its own extra turn) instead of ending it.</li>
+    <li><span class="mono">handleTargetClick(r,c)</span> â€” resolves targeting spells (snipe/wall/sleep/dispel/push/confuse/piratify/thief/curse).</li>
+    <li><span class="mono">spellKillRandom / spellBounty / spellEcho / spellPrecast</span> â€” instant spell bodies.</li>
+    <li><span class="mono">tickShopRefresh()</span> â€” shop &amp; spell refresh cadence (every 4 turns).</li>
+    <li><span class="mono">render() / renderShop() / renderSpells() / updateMoney() / updateStatus()</span> â€” UI building. <span class="mono">render()</span> caps the board square size so the whole grid (any board size) fits the viewport width on phones; a <span class="mono">resize</span> listener (debounced 120 ms, money-chess.html) re-draws so rotation/orientation changes re-fit, and a <span class="mono">@media</span> (max-width: 760px) block compacts the header, wraps the controls/shop/spells, and shrinks the cards.</li>
+    <li><span class="mono">openCatalog("pieces"|"spells") / buildPieceCatalog() / buildSpellCatalog() / makeCatBoard() / catPieceSpan() / catMoves()</span> â€” the Piece &amp; Spell Catalog popups (mini 8x8 demo boards reuse the game's square/piece/effect CSS).</li>
+    <li><span class="mono">reviewBack() / reviewForward() / reviewShow() / reviewExit() / viewStartLive() / cloneStateForReview() / updateHistoryButtons()</span> â€” move review (the <span class="mono">â†</span> <span class="mono">current move</span> <span class="mono">â†’</span> buttons; <span class="mono">updateHistoryButtons()</span> also toggles the middle <span class="mono">current move</span> button, which calls <span class="mono">reviewExit()</span> + <span class="mono">render()</span> to jump straight to the current move). <span class="mono">reviewFrames[i]</span> holds a snapshot of the position after move i (index 0 = starting position, kept in step by <span class="mono">rebuildHistorySel()</span>); if a new move is recorded while <span class="mono">reviewPos &gt;= 0</span>, the review snaps back to the live board so the current position always shows; <span class="mono">render()</span> swaps the live <span class="mono">state</span> for a frame only for the duration of the draw (try/finally), and a document-level capture click handler ignores gameplay clicks while <span class="mono">reviewPos &gt;= 0</span>.</li>
+    <li><span class="mono">openGod() / closeGod() / buildGodPanel() / godSpawnPiece(type) / godCastSpell(id) / godSnipePiece(r,c)</span> â€” the Sandbox God Mode panel; godSpawnPiece mirrors buyPiece's placement setup (incl. the history snapshot Cancel Placement pops), godCastSpell stages the chosen spell into slot 0 and waives cost/limits via a transient <span class="mono">state.godFreeSpell</span> flag honoured by canCast/castSpell; godSnipePiece destroys a piece with no capture money, driven by the godSnipeMode flag consulted in onSquareClick, and stays active until Cancel (any number of pieces).</li>
+    <li><span class="mono">enableAI() / aiMove() / aiConsiderBuy() / aiBestPlacement()</span> â€” AI behaviours.</li>
+    <li><span class="mono">netStartHost() / netJoin() / netOnData() / netAdopt()</span> â€” online multiplayer.</li>
+    <li><span class="mono">gRng() / newSeed()</span> â€” seeded RNG.</li>
+  </ul>
+
+  <h2>15. Known issues, bugs &amp; inconsistencies (to fix later)</h2>
+  <div class="alert">
+    <ol>
+<li><strong>Turn structure is easy to mis-describe:</strong> a turn allows <em>one move or one buy</em>
+        <em>plus</em> one optional spell (spells don't consume the move). The removed in-game tutorial used to say
+        "pick one", which was inaccurate; keep the summary in Â§4 authoritative. Moving automatically ends the turn,
+        so a move and a buy can never both happen in the same turn.</li>
+      <li><strong>Castling is effectively 8x8-only.</strong> <span class="mono">makeBackRank()</span> places a Rook on an edge
+        file only for sides of the board where the generated rank puts one there (king-side on 8x8 &amp; 15x15-left
+        (queen-side), nothing elsewhere), and castle detection requires the edge square to be a Rook. In practice full,
+        both-sides castling only exists on the 8x8 board; the other sizes silently never offer it.</li>
+      <li><strong>Chess 960 back rank is not a shuffled permutation.</strong> The 960 commit message says "the same pieces
+        shuffled into different positions", but <span class="mono">makeRandomBackRank()</span> draws each non-king file
+        independently from the full roster (duplicates possible, pieces can appear 0 times, and pawns can be placed on the
+        back rank). Clarify intent or change to a true permutation.</li>
+      <li><strong>Dead code â€” <span class="mono">PIECE_GLYPH</span>:</strong> defined and never referenced, and its glyph values
+        are wrong/borrowed (e.g. <code>wB</code> is literally the queen glyph â™•). Delete it or use it.</li>
+      <li><strong>Dead / uninitialized state fields:</strong> <span class="mono">didSkip</span> (assigned in
+        <span class="mono">placePiece</span>, copied in clone, never read, never initialized) and
+        <span class="mono">stashSpells</span>/<span class="mono">stashSpellMods</span> (set/read by follow-up logic but never
+        initialized in <span class="mono">initialState()</span>; works only because JS falsy-undefined is checked).</li>
+      <li><strong>Forced self-stalemate under Echo:</strong> Echo's no-capture filter (<span class="mono">noCapture</span>) can
+        leave a player with zero legal moves; <span class="mono">endTurnChecks()</span> then records an instant
+        "Stalemate â€” Draw". A player could be forced into a draw purely by having only capturing moves. Reconsider.</li>
+      <li><strong>Legacy target-mode string "ownPiece":</strong> <span class="mono">updateStatus()</span> still maps a
+        <code>targetMode.kind</code> of <code>"ownPiece"</code>, but <span class="mono">castSpell</span> only ever sets
+        <code>"piratify"</code>. Leftover from an earlier implementation.</li>
+      <li><strong>Duplicate assignment:</strong> <span class="mono">placePiece()</span> assigns <span class="mono">state.lastMove</span>
+        twice (before and after the turn switch) with the same value.</li>
+      <li><strong>Move-history dropdown stays display-only.</strong> Selecting an entry still doesn't rewind the board; the
+        review buttons (â†/â†’) above it do separate the board stepping (each recorded move/buy/skip, not free spell placements).</li>
+      <li><strong>Minor comment inaccuracies:</strong> 960 promo claim vs implementation (see #3); the Fake Knight comment says it
+        "presses forward toward the enemy" while it is direction-symmetric; the pin-ray comment mentions "Aezons" (Amazon).</li>
+      <li><strong>God-cast cancel leaves the staged spell in slot 0:</strong> godCastSpell overwrites the current slot-0
+        offer before castSpell pushes its history snapshot, so cancelling a god-cast targeting spell restores the
+        <em>staged</em> spell (still free-looking offer), not the original random offer. Harmless in Sandbox but a small
+        deviation from normal shop behaviour.</li>
+    </ol>
+  </div>
+
+  <p class="sep">Last updated from money-chess.html (single-file game). If the game rules change, update this document and AGENTS.md accordingly.</p>
+</main>
+</body>
+</html>
+

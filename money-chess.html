@@ -546,6 +546,127 @@
     z-index: 2;
   }
 
+  /* ---- Catalogs (piece & spell reference popups) ---- */
+  #catalogOverlay {
+    position: fixed;
+    inset: 0;
+    z-index: 600;
+    background: rgba(5, 10, 16, 0.75);
+    display: none;
+    align-items: center;
+    justify-content: center;
+  }
+  #catalogPanel {
+    width: min(880px, 94vw);
+    max-height: 84vh;
+    background: #0e1a28;
+    border: 1px solid #4d9fff;
+    border-radius: 12px;
+    display: flex;
+    flex-direction: column;
+    box-shadow: 0 10px 40px rgba(0, 0, 0, 0.6);
+  }
+  #catalogHead {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    padding: 10px 14px;
+    border-bottom: 1px solid #22364c;
+  }
+  #catalogTitle { font-weight: 700; letter-spacing: 2px; color: #ffd24a; }
+  #catalogClose { width: auto; padding: 4px 12px; }
+  #catalogBody {
+    overflow-y: auto;
+    padding: 10px 14px;
+    display: flex;
+    flex-direction: column;
+    gap: 12px;
+  }
+  .cat-row {
+    display: flex;
+    gap: 16px;
+    align-items: center;
+    background: rgba(255, 255, 255, 0.03);
+    border: 1px solid #22364c;
+    border-radius: 10px;
+    padding: 10px;
+  }
+  .cat-boards { display: flex; gap: 12px; align-items: center; flex: 0 0 auto; }
+  .cat-board-wrap { text-align: center; }
+  .cat-caption { font-size: 0.68rem; color: #9fb3c8; margin-top: 3px; max-width: 210px; }
+  .cat-board {
+    position: relative;
+    display: grid;
+    grid-template-columns: repeat(8, 24px);
+    grid-template-rows: repeat(8, 24px);
+    --sq: 24px;
+    border: 2px solid #0b141f;
+  }
+  .cat-info { font-size: 0.85rem; line-height: 1.45; color: #dbe6f0; }
+  .cat-name { font-weight: 700; font-size: 1rem; color: #ffffff; }
+  .cat-cost { color: #ffd24a; font-weight: 600; }
+  .cat-badge {
+    position: absolute;
+    inset: 0;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-size: 1.1rem;
+    font-weight: 800;
+    color: #ffd24a;
+    text-shadow: 0 2px 6px #000, 0 0 12px #000;
+    pointer-events: none;
+    z-index: 4;
+  }
+  /* Scale the fixed-size square markers down inside mini boards */
+  .cat-board .square.selected { box-shadow: inset 0 0 0 2px #4d9fff; }
+  .cat-board .square.legal::after { width: 8px; height: 8px; }
+  .cat-board .square.legal-capture::after { inset: 2px; box-shadow: inset 0 0 0 2px rgba(220, 60, 60, 0.7); }
+  .cat-board .square.blocked-sq::before { font-size: 15px; }
+  .cat-board .square.sleeping::after, .cat-board .square.confused::after { font-size: 9px; }
+  .cat-board .square.lightning::after { font-size: 18px; }
+  .cat-board .square .bounty-mark { font-size: 8px; }
+
+  /* ---- God Mode panel (sandbox) ---- */
+  #godOverlay {
+    position: fixed;
+    inset: 0;
+    z-index: 600;
+    background: rgba(5, 10, 16, 0.75);
+    display: none;
+    align-items: center;
+    justify-content: center;
+  }
+  #godPanel {
+    width: min(640px, 94vw);
+    max-height: 84vh;
+    overflow-y: auto;
+    background: #0e1a28;
+    border: 1px solid #ffd24a;
+    border-radius: 12px;
+    padding: 12px 16px;
+    box-shadow: 0 10px 40px rgba(0, 0, 0, 0.6);
+  }
+  #godHead {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    margin-bottom: 10px;
+    color: #ffd24a;
+    font-weight: 700;
+    letter-spacing: 2px;
+  }
+  #godClose { width: auto; padding: 4px 12px; }
+  .god-section {
+    border-top: 1px solid #22364c;
+    padding: 10px 0;
+  }
+  .god-label { color: #9fb3c8; font-size: 0.85rem; margin-bottom: 6px; }
+  .god-row { display: flex; flex-wrap: wrap; gap: 6px; margin-bottom: 6px; }
+  .god-row button { padding: 5px 9px; font-size: 0.85rem; }
+  .god-row button.active { outline: 2px solid #ffd24a; background: #3a5066; }
+
+
   #pieceTip {
     display: none;
     position: fixed;
@@ -569,8 +690,22 @@
 
 #aiBtn { background:#3a5a3a; border-color:#5a8055; font-weight:600; }
   #aiBtn:hover { background:#4a6f4a; }
-  #sizePicker { display: inline-flex; gap: 6px; align-items: center; }
-  #sizeLabel { font-size: 0.8rem; color: #9fb3c8; }
+  #sizePicker { display: inline-flex; gap: 6px; align-items: center; position: relative; }
+  #sizeMenu {
+    display: none;
+    position: absolute;
+    top: calc(100% + 6px);
+    left: 0;
+    gap: 6px;
+    align-items: center;
+    padding: 8px 10px;
+    background: #0e1a28;
+    border: 1px solid #33465e;
+    border-radius: 8px;
+    box-shadow: 0 8px 24px rgba(0,0,0,0.5);
+    white-space: nowrap;
+    z-index: 500;
+  }
   .sizebtn, #randBtn {
     padding: 5px 9px;
     font-size: 0.8rem;
@@ -598,9 +733,93 @@
   .net-status { font-size: 0.85rem; color: #8fd48f; margin-left: 4px; }
   .net-status.err { color: #ff9a9a; }
 
+  #menuOverlay {
+    position: fixed; inset: 0; z-index: 1000;
+    background: rgba(10, 16, 24, 0.93);
+    display: flex; align-items: center; justify-content: center;
+    padding: 12px;
+  }
+  .menu-panel {
+    background: #1f2c3d;
+    border: 1px solid #3a5066;
+    border-radius: 14px;
+    padding: 28px 32px;
+    width: 440px;
+    max-width: 100%;
+    text-align: center;
+    box-shadow: 0 14px 50px rgba(0,0,0,0.65);
+  }
+  .menu-title { font-size: 2.1rem; letter-spacing: 5px; margin: 0 0 2px; color: #ffd24a; }
+  .menu-sub { color: #9fb3c8; font-size: 0.9rem; margin-bottom: 22px; letter-spacing: 1px; }
+  .menu-screen { display: none; flex-direction: column; gap: 12px; }
+  .menu-screen.active { display: flex; }
+  .menu-btn {
+    display: block; width: 100%; padding: 13px;
+    font-size: 1.05rem; font-weight: 600; letter-spacing: 1px;
+    border: 1px solid #3a5066; border-radius: 8px;
+    background: #2a3a52; color: #e8eef5; cursor: pointer;
+  }
+  .menu-btn:hover { background: #3a4d6b; }
+  .menu-btn.primary { background: #4d9fff; border-color: #7ab8ff; color: #0b141f; }
+  .menu-btn.primary:hover { background: #6cadff; }
+  .menu-btn.back-btn { margin-top: 6px; background: transparent; color: #9fb3c8; border-style: dashed; }
+  .menu-btn.back-btn:hover { color: #e8eef5; background: #223040; }
+  .menu-screen h2 { font-size: 1.4rem; letter-spacing: 3px; margin: 0 0 6px; }
+  .setting-row {
+    display: flex; justify-content: space-between; align-items: center;
+    gap: 12px; padding: 6px 0; text-align: left; font-size: 0.95rem;
+  }
+  .small-btn { width: 96px; padding: 8px 10px; flex: 0 0 auto; }
+
+  /* Phone-friendly: compact the header, allow controls/shop/spells to wrap,
+     and let the board shrink (render() caps the square size to fit). */
+  @media (max-width: 760px) {
+    body { justify-content: flex-start; padding: 8px; overflow-x: hidden; }
+    h1 { font-size: 1.1rem; letter-spacing: 1px; margin: 8px 0 2px; }
+    #status { font-size: 0.92rem; margin-bottom: 8px; }
+    #moneybar { gap: 14px; font-size: 0.95rem; }
+    #controls {
+      flex-wrap: wrap;
+      justify-content: center;
+      gap: 6px;
+      max-width: 100%;
+    }
+    #controls button, #controls select, #controls input {
+      font-size: 0.8rem;
+      padding: 6px 9px;
+    }
+    #historyNav { margin-left: 0; }
+    #shopWrap { max-width: 100%; }
+    #shop, #spells { flex-wrap: wrap; justify-content: center; }
+    .shop-card { width: 62px; height: 62px; }
+    .shop-card .glyph { font-size: 28px; }
+    .spell-card { width: 84px; }
+    .square, .shop-card, .spell-card, button { touch-action: manipulation; }
+  }
+
 </style>
 </head>
 <body>
+  <div id="menuOverlay">
+    <div class="menu-panel">
+      <div class="menu-screen active" id="menuMain">
+        <div class="menu-title">MONEY CHESS</div>
+        <div class="menu-sub">Money, shops, spells &amp; chess</div>
+        <button class="menu-btn primary" id="menuStartBtn">Start Game</button>
+        <button class="menu-btn" id="menuSandboxBtn">Sandbox</button>
+        <button class="menu-btn" id="menuSettingsBtn">Settings</button>
+      </div>
+
+      <div class="menu-screen" id="menuSettings">
+        <h2>Settings</h2>
+        <div class="setting-row">
+          <span>Sound</span>
+          <button id="soundToggle" class="menu-btn small-btn">On</button>
+        </div>
+        <button class="menu-btn back-btn" data-back="menuMain">Back</button>
+      </div>
+    </div>
+  </div>
   <h1>MONEY CHESS</h1>
   <div id="status">White to move</div>
   <div id="seedEl">Seed 1798042622</div>
@@ -619,16 +838,30 @@
     <div id="spells"><div class="card-col"><div class="spell-card"><div class="sname">Echo</div><div class="sglyph">↻</div><div class="sprice">$5</div></div><div class="spell-next"><span class="nxglyph">¤↯</span><span class="nxlabel">NEXT</span></div></div><div class="card-col"><div class="spell-card"><div class="sname">Confusion</div><div class="sglyph">¿</div><div class="sprice">$4</div></div><div class="spell-next"><span class="nxglyph">💰</span><span class="nxlabel">NEXT</span></div></div><div class="card-col"><div class="spell-card"><div class="sname">Wall</div><div class="sglyph">▣</div><div class="sprice">$1</div></div><div class="spell-next"><span class="nxglyph">↻</span><span class="nxlabel">NEXT</span></div></div></div>
   </div>
 <div id="controls">
+    <button id="pieceCatalogBtn">Piece Catalog</button>
+    <button id="spellCatalogBtn">Spell Catalog</button>
+    <button id="godBtn" style="display: none;">God Mode</button>
     <span id="sizePicker" style="display: inline-flex;">
-      <span id="sizeLabel">Board:</span>
-      <button class="sizebtn" data-size="5">5x5</button>
-      <button class="sizebtn active" data-size="8">8x8</button>
-      <button class="sizebtn" data-size="10">10x10</button>
-      <button class="sizebtn" data-size="12">12x12</button>
-      <button class="sizebtn" data-size="15">15x15</button>
-      <button class="sizebtn" data-size="0">Random</button>
-      <button id="randBtn" title="Chess 960: back rank filled with random pieces">960</button>
+      <button id="boardMenuBtn">Board settings</button>
+      <span id="sizeMenu">
+        <button class="sizebtn" data-size="5">5x5</button>
+        <button class="sizebtn active" data-size="8">8x8</button>
+        <button class="sizebtn" data-size="10">10x10</button>
+        <button class="sizebtn" data-size="12">12x12</button>
+        <button class="sizebtn" data-size="15">15x15</button>
+        <button class="sizebtn" data-size="0">Random</button>
+        <button id="randBtn" title="Chess 960: back rank filled with random pieces">960</button>
+      </span>
     </span>
+    <span id="historyNav" style="display: inline-flex; margin-left: 12px;">
+      <button id="historyBack" disabled>←</button>
+      <button id="historyLive" disabled title="Return to current move" style="font-size: 0.7rem; padding: 4px 6px;">current move</button>
+      <button id="historyForward" disabled>→</button>
+    </span>
+    <div id="reviewBanner" style="display: none; position: fixed; top: 0; left: 0; right: 0; z-index: 900; background: #2b3a4a; color: #f0d9b5; padding: 6px 10px; font-size: 0.95rem; justify-content: space-between; align-items: center; box-shadow: 0 2px 6px rgba(0,0,0,0.4);">
+      <span id="reviewBannerText"></span>
+      <button id="reviewResume">Resume live ►</button>
+    </div>
     <button id="aiBtn" style="display: inline-block;">Play vs AI</button>
     <button id="flipBtn">Flip Board</button>
     <button id="resetBtn">Reset</button>
@@ -641,6 +874,54 @@
     <button id="skipBtn" style="display: none;">Skip Turn</button>
     <button id="skipSpellBtn" style="display: none;">Skip Spell</button>
     <select id="history" size="1" style="max-width:200px"></select>
+  </div>
+
+  <div id="godOverlay">
+    <div id="godPanel">
+      <div id="godHead">
+        <span>GOD MODE</span>
+        <button id="godClose">✕ Close</button>
+      </div>
+      <div class="god-section">
+        <div class="god-label">Money</div>
+        <div class="god-row">
+          <button class="god-money" data-color="w" data-amt="1">White +$1</button>
+          <button class="god-money" data-color="w" data-amt="5">White +$5</button>
+          <button class="god-money" data-color="w" data-amt="10">White +$10</button>
+          <button class="god-money" data-color="w" data-amt="25">White +$25</button>
+          <button class="god-money" data-color="b" data-amt="1">Black +$1</button>
+          <button class="god-money" data-color="b" data-amt="5">Black +$5</button>
+          <button class="god-money" data-color="b" data-amt="10">Black +$10</button>
+          <button class="god-money" data-color="b" data-amt="25">Black +$25</button>
+        </div>
+      </div>
+      <div class="god-section">
+        <div class="god-label">Remove a piece (snipe; no capture money awarded)</div>
+        <div class="god-row">
+          <button id="godSnipeBtn">Snipe pieces — click any piece to destroy it</button>
+        </div>
+      </div>
+      <div class="god-section">
+        <div class="god-label">Place a piece (free, uses your move like a shop buy)</div>
+        <div class="god-row" id="godPieceMods"></div>
+        <div class="god-row" id="godPieces"></div>
+      </div>
+      <div class="god-section">
+        <div class="god-label">Cast a spell (free, ignores one-per-turn limits)</div>
+        <div class="god-row" id="godSpellMods"></div>
+        <div class="god-row" id="godSpells"></div>
+      </div>
+    </div>
+  </div>
+
+  <div id="catalogOverlay">
+    <div id="catalogPanel">
+      <div id="catalogHead">
+        <span id="catalogTitle"></span>
+        <button id="catalogClose">✕ Close</button>
+      </div>
+      <div id="catalogBody"></div>
+    </div>
   </div>
 
   <div id="promotion">
@@ -744,6 +1025,10 @@ const PROMO_CHOICES = document.getElementById("promoChoices");
 let state = null;
 let flipped = false;
 let pendingPromotion = null; // {from, to, captured}
+let sandboxMode = false;     // sandbox: local play + God Mode panel
+let godPieceMod = "normal";  // modifier chosen in the God panel for pieces
+let godSpellMod = "normal";  // modifier chosen in the God panel for spells
+let godSnipeMode = false;    // God panel: click pieces to destroy them (no money)
 
 // Build a symmetric back rank of length SIZE: king+queen centered, then
 // bishops, knights and rooks fanning outward (extra columns get more rooks).
@@ -904,8 +1189,8 @@ const SPELLS = {
 dispel:     { name:"Dispel",      cost:3, glyph:"✦",  desc:"Destroy a wall / wake a sleeping piece / clear confusion / clear a pirate or thief mark / remove a bounty" },
   echo:       { name:"Echo",        cost:5, glyph:"↻",  desc:"Take an extra turn; no captures during this & the extra turn" },
   push:       { name:"Push",        cost:3, glyph:"⇦",  desc:"Push a piece back 3 squares (or until blocked)" },
-  precast:    { name:"Freecast",    cost:3, glyph:"♻",  desc:"Cast another spell this turn; the next spell is free" },
-  confuse:    { name:"Confusion",   cost:4, glyph:"¿",  desc:"Target a piece to move randomly next move" },
+  precast:    { name:"Freecast",    cost:3, glyph:"♻",  desc:"Refresh the spell slots, then you can cast one of the spells for free" },
+  confuse:    { name:"Confusion",   cost:4, glyph:"¿",  desc:"Target a piece to move randomly the next time it moves" },
 piratify: { name:"Piratify",   cost:3, glyph:"¤↯", desc:"Marks one of your pieces to earn +$2 per capture (green stripes)" },
   thief:      { name:"Thief",      cost:3, glyph:"💰", desc:"Marks one of your pieces to steal $1 from the opponent each time it captures (can't be used on a piratified piece)" },
 curse:      { name:"Curse",      cost:3, glyph:"☠",  desc:"Curses an enemy piece so it loses $1 every time it moves (permanent until dispelled)" },
@@ -1005,8 +1290,21 @@ gameOver: s.gameOver,
     extraTurns: { w: s.extraTurns.w, b: s.extraTurns.b },
     freeCast: !!s.freeCast,
 didSkip: s.didSkip,
-    taxSkipPending: !!s.taxSkipPending,
+    taxSkipPending: s.taxSkipPending || false,
+    gameStarted: !!s.gameStarted,
+    selected: s.selected ? {r:s.selected.r, c:s.selected.c} : null,
+    legalForSelected: s.legalForSelected ? s.legalForSelected.map(m=>({...m})) : [],
+    lightningStrike: s.lightningStrike ? {...s.lightningStrike} : null,
+    aiOpponent: !!s.aiOpponent,
+    aiColor: s.aiColor || null,
+    nextShop: s.nextShop ? [...s.nextShop] : [],
+    nextSpells: s.nextSpells ? [...s.nextSpells] : [],
   };
+}
+// Review-snapshot of the live state (extra fields render() needs on top of
+// cloneStateForHistory). No RNG, no mutation: it swaps back out after viewing.
+function cloneStateForReview() {
+  return cloneStateForHistory(state);
 }
 
 function inBounds(r,c){ return r>=0&&r<SIZE&&c>=0&&c<SIZE; }
@@ -1733,12 +2031,22 @@ function hasAnyLegalMove(s) {
 
 // ---- Rendering ----
 function render() {
-  hideStaleTooltip();
+  const __liveState = state;
+  if (reviewPos >= 0) {
+    const __frame = reviewFrames[reviewPos];
+    if (__frame) state = __frame;
+  }
+  try {
+    hideStaleTooltip();
   BOARD_EL.innerHTML = "";
   const sqLen = SIZE <= 8 ? 60 : SIZE <= 10 ? 52 : SIZE <= 12 ? 46 : 40;
-  BOARD_EL.style.gridTemplateColumns = `repeat(${SIZE}, ${sqLen}px)`;
-  BOARD_EL.style.gridTemplateRows = `repeat(${SIZE}, ${sqLen}px)`;
-  BOARD_EL.style.setProperty("--sq", sqLen + "px");
+  // Shrink the board to fit narrow screens (phones): keep the whole grid plus a
+  // small margin inside the viewport width.
+  const fitSq = Math.max(2, Math.floor((Math.min(window.innerWidth, 860) - 24) / SIZE));
+  const sq = Math.min(sqLen, fitSq);
+  BOARD_EL.style.gridTemplateColumns = `repeat(${SIZE}, ${sq}px)`;
+  BOARD_EL.style.gridTemplateRows = `repeat(${SIZE}, ${sq}px)`;
+  BOARD_EL.style.setProperty("--sq", sq + "px");
   const checkW = inCheck(state.board, "w") ? findKing(state.board, "w") : null;
   const checkB = inCheck(state.board, "b") ? findKing(state.board, "b") : null;
   for (let i=0;i<SIZE;i++) {
@@ -1854,7 +2162,7 @@ renderShop();
   updateMoney();
   updateStatus();
   document.getElementById("cancelBtn").style.display =
-    (state.placementMode || state.targetMode) ? "inline-block" : "none";
+    (state.placementMode || state.targetMode || godSnipeMode) ? "inline-block" : "none";
 document.getElementById("skipBtn").style.display =
     state.taxSkipPending ? "inline-block" : "none";
   // A 2x/RND follow-up already granted as a free spell can be declined with
@@ -1865,6 +2173,11 @@ document.getElementById("skipBtn").style.display =
      !state.taxSkipPending) ? "inline-block" : "none";
 document.getElementById("aiBtn").style.display =
     (state.aiOpponent || state.gameStarted || state.gameOver || netMode) ? "none" : "inline-block";
+  document.getElementById("godBtn").style.display = sandboxMode ? "inline-block" : "none";
+  // Sandbox is local-only: hide the online play controls.
+  for (const id of ["netHostBtn", "netJoinBtn", "netRoom"]) {
+    document.getElementById(id).style.display = sandboxMode ? "none" : "";
+  }
   document.getElementById("sizePicker").style.display =
     (state.gameStarted || state.gameOver || netMode) ? "none" : "inline-flex";
   document.querySelectorAll(".sizebtn").forEach(b => {
@@ -1876,6 +2189,9 @@ document.getElementById("aiBtn").style.display =
       && !state.placementMode && !state.targetMode && !pendingPromotion) {
     aiThinking = true;
     setTimeout(aiMove, 600);
+  }
+  } finally {
+    state = __liveState;
   }
 }
 
@@ -2466,54 +2782,65 @@ if (p && p.bounty) return true;
 }
 
 function updateStatus() {
-  if (state.gameOver) {
-    const wKing = findKing(state.board, "w");
-    const bKing = findKing(state.board, "b");
-    if (!wKing) STATUS_EL.textContent = "Black wins (king captured)";
-    else if (!bKing) STATUS_EL.textContent = "White wins (king captured)";
-    else STATUS_EL.textContent = "Stalemate — Draw";
-    return;
-  }
-const who = state.turn === "w" ? "White" : "Black";
-  const prefix = RANDOM960 ? "[960] " : "";
-  if (state.taxSkipPending) {
-    STATUS_EL.textContent = `${prefix}${who} — Tax Gain x2: take the free +$3 and pass, or Skip Turn`;
-    return;
-  }
-  if (state.targetMode) {
-    const msgs = {
-      enemyPawn: "click an enemy pawn to snipe",
-      enemyPiece: "click an enemy piece to put to sleep",
-      confuse: "click an enemy piece to confuse (cannot re-target a confused piece)",
-piratify: "click one of your pieces to piratify it (cannot re-target a piratified piece)",
-      thief: "click one of your pieces to make it a thief (cannot be a pirate thief)",
-      curse: "click an enemy piece to curse it (it loses $1 each move)",
-      anyEmpty: "click any empty square to block",
-      dispelable: "click a wall / sleeping / confused / bountied / piratified / thief / cursed piece to dispel",
-      pushable: "click a piece to push it back 3 squares",
-      ownPiece: "click one of your pieces to piratify it",
-    };
-STATUS_EL.textContent = `${prefix}${who} — ${msgs[state.targetMode.kind]||"targeting"} (Cancel to abort)`;
-    return;
-  }
-  if (state.placementMode) {
-    if (state.placementIsSpell) {
-      STATUS_EL.textContent = `${prefix}${who}: place the spawned pawn on your side`;
-    } else {
-      const base = SHOP_PRICE[state.placementPiece] !== undefined ? SHOP_PRICE[state.placementPiece] : PIECE_VALUE[state.placementPiece];
-      const paid = state.placementMod === "pricier"
-        ? base + 1
-        : state.placementMod === "discount" ? Math.max(0, base - 1)
-        : base;
-      STATUS_EL.textContent = `${prefix}${who}: place the ${state.placementPiece} on your side ($${paid} paid)`;
+  const viewing = reviewPos >= 0;
+  try {
+    if (state.gameOver) {
+      const wKing = findKing(state.board, "w");
+      const bKing = findKing(state.board, "b");
+      if (!wKing) STATUS_EL.textContent = "Black wins (king captured)";
+      else if (!bKing) STATUS_EL.textContent = "White wins (king captured)";
+      else STATUS_EL.textContent = "Stalemate — Draw";
+      return;
     }
-    return;
+  const who = state.turn === "w" ? "White" : "Black";
+    const prefix = RANDOM960 ? "[960] " : "";
+    if (state.taxSkipPending) {
+      STATUS_EL.textContent = state.taxSkipPending === "random"
+        ? `${prefix}${who} — Tax Gain RND: cast the free spell to end your turn, or Skip Turn`
+        : `${prefix}${who} — Tax Gain x2: take the free +$3 and pass, or Skip Turn`;
+      return;
+    }
+    if (godSnipeMode) {
+      STATUS_EL.textContent = `${prefix}${who} — God Snipe: click any piece to destroy it (no capture money); Cancel to stop`;
+      return;
+    }
+    if (state.targetMode) {
+      const msgs = {
+        enemyPawn: "click an enemy pawn to snipe",
+        enemyPiece: "click an enemy piece to put to sleep",
+        confuse: "click an enemy piece to confuse (cannot re-target a confused piece)",
+  piratify: "click one of your pieces to piratify it (cannot re-target a piratified piece)",
+        thief: "click one of your pieces to make it a thief (cannot be a pirate thief)",
+        curse: "click an enemy piece to curse it (it loses $1 each move)",
+        anyEmpty: "click any empty square to block",
+        dispelable: "click a wall / sleeping / confused / bountied / piratified / thief / cursed piece to dispel",
+        pushable: "click a piece to push it back 3 squares",
+        ownPiece: "click one of your pieces to piratify it",
+      };
+  STATUS_EL.textContent = `${prefix}${who} — ${msgs[state.targetMode.kind]||"targeting"} (Cancel to abort)`;
+      return;
+    }
+    if (state.placementMode) {
+      if (state.placementIsSpell) {
+        STATUS_EL.textContent = `${prefix}${who}: place the spawned pawn on your side`;
+      } else {
+        const base = SHOP_PRICE[state.placementPiece] !== undefined ? SHOP_PRICE[state.placementPiece] : PIECE_VALUE[state.placementPiece];
+        const paid = state.placementMod === "pricier"
+          ? base + 1
+          : state.placementMod === "discount" ? Math.max(0, base - 1)
+          : base;
+        STATUS_EL.textContent = `${prefix}${who}: place the ${state.placementPiece} on your side ($${paid} paid)`;
+      }
+      return;
+    }
+    let t = `${prefix}${who} to move`;
+    if (state.extraTurns[state.turn] > 0) t += " [extra turn — no captures]";
+    else if (state.noCapture[state.turn] > 0) t += " — no captures this turn";
+    if (inCheck(state.board, state.turn)) t += " — Check!";
+    STATUS_EL.textContent = t;
+  } finally {
+    if (viewing && !state.gameOver) STATUS_EL.textContent += " — reviewing";
   }
-  let t = `${prefix}${who} to move`;
-  if (state.extraTurns[state.turn] > 0) t += " [extra turn — no captures]";
-  else if (state.noCapture[state.turn] > 0) t += " — no captures this turn";
-  if (inCheck(state.board, state.turn)) t += " — Check!";
-  STATUS_EL.textContent = t;
 }
 
 // Glyph markup for a shop piece (shared by the card and its next-piece preview).
@@ -2636,11 +2963,17 @@ function updateMoney() {
 function onSquareClick(e) {
   if (state.gameOver || pendingPromotion) return;
   if (!netCanAct()) return;
-  // Tax Gain 2x decision: movement is locked until the pending free extra is
-  // played or the player chooses Skip Turn.
-  if (state.taxSkipPending) return;
+  // Tax Gain 2x/RND decision: movement is locked until the pending free extra
+  // is played or the player chooses Skip Turn. An RND bonus that needs a
+  // target must still reach handleTargetClick while the decision is pending.
+  if (state.taxSkipPending && !state.targetMode) return;
   const r = +e.currentTarget.dataset.r;
   const c = +e.currentTarget.dataset.c;
+
+  if (godSnipeMode) {
+    godSnipePiece(r, c);
+    return;
+  }
 
   if (state.targetMode) {
     handleTargetClick(r, c);
@@ -2815,6 +3148,7 @@ function settleTurnEnd(color) {
 
 // ---- Spells ----
 function canCast(slotIndex) {
+  if (state.godFreeSpell) return true; // God Mode bypasses cast restrictions
   if (state.gameOver || state.placementMode || state.targetMode || pendingPromotion) return false;
   if (state.taxSkipPending) {
     // 2x decision in progress: the ONLY castable card is the pending free extra
@@ -2834,17 +3168,18 @@ function castSpell(slotIndex) {
   const id = state.spells[slotIndex];
   if (!id) return;
   const sp = SPELLS[id];
+  const godFree = !!state.godFreeSpell; // God Mode: free, chosen modifier kept
   const isFree = !!state.freeCast || state.freeSpellId === id;
   // A spell cast for free (via Freecast, or the extra granted by an RND/double
   // modifier) resolves as a plain spell — the rolled special modifier never
   // applies, so a free pickup can't chain into another "2x"/"RND" offer.
-  const mod = isFree ? "normal" : (state.spellMods[slotIndex] || "normal");
+  const mod = (isFree && !godFree) ? "normal" : (state.spellMods[slotIndex] || "normal");
   const effCost = spellEffCost(id, mod);
   // Precast: the next spell is free. Using the Precast itself is not free.
-  if (!isFree && state.money[state.turn] < effCost) return;
+  if (!isFree && !godFree && state.money[state.turn] < effCost) return;
 
   state.history.push(cloneStateForHistory(state));
-  if (!isFree) state.money[state.turn] -= effCost;
+  if (!isFree && !godFree) state.money[state.turn] -= effCost;
   // Free cast consumed; the target/spell that uses it finished the precast chain.
   state.freeCast = false;
   if (state.freeSpellId === id) state.freeSpellId = null;
@@ -2860,14 +3195,24 @@ function castSpell(slotIndex) {
 
   switch (id) {
     case "moneySkip":
-      if (state.followUpSpell) {
+      if (state.followUpSpell && state.followUpSpell.kind === "double") {
         // Tax Gain 2x: bank the first +$3 but hang on to your turn.
         // You must now either play the second Tax (free) or hit "Skip Turn":
         // while the offer is pending you're locked out of moving pieces and
-        // casting everything except the free Tax.
+        // casting everything except the free Tax. Playing it ends the turn
+        // (a Tax is turn-ending by itself).
         state.money[state.turn] += 3;
         applySpellFollowUp();
-        state.taxSkipPending = true;
+        state.taxSkipPending = "double";
+      } else if (state.followUpSpell) {
+        // Tax Gain RND: bank the +$3 and offer the rolled spell NOW — casting
+        // it (free) ends your turn, or Skip Turn passes without it. The value
+        // "random" (vs "double") lets finishSpell end the turn after the
+        // bonus resolves, and lets targeting spells reach the board while the
+        // decision is pending.
+        state.money[state.turn] += 3;
+        applySpellFollowUp();
+        state.taxSkipPending = "random";
       } else {
         state.taxSkipPending = false;
         spellEndTurnSkip();
@@ -2918,13 +3263,22 @@ case "curse":
   render();
 }
 
-function finishSpell(logTxt) {
+function finishSpell(logTxt, keepTurn) {
   state.spellUsedThisTurn = true;
   state.targetMode = null;
   refillSpells();
   pushSpellLog(logTxt);
   endTurnChecks();
   applySpellFollowUp();
+  // Tax Gain RND decision: the bonus spell WAS the player's turn — pass it
+  // now (no extra $3; that was banked when Tax was cast). The one exception:
+  // a rolled Echo grants its own extra turn, so the caster keeps the turn.
+  if (state.taxSkipPending === "random") {
+    state.taxSkipPending = false;
+    if (keepTurn) { render(); return; }
+    spellEndTurnSkip(false);
+    return;
+  }
   render();
 }
 
@@ -3080,7 +3434,9 @@ function spellEcho(mod) {
   const doubles = mod === "double";
   state.noCapture[state.turn] = doubles ? 3 : 2;  // current move + N extra moves
   state.extraTurns[state.turn] = doubles ? 2 : 1;
-  finishSpell(`${state.turn==="w"?"W":"B"}:Echo${doubles?" x2":""}`);
+  // keepTurn: when Echo is the free spell rolled by a Tax Gain RND, its own
+  // extra turn means the caster keeps the turn (see finishSpell).
+  finishSpell(`${state.turn==="w"?"W":"B"}:Echo${doubles?" x2":""}`, true);
 }
 
 function spellPrecast() {
@@ -3318,7 +3674,7 @@ state.gameOver = prev.gameOver;
       state.followUpOwner = prev.followUpOwner || null;
       state.spellUsedThisTurn = prev.spellUsedThisTurn;
       state.freeCast = !!prev.freeCast;
-state.taxSkipPending = !!prev.taxSkipPending;
+state.taxSkipPending = prev.taxSkipPending || false;
       state.blocked = prev.blocked.map(b=>({...b}));
       state.sleeping = prev.sleeping.map(b=>({...b}));
 state.confused = prev.confused.map(b=>({...b}));
@@ -3373,6 +3729,23 @@ function rebuildHistorySel() {
     HISTORY_SEL.appendChild(opt);
   }
   if (state.moveLog.length) HISTORY_SEL.selectedIndex = HISTORY_SEL.options.length-1;
+  // Keep the ←/→ review frames in step with the move log: truncate dropped
+  // moves (undo), then record the new position (unless online — the guest's
+  // snapshots replace state wholesale, so review is disabled there anyway).
+  if (!netMode) {
+    const addedMove = reviewFrames.length < state.moveLog.length + 1;
+    reviewFrames.length = Math.min(reviewFrames.length, state.moveLog.length + 1);
+    while (reviewFrames.length < state.moveLog.length + 1) reviewFrames.push(cloneStateForReview());
+    if (reviewPos >= 0 && addedMove) {
+      // A new move was played while we were reviewing past moves (e.g. the AI
+      // opponent's reply): jump back to the live board so the newest move shows.
+      reviewPos = -1;
+      document.getElementById("reviewBanner").style.display = "none";
+    } else if (reviewPos >= 0 && reviewPos > reviewFrames.length - 1) {
+      reviewPos = -1;
+    }
+    updateHistoryButtons();
+  }
 }
 
 function showPromotion() {
@@ -3398,10 +3771,11 @@ function reset() {
   aiThinking = false;
   newSeed();
 state = initialState();
-refillShop();
-refillSpells();
-onTurnStart("w");
-render();
+  refillShop();
+  refillSpells();
+  onTurnStart("w");
+  viewStartLive();
+  render();
 }
 
 function enableAI() {
@@ -3416,7 +3790,9 @@ function enableAI() {
 // A short synthesized chime announces when it becomes this player's turn
 // (in online multiplayer, against the AI, or in a hotseat game).
 let dingCtx = null;
+let SOUND_ON = true;
 function playDing() {
+  if (!SOUND_ON) return;
   try {
     const AC = window.AudioContext || window.webkitAudioContext;
     if (!AC) return;
@@ -3923,16 +4299,144 @@ function netCloseRoom() {
   }
 }
 
-document.getElementById("netHostBtn").addEventListener("click", netStartHost);
-document.getElementById("netJoinBtn").addEventListener("click", netJoin);
+document.getElementById("netHostBtn").addEventListener("click", () => { if (!sandboxMode) netStartHost(); });
+  document.getElementById("netJoinBtn").addEventListener("click", () => { if (!sandboxMode) netJoin(); });
 document.getElementById("netCloseBtn").addEventListener("click", netCloseRoom);
 
-document.getElementById("resetBtn").addEventListener("click", () => { if (netMode) return; reset(); });
+document.getElementById("resetBtn").addEventListener("click", () => {
+  if (netMode) return;
+  // Reset also restores the board settings to 8x8 (non-960).
+  SIZE = 8;
+  RANDOM960 = false;
+  reset();
+  // Refresh the active highlight on the size buttons and the 960 toggle so the
+  // UI matches what was just reset.
+  document.querySelectorAll(".sizebtn").forEach(b => b.classList.toggle("active", +b.dataset.size === SIZE));
+  document.getElementById("randBtn").classList.toggle("active", RANDOM960);
+  render();
+});
+function closeSizeMenu() {
+  document.getElementById("sizeMenu").style.display = "none";
+}
+document.getElementById("boardMenuBtn").addEventListener("click", () => {
+  const menu = document.getElementById("sizeMenu");
+  menu.style.display = menu.style.display === "inline-flex" ? "none" : "inline-flex";
+});
+document.addEventListener("click", (e) => {
+  const picker = document.getElementById("sizePicker");
+  const menu = document.getElementById("sizeMenu");
+  if (menu.style.display === "inline-flex" && !picker.contains(e.target)) {
+    menu.style.display = "none";
+  }
+});
 document.getElementById("randBtn").addEventListener("click", () => {
   if (netMode) return;
   RANDOM960 = !RANDOM960;
   reset();
+  closeSizeMenu();
 });
+// ---- Move-review history (←/→) ----
+// reviewFrames[0] = starting position; reviewFrames[i] (i>=1) = position after
+// move i (parallel to moveLog+1). reviewPos = index into reviewFrames being
+// shown, or -1 = the live board. Rendering a past frame swaps the live state
+// out only for the duration of render(), so nothing gameplay-wise changes.
+let reviewPos = -1;
+let reviewFrames = [];
+function viewStartLive() {
+  reviewFrames = [cloneStateForReview()];
+  reviewPos = -1;
+}
+function reviewExit() {
+  reviewPos = -1;
+  document.getElementById("reviewBanner").style.display = "none";
+  updateHistoryButtons();
+}
+function reviewShow() {
+  const cur = reviewFrames[reviewPos];
+  const msgs = {
+    enemyPawn: "click an enemy pawn to snipe",
+    enemyPiece: "click an enemy piece to put to sleep",
+    confuse: "click an enemy piece to confuse (cannot re-target a confused piece)",
+    piratify: "click one of your pieces to piratify it (cannot re-target a piratified piece)",
+    thief: "click one of your pieces to make it a thief (cannot be a pirate thief)",
+    curse: "click an enemy piece to curse it (it loses $1 each move)",
+    anyEmpty: "click any empty square to block",
+    dispelable: "click a wall / sleeping / confused / bountied / piratified / thief / cursed piece to dispel",
+    pushable: "click a piece to push it back 3 squares",
+    ownPiece: "click one of your pieces to piratify it",
+  };
+  const whoTxt = cur && cur.turn ? (cur.turn === "w" ? "White" : "Black") : "";
+  let extra = " to move";
+  if (!cur) extra = "";
+  else if (cur.taxSkipPending) extra = ", Tax Gain 2x/RND decision pending";
+  else if (cur.targetMode) extra = ", " + (msgs[cur.targetMode.kind] || "targeting") + " (Cancel to abort)";
+  else if (cur.placementMode) extra = ", placing " + (cur.placementPiece || "a piece");
+  else if (cur.gameOver) extra = ", game over";
+  document.getElementById("reviewBannerText").textContent =
+    `Reviewing move ${reviewPos} of ${reviewFrames.length - 1} — ${whoTxt}${extra}`;
+  document.getElementById("reviewBanner").style.display = "flex";
+  render();
+}
+function reviewBack() {
+  if (netMode) return;
+  if (reviewPos === -1) {
+    if (reviewFrames.length <= 1) return;   // nothing recorded yet
+    reviewPos = reviewFrames.length - 2;
+  } else if (reviewPos > 0) {
+    reviewPos--;
+  }
+  updateHistoryButtons();
+  reviewShow();
+}
+function reviewForward() {
+  if (netMode) return;
+  if (reviewPos === -1 || reviewPos >= reviewFrames.length - 1) return;
+  reviewPos++;
+  updateHistoryButtons();
+  if (reviewPos === reviewFrames.length - 1) {
+    reviewPos = -1;        // back at the live board
+    document.getElementById("reviewBanner").style.display = "none";
+    render();
+  } else {
+    reviewShow();
+  }
+}
+function updateHistoryButtons() {
+  const back = document.getElementById("historyBack");
+  const fwd = document.getElementById("historyForward");
+  const live = document.getElementById("historyLive");
+  if (netMode) {
+    back.disabled = true;
+    fwd.disabled = true;
+    live.disabled = true;
+    return;
+  }
+  back.disabled = reviewFrames.length <= 1 || reviewPos === 0;
+  fwd.disabled = reviewPos === -1 || reviewPos >= reviewFrames.length - 1;
+  live.disabled = reviewPos === -1;
+}
+document.getElementById("historyBack").addEventListener("click", reviewBack);
+document.getElementById("historyForward").addEventListener("click", reviewForward);
+document.getElementById("historyLive").addEventListener("click", () => {
+  reviewExit();
+  render();
+});
+document.getElementById("reviewResume").addEventListener("click", () => {
+  reviewExit();
+  render();
+});
+// While reviewing a past position, block all gameplay clicks (board squares,
+// shop/spell cards, action buttons) so the live game can't be disturbed from
+// the review view. Only the ←/→ buttons, the middle "live" button and the
+// banner's Resume stay live.
+document.addEventListener("click", (e) => {
+  if (reviewPos < 0) return;
+  const allow = e.target.closest("#historyBack, #historyForward, #historyLive, #reviewResume, #reviewBanner");
+  if (!allow) {
+    e.stopPropagation();
+    e.preventDefault();
+  }
+}, true);
 document.querySelectorAll(".sizebtn").forEach(btn => {
   btn.addEventListener("click", () => {
     if (netMode) return;
@@ -3944,6 +4448,8 @@ document.querySelectorAll(".sizebtn").forEach(btn => {
       SIZE = s;
     }
     reset();
+    viewStartLive();
+    updateHistoryButtons();
   });
 });
 document.getElementById("aiBtn").addEventListener("click", () => { if (netMode) return; enableAI(); });
@@ -3952,6 +4458,7 @@ document.getElementById("flipBtn").addEventListener("click", () => {
   render();
 });
 document.getElementById("cancelBtn").addEventListener("click", () => {
+  if (godSnipeMode) { godSnipeMode = false; render(); return; }
   if (netCanAct()) cancelPlacement();
 });
 document.getElementById("skipBtn").addEventListener("click", () => {
@@ -3964,6 +4471,13 @@ document.getElementById("skipBtn").addEventListener("click", () => {
 // Persist the host session as the tab unloads so an interrupted host game can
 // be resumed after a reload. The guest keeps its grace-period retry running.
 try { window.addEventListener("pagehide", () => { if (netMode === "host") netSaveHostSession(); }); } catch (e) {}
+try {
+  let resizeTimer;
+  window.addEventListener("resize", () => {
+    clearTimeout(resizeTimer);
+    resizeTimer = setTimeout(render, 120);
+  });
+} catch (e) {}
 
 // If this browser was hosting a room before, prefill the room code so a single
 // "Start Host" click resumes the exact same session.
@@ -3976,13 +4490,466 @@ try { window.addEventListener("pagehide", () => { if (netMode === "host") netSav
   }
 }
 
+// Load saved settings (sound) before the board is built.
+{
+  let settings = {};
+  try { settings = JSON.parse(localStorage.getItem("moneyChessSettings")) || {}; } catch (e) {}
+  if (typeof settings.sound === "boolean") SOUND_ON = settings.sound;
+}
+
 newSeed();
 state = initialState();
 refillShop();
 refillSpells();
 onTurnStart("w");
+viewStartLive();
 render();
-</script>
+
+// ---- Main menu ----
+function saveMenuSettings() {
+  try { localStorage.setItem("moneyChessSettings", JSON.stringify({ sound: SOUND_ON })); } catch (e) {}
+}
+function syncMenuSettingsUI() {
+  const soundToggle = document.getElementById("soundToggle");
+  soundToggle.textContent = SOUND_ON ? "On" : "Off";
+}
+function menuShow(id) {
+  document.querySelectorAll(".menu-screen").forEach(s => s.classList.remove("active"));
+  document.getElementById(id).classList.add("active");
+}
+
+document.getElementById("menuSettingsBtn").addEventListener("click", () => {
+  menuShow("menuSettings");
+  syncMenuSettingsUI();
+});
+document.querySelectorAll(".back-btn").forEach(b => b.addEventListener("click", () => menuShow(b.dataset.back)));
+
+document.getElementById("soundToggle").addEventListener("click", () => {
+  SOUND_ON = !SOUND_ON;
+  syncMenuSettingsUI();
+  saveMenuSettings();
+});
+syncMenuSettingsUI();
+
+// ---- Catalogs: piece & spell reference popups ----
+function catPieceSpan(p) {
+  const span = document.createElement("span");
+  span.className = "piece" + (p.bounty ? " bounty" : "");
+  span.style.color = p.color === "w" ? "#ffffff" : "#1a1a1a";
+  if (p.type === "H") {
+    span.classList.add("centaur");
+    span.dataset.side = p.color;
+    span.innerHTML = CENTAUR_SVG;
+  } else if (p.type === "X") {
+    span.classList.add("shooter");
+    span.dataset.side = p.color;
+    span.innerHTML = SHOOTER_IMG;
+  } else if (p.type === "P" || p.type === "D" || p.type === "S") {
+    span.textContent = pawnGlyph();
+    if (p.color === "w") {
+      span.classList.add("pawn-iw");
+      span.style.color = "#000";
+    }
+  } else {
+    span.textContent = GLYPH[p.type];
+  }
+  if ((p.type === "C" || p.type === "G") && p.color === "b") span.classList.add("tint-black");
+  if (p.type === "M" && p.color === "w") span.classList.add("tint-white");
+  if (p.type === "T" && p.color === "b") span.classList.add("cat-black");
+  if (p.type === "S") span.classList.add("soldier");
+  if (p.type === "D") {
+    span.classList.add("dpawn");
+    span.style.setProperty("--dhead", '"\\265F"');
+  }
+  if (p.type === "F") span.classList.add("fakeknight");
+  if (p.type === "A") span.classList.add("amazon");
+  return span;
+}
+
+// Builds an empty 8x8 demo board with helpers used by both catalogs.
+function makeCatBoard() {
+  const el = document.createElement("div");
+  el.className = "cat-board";
+  const cells = [];
+  for (let r = 0; r < 8; r++) {
+    for (let c = 0; c < 8; c++) {
+      const sq = document.createElement("div");
+      sq.className = "square " + (((r + c) % 2 === 0) ? "light" : "dark");
+      el.appendChild(sq);
+      cells.push(sq);
+    }
+  }
+  const api = {
+    el,
+    sq(r, c) { return cells[r * 8 + c]; },
+    put(r, c, type, color) {
+      const span = catPieceSpan({ type, color });
+      this.sq(r, c).appendChild(span);
+      return span;
+    },
+    mark(r, c, cls) { this.sq(r, c).classList.add(cls); },
+    bountyMark(r, c) {
+      const sq = this.sq(r, c);
+      const span = sq.querySelector(".piece");
+      if (span) span.classList.add("bounty");
+      const halo = document.createElement("div");
+      halo.className = "halo";
+      sq.appendChild(halo);
+      const m = document.createElement("div");
+      m.className = "bounty-mark";
+      m.textContent = "$";
+      sq.appendChild(m);
+    },
+    badge(text) {
+      const b = document.createElement("div");
+      b.className = "cat-badge";
+      b.textContent = text;
+      el.appendChild(b);
+    },
+    std() {
+      const back = ["R", "N", "B", "Q", "K", "B", "N", "R"];
+      for (let c = 0; c < 8; c++) {
+        this.put(0, c, back[c], "b");
+        this.put(1, c, "P", "b");
+        this.put(6, c, "P", "w");
+        this.put(7, c, back[c], "w");
+      }
+    }
+  };
+  return api;
+}
+
+// Legal moves for a piece alone on an 8x8 board (as if selected).
+// `extras` optionally places extra pieces so blocker/capture behaviour shows.
+function boardHas(extras, r, c) {
+  return (extras || []).some(e => e.r === r && e.c === c);
+}
+function catMoves(type, extras) {
+  const saved = SIZE;
+  SIZE = 8;
+  const board = Array.from({ length: 8 }, () => Array(8).fill(null));
+  board[4][3] = { type, color: "w" };
+  for (const e of (extras || [])) board[e.r][e.c] = { type: e.type, color: e.color };
+  const moves = pseudoMoves(board, 4, 3, false, null, null);
+  SIZE = saved;
+  return moves;
+}
+
+function catWrap(boardObj, caption) {
+  const wrap = document.createElement("div");
+  wrap.className = "cat-board-wrap";
+  wrap.appendChild(boardObj.el);
+  const cap = document.createElement("div");
+  cap.className = "cat-caption";
+  cap.textContent = caption;
+  wrap.appendChild(cap);
+  return wrap;
+}
+
+function catInfoRow(name, costText, descText) {
+  const info = document.createElement("div");
+  info.className = "cat-info";
+  const nameSpan = document.createElement("span");
+  nameSpan.className = "cat-name";
+  nameSpan.textContent = name;
+  const costSpan = document.createElement("span");
+  costSpan.className = "cat-cost";
+  costSpan.textContent = "  —  " + costText;
+  const desc = document.createElement("div");
+  desc.textContent = descText;
+  info.appendChild(nameSpan);
+  info.appendChild(costSpan);
+  info.appendChild(desc);
+  return info;
+}
+
+function buildPieceCatalog(body) {
+  const types = Object.keys(PIECE_NAME).sort((a, b) => PIECE_NAME[a].localeCompare(PIECE_NAME[b]));
+  for (const t of types) {
+    const row = document.createElement("div");
+    row.className = "cat-row";
+    const boards = document.createElement("div");
+    boards.className = "cat-boards";
+    // Cricket demo: enemy piece 1 diagonal away (step can't capture) and one
+    // 2 diagonals away (the leap jumps and captures it).
+    // Cat demo: enemy pieces 2 squares away in several directions (the leap
+    // jumps and captures them).
+    let extras = null;
+    let caption = "Selected on an empty board — dots show its moves";
+    if (t === "G") {
+      extras = [
+        { r: 3, c: 4, type: "P", color: "b" },
+        { r: 2, c: 5, type: "N", color: "b" },
+      ];
+      caption = "Enemy pieces show its moves: 1-step diagonal never captures; the 2-diagonal leap jumps and captures";
+    } else if (t === "T") {
+      extras = [
+        { r: 3, c: 3, type: "P", color: "b" },
+        { r: 2, c: 3, type: "P", color: "b" },
+        { r: 2, c: 5, type: "N", color: "b" },
+        { r: 4, c: 5, type: "B", color: "b" },
+        { r: 2, c: 4, type: "N", color: "b" },
+      ];
+      caption = "Enemy pieces show its captures: up to 2 squares away in any direction (leaping over the piece in the way) and on knight squares";
+    } else if (t === "X") {
+      extras = [
+        { r: 2, c: 3, type: "P", color: "b" },
+        { r: 2, c: 5, type: "N", color: "b" },
+        { r: 6, c: 1, type: "R", color: "b" },
+        { r: 3, c: 3, type: "P", color: "b" },
+      ];
+      caption = "Enemy pieces show its shots: it shoots anything 2 squares away (the adjacent piece is safe — the 3x3 around it is not attacked). It never captures by moving — its 1-square steps go only to empty squares";
+    }
+    const b = makeCatBoard();
+    b.put(4, 3, t, "w");
+    for (const e of (extras || [])) b.put(e.r, e.c, e.type, e.color);
+    b.mark(4, 3, "selected");
+    for (const m of catMoves(t, extras)) {
+      b.mark(m.r, m.c, boardHas(extras, m.r, m.c) ? "legal-capture" : "legal");
+    }
+    boards.appendChild(catWrap(b, caption));
+    row.appendChild(boards);
+    let cost;
+    if (t === "K" || t === "A") cost = "not sold (" + (t === "K" ? "never in shop" : "promotes from D-Pawns and Soldiers") + ")";
+    else cost = "$" + (SHOP_PRICE[t] !== undefined ? SHOP_PRICE[t] : PIECE_VALUE[t]);
+    row.appendChild(catInfoRow(PIECE_NAME[t], cost, PIECE_MOVES[t] || "—"));
+    body.appendChild(row);
+  }
+}
+
+// Each spell: one or two captioned demo boards (cast view + result view).
+const SPELL_DEMOS = {
+  moneySkip(b) { b.std(); b.badge("+3$"); },
+  killRandom(b) { b.std(); b.mark(0, 1, "lightning"); },
+  killPawnCast(b) { b.std(); for (let c = 0; c < 8; c++) b.mark(1, c, "targetable"); },
+  killPawnDone(b) { b.std(); b.sq(1, 4).innerHTML = ""; },
+  blockCast(b) { b.std(); for (let r = 0; r < 8; r++) for (let c = 0; c < 8; c++) if (!b.sq(r, c).querySelector(".piece")) b.mark(r, c, "targetable"); },
+  blockDone(b) { b.std(); b.mark(3, 4, "blocked-sq"); },
+  sleepCast(b) { b.std(); for (let r = 0; r < 2; r++) for (let c = 0; c < 8; c++) b.mark(r, c, "targetable"); },
+  sleepDone(b) { b.std(); b.mark(0, 1, "sleeping"); },
+  bounty(b) { b.std(); b.bountyMark(7, 1); b.bountyMark(1, 3); b.bountyMark(1, 5); },
+  dispelCast(b) {
+    b.std();
+    b.mark(3, 4, "blocked-sq"); b.mark(3, 4, "targetable");
+    b.mark(0, 1, "sleeping"); b.mark(0, 1, "targetable");
+    b.mark(0, 2, "confused"); b.mark(0, 2, "targetable");
+    b.mark(0, 5, "cursed"); b.mark(0, 5, "targetable");
+    // one of White's knights is piratified; a White bishop is a thief.
+    // Reuse the std() pieces — put() appends, so re-putting would stack
+    // two pieces on the same square.
+    const kn = b.sq(7, 1).querySelector(".piece") || b.put(7, 1, "N", "w");
+    kn.classList.add("piratifyed"); b.mark(7, 1, "targetable");
+    const bi = b.sq(7, 2).querySelector(".piece") || b.put(7, 2, "B", "w");
+    bi.classList.add("thieved"); b.mark(7, 2, "targetable");
+  },
+  dispelDone(b) { b.std(); },
+  echo(b) { b.std(); b.badge("↻ extra turn"); },
+  pushCast(b) {
+    // Sparse position: the black knight has three empty squares behind it
+    // (rows 2..0), so the full 3-square push is legal — std() would leave
+    // every black piece with zero range (row 0 sits on the edge, row 1 is
+    // walled in by the row-0 pieces).
+    b.put(0, 4, "K", "b"); b.put(7, 4, "K", "w");
+    b.put(3, 3, "N", "b");
+    b.mark(3, 3, "targetable");
+  },
+  pushDone(b) {
+    b.put(0, 4, "K", "b"); b.put(7, 4, "K", "w");
+    b.put(0, 3, "N", "b");
+    b.mark(1, 3, "last-move"); b.mark(2, 3, "last-move");
+  },
+  precast(b) { b.std(); b.badge("♻ next spell free"); },
+  confuseCast(b) { b.std(); for (let r = 0; r < 2; r++) for (let c = 0; c < 8; c++) b.mark(r, c, "targetable"); },
+  confuseDone(b) { b.std(); b.mark(0, 2, "confused"); },
+  piratifyCast(b) { b.std(); for (let r = 6; r < 8; r++) for (let c = 0; c < 8; c++) b.mark(r, c, "targetable"); },
+  piratifyDone(b) { b.std(); const kn = b.sq(7, 1).querySelector(".piece"); kn.classList.add("piratifyed"); },
+  thiefCast(b) { b.std(); for (let r = 6; r < 8; r++) for (let c = 0; c < 8; c++) b.mark(r, c, "targetable"); },
+  thiefDone(b) { b.std(); const bi = b.sq(7, 2).querySelector(".piece"); bi.classList.add("thieved"); },
+  curseCast(b) { b.std(); for (let r = 0; r < 2; r++) for (let c = 0; c < 8; c++) b.mark(r, c, "targetable"); },
+  curseDone(b) { b.std(); b.mark(0, 5, "cursed"); }
+};
+
+function buildSpellCatalog(body) {
+  const ids = Object.keys(SPELLS).sort((a, b) => SPELLS[a].name.localeCompare(SPELLS[b].name));
+  for (const id of ids) {
+    const sp = SPELLS[id];
+    const row = document.createElement("div");
+    row.className = "cat-row";
+    const boards = document.createElement("div");
+    boards.className = "cat-boards";
+    const addBoard = (fn, caption) => {
+      const b = makeCatBoard();
+      fn(b);
+      boards.appendChild(catWrap(b, caption));
+    };
+    if (SPELL_DEMOS[id + "Cast"]) {
+      addBoard(SPELL_DEMOS[id + "Cast"], "Casting — pick a target");
+      addBoard(SPELL_DEMOS[id + "Done"], "Result");
+    } else {
+      addBoard(SPELL_DEMOS[id], "In play");
+    }
+    row.appendChild(boards);
+    row.appendChild(catInfoRow(sp.name, "$" + sp.cost, sp.desc));
+    body.appendChild(row);
+  }
+}
+
+function openCatalog(kind) {
+  const body = document.getElementById("catalogBody");
+  body.innerHTML = "";
+  if (kind === "pieces") {
+    document.getElementById("catalogTitle").textContent = "PIECE CATALOG";
+    buildPieceCatalog(body);
+  } else {
+    document.getElementById("catalogTitle").textContent = "SPELL CATALOG";
+    buildSpellCatalog(body);
+  }
+  document.getElementById("catalogOverlay").style.display = "flex";
+}
+function closeCatalog() {
+  document.getElementById("catalogOverlay").style.display = "none";
+}
+document.getElementById("pieceCatalogBtn").addEventListener("click", () => openCatalog("pieces"));
+document.getElementById("spellCatalogBtn").addEventListener("click", () => openCatalog("spells"));
+document.getElementById("catalogClose").addEventListener("click", closeCatalog);
+document.getElementById("catalogOverlay").addEventListener("click", (e) => {
+  if (e.target === e.currentTarget) closeCatalog();
+});
+
+// ---- God Mode (sandbox) ----
+const GOD_PIECE_MODS = ["normal", "golden", "platinum", "pricier", "discount"];
+const GOD_SPELL_MODS = ["normal", "cheap", "pricier", "double", "random"];
+
+function godModLabel(m) {
+  if (m === "golden") return "Golden";
+  if (m === "platinum") return "Platinum";
+  if (m === "pricier") return "+$1 price";
+  if (m === "discount") return "-$1 price";
+  if (m === "cheap") return "-$1 cost";
+  if (m === "double") return "Double (2x)";
+  if (m === "random") return "RND extra";
+  return "Normal";
+}
+
+function buildGodRow(containerId, values, current, onPick) {
+  const box = document.getElementById(containerId);
+  box.innerHTML = "";
+  for (const v of values) {
+    const btn = document.createElement("button");
+    btn.textContent = godModLabel(v);
+    btn.classList.toggle("active", v === current);
+    btn.addEventListener("click", () => { onPick(v); buildGodPanel(); });
+    box.appendChild(btn);
+  }
+}
+
+function buildGodPanel() {
+  buildGodRow("godPieceMods", GOD_PIECE_MODS, godPieceMod, v => godPieceMod = v);
+  buildGodRow("godSpellMods", GOD_SPELL_MODS, godSpellMod, v => godSpellMod = v);
+  const pieces = document.getElementById("godPieces");
+  if (!pieces.dataset.built) {
+    for (const t of SHOP_POOL) {
+      const btn = document.createElement("button");
+      btn.textContent = GLYPH[t] + " " + PIECE_NAME[t];
+      btn.title = PIECE_MOVES[t] || "";
+      btn.addEventListener("click", () => godSpawnPiece(t));
+      pieces.appendChild(btn);
+    }
+    pieces.dataset.built = "1";
+  }
+  const spells = document.getElementById("godSpells");
+  if (!spells.dataset.built) {
+    for (const id of Object.keys(SPELLS)) {
+      const btn = document.createElement("button");
+      btn.textContent = SPELLS[id].glyph + " " + SPELLS[id].name;
+      btn.title = SPELLS[id].desc;
+      btn.addEventListener("click", () => godCastSpell(id));
+      spells.appendChild(btn);
+    }
+    spells.dataset.built = "1";
+  }
+}
+
+function openGod() {
+  godSnipeMode = false;   // opening the panel ends any active snipe mode
+  buildGodPanel();
+  document.getElementById("godOverlay").style.display = "flex";
+}
+function closeGod() {
+  document.getElementById("godOverlay").style.display = "none";
+}
+document.getElementById("godBtn").addEventListener("click", openGod);
+document.getElementById("godClose").addEventListener("click", closeGod);
+document.getElementById("godOverlay").addEventListener("click", (e) => {
+  if (e.target === e.currentTarget) closeGod();
+});
+document.querySelectorAll(".god-money").forEach(b => b.addEventListener("click", () => {
+  state.money[b.dataset.color] += +b.dataset.amt;
+  updateMoney();
+}));
+document.getElementById("godSnipeBtn").addEventListener("click", () => {
+  if (state.gameOver) return;
+  closeGod();
+  godSnipeMode = true;
+  state.selected = null;
+  state.legalForSelected = [];
+  render();
+});
+
+// God Mode: destroy a piece without awarding capture money, staying in snipe
+// mode so any number of pieces can be removed. Not logged in the move list
+// and no history snapshot (pure board edit) — sandbox/local only.
+function godSnipePiece(r, c) {
+  if (state.gameOver) { godSnipeMode = false; render(); return; }
+  const p = state.board[r][c];
+  if (!p) { render(); return; }
+  state.board[r][c] = null;
+  clearPieceEffects(r, c);
+  if (p.type === "K") state.gameOver = true;
+  viewStartLive();
+  render();
+}
+
+// God Mode: free shop-style placement of any piece with any modifier.
+// Mirrors buyPiece()'s placement setup (incl. the history snapshot that
+// Cancel Placement pops) but skips cost and shop-slot consumption.
+function godSpawnPiece(type) {
+  closeGod();
+  if (state.gameOver || state.placementMode || state.targetMode || pendingPromotion) return;
+  state.gameStarted = true;
+  state.history.push(cloneStateForHistory(state));
+  state.placementMode = true;
+  state.placementPiece = type;
+  state.placementMod = godPieceMod;
+  state.placementIsSpell = false;
+  state.placementSpellId = null;
+  state.selected = null;
+  state.legalForSelected = [];
+  render();
+}
+
+// God Mode: cast any spell for free with a chosen modifier. The spell is
+// staged into slot 0 so castSpell's normal pipeline (targeting, follow-ups,
+// logs, reshuffle) runs unchanged; godFreeSpell only waives the cost/limits.
+function godCastSpell(id) {
+  closeGod();
+  state.spells[0] = id;
+  state.spellMods[0] = godSpellMod;
+  state.godFreeSpell = id;
+  castSpell(0);
+  state.godFreeSpell = null;
+}
+
+document.getElementById("menuStartBtn").addEventListener("click", () => {
+  sandboxMode = false;
+  document.getElementById("menuOverlay").style.display = "none";
+  reset();
+});
+document.getElementById("menuSandboxBtn").addEventListener("click", () => {
+  sandboxMode = true;
+  document.getElementById("menuOverlay").style.display = "none";
+  reset();
+});</script>
 
 
 </body></html>
