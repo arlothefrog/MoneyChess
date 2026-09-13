@@ -858,6 +858,14 @@
             <span id="soundPct">100%</span>
           </div>
         </div>
+        <div class="setting-row">
+          <span>Music</span>
+          <button id="musicToggle" class="menu-btn small-btn">On</button>
+        </div>
+        <div class="setting-row">
+          <span>Turn notifier</span>
+          <button id="dingToggle" class="menu-btn small-btn">On</button>
+        </div>
         <button class="menu-btn back-btn" data-back="menuMain">Back</button>
       </div>
     </div>
@@ -872,6 +880,14 @@
           <input type="range" id="gameSoundSlider" min="0" max="100" step="1" value="100" aria-label="Sound volume">
           <span id="gameSoundPct">100%</span>
         </div>
+      </div>
+      <div class="setting-row">
+        <span>Music</span>
+        <button id="gameMusicToggle" class="menu-btn small-btn">On</button>
+      </div>
+      <div class="setting-row">
+        <span>Turn notifier</span>
+        <button id="gameDingToggle" class="menu-btn small-btn">On</button>
       </div>
       <button class="menu-btn" id="quitToMenuBtn">Quit to menu</button>
       <button class="menu-btn" id="gameSettingsClose">Resume</button>
@@ -3983,8 +3999,10 @@ function enableAI() {
 // (in online multiplayer, against the AI, or in a hotseat game).
 let dingCtx = null;
 let SOUND_VOLUME = 100; // 0..100 percent
+let DING_ON = true;     // turn-notifier chime on/off
+let MUSIC_ON = true;    // ambient piano on/off
 function playDing() {
-  if (SOUND_VOLUME <= 0) return;
+  if (!DING_ON || SOUND_VOLUME <= 0) return;
   try {
     const AC = window.AudioContext || window.webkitAudioContext;
     if (!AC) return;
@@ -4018,6 +4036,100 @@ function turnIsMine(color) {
 function dingOnMyTurn() {
   if (state.gameStarted && turnIsMine(state.turn)) playDing();
 }
+
+// ============ CALM PIANO (always on) ============
+// A gentle, synthesized music-box piano loop that plays the whole time the
+// game is open (menu and play alike). Each note is a plucked tone (sine
+// partials through a soft low-pass) with a long decay, so the arpeggio layers
+// into a sparse, calm wash. The loudness follows SOUND_VOLUME, so lowering the
+// volume to 0 mutes it too.
+let menuMusicCtx = null;
+let menuMusicTimer = null;
+let menuMusicStep = 0;
+function midiHz(m) { return 440 * Math.pow(2, (m - 69) / 12); }
+// A longer, wandering loop: 8 chords x 8 steps (~26 s) with alternating
+// arpeggio contours, a soft octave-lower bass on beats 1 and 3, and gentle
+// dynamic shaping, so no two bars sound alike.
+const MENU_STEP_MS = 400;
+const MENU_TMPL = [
+  [0, 1, 2, 3], [3, 1, 2, 0], [1, 2, 3, 0], [0, 2, 1, 3],
+  [2, 3, 1, 0], [1, 0, 2, 3],
+];
+const MENU_VEL = [1.0, 0.55, 0.75, 0.9, 0.7, 0.45, 0.65, 0.55]; // per step
+const MENU_CHORDS = [
+  { notes: [60, 64, 67, 71], bass: 48, shape: 0 },  // Cmaj7
+  { notes: [57, 60, 64, 67], bass: 45, shape: 1 },  // Am7
+  { notes: [53, 57, 60, 64], bass: 41, shape: 2 },  // Fmaj7
+  { notes: [55, 59, 62, 67], bass: 43, shape: 3 },  // G
+  { notes: [52, 55, 59, 62], bass: 40, shape: 4 },  // Em7
+  { notes: [50, 53, 57, 60], bass: 38, shape: 5 },  // Dm7
+  { notes: [57, 60, 64, 71], bass: 45, shape: 0 },  // Am9
+  { notes: [60, 64, 67, 72], bass: 48, shape: 1 },  // C
+];
+const MENU_STEPS = [];
+for (const ch of MENU_CHORDS) {
+  const tm = MENU_TMPL[ch.shape % MENU_TMPL.length];
+  const contour = tm.concat(tm.slice().reverse());
+  for (let s = 0; s < contour.length; s++) {
+    const step = [];
+    if (s === 0 || s === 4) step.push({ f: midiHz(ch.bass), v: 0.5 }); // left hand
+    step.push({ f: midiHz(ch.notes[contour[s]]), v: MENU_VEL[s] });
+    MENU_STEPS.push(step);
+  }
+}
+function spawnMenuNote(t, f, vel) {
+  const vol = Math.max((SOUND_VOLUME / 100) * 0.18 * vel, 0.0001); // calm: below the ding
+  const g = menuMusicCtx.createGain();
+  const lp = menuMusicCtx.createBiquadFilter();
+  lp.type = "lowpass"; lp.frequency.value = 2400; lp.Q.value = 0.5;
+  g.gain.setValueAtTime(0.0001, t);
+  g.gain.exponentialRampToValueAtTime(vol, t + 0.03);
+  g.gain.exponentialRampToValueAtTime(0.0001, t + 3.0);
+  const partials = [[1, 1], [2, 0.28], [3, 0.1]];
+  for (const [mult, amp] of partials) {
+    const o = menuMusicCtx.createOscillator();
+    o.type = "sine";
+    o.frequency.setValueAtTime(f * mult, t);
+    const og = menuMusicCtx.createGain();
+    og.gain.value = amp;
+    o.connect(og);
+    og.connect(lp);
+    o.start(t);
+    o.stop(t + 3.2);
+  }
+  lp.connect(g);
+  g.connect(menuMusicCtx.destination);
+}
+function menuMusicTick() {
+  if (!menuMusicCtx || menuMusicCtx.state !== "running") return;
+  const t = menuMusicCtx.currentTime + 0.06;
+  for (const n of MENU_STEPS[menuMusicStep % MENU_STEPS.length]) spawnMenuNote(t, n.f, n.v);
+  menuMusicStep++;
+}
+function startMenuMusic() {
+  const AC = window.AudioContext || window.webkitAudioContext;
+  if (!AC || menuMusicTimer !== null) return;
+  if (!menuMusicCtx) menuMusicCtx = new AC();
+  if (menuMusicCtx.state === "suspended") menuMusicCtx.resume().catch(() => {});
+  menuMusicTimer = setInterval(menuMusicTick, MENU_STEP_MS);
+}
+function stopMenuMusic() {
+  if (menuMusicTimer !== null) { clearInterval(menuMusicTimer); menuMusicTimer = null; }
+}
+function updateMenuMusic() {
+  if (MUSIC_ON && SOUND_VOLUME > 0) startMenuMusic();
+  else stopMenuMusic();
+}
+// The browser's autoplay policy keeps a freshly created AudioContext suspended
+// until the first user gesture, so hook any interaction to wake it up.
+function resumeMenuMusic() {
+  if (menuMusicCtx && menuMusicCtx.state === "suspended") menuMusicCtx.resume().catch(() => {});
+}
+document.addEventListener("pointerdown", resumeMenuMusic);
+document.addEventListener("keydown", resumeMenuMusic);
+document.addEventListener("touchstart", resumeMenuMusic, { passive: true });
+updateMenuMusic();
+setInterval(updateMenuMusic, 1000);
 
 
 // ============ ONLINE MULTIPLAYER (PeerJS P2P) ============
@@ -4689,7 +4801,10 @@ try {
   try { settings = JSON.parse(localStorage.getItem("moneyChessSettings")) || {}; } catch (e) {}
   if (typeof settings.volume === "number") SOUND_VOLUME = settings.volume;
   else if (typeof settings.sound === "boolean") SOUND_VOLUME = settings.sound ? 100 : 0; // legacy on/off
+  if (typeof settings.musicOn === "boolean") MUSIC_ON = settings.musicOn;
+  if (typeof settings.dingOn === "boolean") DING_ON = settings.dingOn;
 }
+updateMenuMusic(); // apply a stored music off/mute immediately
 
 newSeed();
 state = initialState();
@@ -4701,7 +4816,7 @@ render();
 
 // ---- Main menu ----
 function saveMenuSettings() {
-  try { localStorage.setItem("moneyChessSettings", JSON.stringify({ volume: SOUND_VOLUME })); } catch (e) {}
+  try { localStorage.setItem("moneyChessSettings", JSON.stringify({ volume: SOUND_VOLUME, musicOn: MUSIC_ON, dingOn: DING_ON })); } catch (e) {}
 }
 function syncVolumeUI() {
   for (const [slId, pctId] of [["soundSlider", "soundPct"], ["gameSoundSlider", "gameSoundPct"]]) {
@@ -4709,6 +4824,15 @@ function syncVolumeUI() {
     const pct = document.getElementById(pctId);
     if (slider) slider.value = SOUND_VOLUME;
     if (pct) pct.textContent = Math.round(SOUND_VOLUME) + "%";
+  }
+}
+function syncTogglesUI() {
+  for (const pair of [["musicToggle", "gameMusicToggle", "MUSIC_ON"], ["dingToggle", "gameDingToggle", "DING_ON"]]) {
+    const on = pair[2] === "MUSIC_ON" ? MUSIC_ON : DING_ON;
+    for (const id of [pair[0], pair[1]]) {
+      const b = document.getElementById(id);
+      if (b) b.textContent = on ? "On" : "Off";
+    }
   }
 }
 function menuShow(id) {
@@ -4719,6 +4843,7 @@ function menuShow(id) {
 document.getElementById("menuSettingsBtn").addEventListener("click", () => {
   menuShow("menuSettings");
   syncVolumeUI();
+  syncTogglesUI();
 });
 document.querySelectorAll(".back-btn").forEach(b => b.addEventListener("click", () => menuShow(b.dataset.back)));
 
@@ -4727,13 +4852,31 @@ for (const id of ["soundSlider", "gameSoundSlider"]) {
     SOUND_VOLUME = +e.target.value;
     syncVolumeUI();
     saveMenuSettings();
+    updateMenuMusic();
+  });
+}
+for (const id of ["musicToggle", "gameMusicToggle"]) {
+  document.getElementById(id).addEventListener("click", () => {
+    MUSIC_ON = !MUSIC_ON;
+    syncTogglesUI();
+    updateMenuMusic();
+    saveMenuSettings();
+  });
+}
+for (const id of ["dingToggle", "gameDingToggle"]) {
+  document.getElementById(id).addEventListener("click", () => {
+    DING_ON = !DING_ON;
+    syncTogglesUI();
+    saveMenuSettings();
   });
 }
 syncVolumeUI();
+syncTogglesUI();
 
 // ---- In-game settings (top-right button): volume slider + quit to menu ----
 function openGameSettings() {
   syncVolumeUI();
+  syncTogglesUI();
   document.getElementById("gameSettings").style.display = "flex";
 }
 function closeGameSettings() {
@@ -4749,6 +4892,7 @@ document.getElementById("quitToMenuBtn").addEventListener("click", () => {
   sandboxMode = false;
   document.getElementById("menuOverlay").style.display = "flex";
   menuShow("menuMain");
+  updateMenuMusic();
 })
 
 // ---- Catalogs: piece & spell reference popups ----
@@ -5197,11 +5341,13 @@ function godCastSpell(id) {
 document.getElementById("menuStartBtn").addEventListener("click", () => {
   sandboxMode = false;
   document.getElementById("menuOverlay").style.display = "none";
+  updateMenuMusic();
   reset();
 });
 document.getElementById("menuSandboxBtn").addEventListener("click", () => {
   sandboxMode = true;
   document.getElementById("menuOverlay").style.display = "none";
+  updateMenuMusic();
   reset();
 });</script>
 
