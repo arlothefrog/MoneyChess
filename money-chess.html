@@ -1173,8 +1173,8 @@ function refillShop() {
 }
 
 // Effective shop price for an entry, honoring free / pricier modifiers.
-// The rat is discounted and the cat is marked up, so their shop costs
-// differ from their capture values.
+// The rat is discounted and the cat/shooter are marked up; capturing a shop
+// piece pays half its shop price (see makeMove), so these two stay in sync.
 const SHOP_PRICE = { M: 4, T: 6, X: 7 };
 function shopPrice(e) {
   const base = SHOP_PRICE[e.p] !== undefined ? SHOP_PRICE[e.p] : PIECE_VALUE[e.p];
@@ -1909,11 +1909,13 @@ function makeMove(fr, fc, move, promoteTo) {
   state.castling = sim.castling;
   state.epTarget = sim.epTarget;
 
-// Captures: mover earns half the captured piece's value; bounty adds $1 on top.
+// Captures: mover earns half the captured piece's value (shop price for shop
+// pieces, else PIECE_VALUE); bounty adds $1 on top.
   if (capturedAny) {
     const cap = captured || capturedEP;
     const capType = captured ? captured.type : "P"; // en passant captures a pawn
-    state.money[p.color] += Math.floor(PIECE_VALUE[capType] / 2);
+    const dropV = SHOP_PRICE[capType] !== undefined ? SHOP_PRICE[capType] : PIECE_VALUE[capType];
+    state.money[p.color] += Math.floor(dropV / 2);
     if (cap && cap.bounty) applyBountyIfAny(cap);   // +$1 to bounty owner (stacks)
 // Plunder: a plundering piece earns +$1 for every capture
     if (state.piratify.some(x => x.r===fr && x.c===fc)) state.money[p.color] += 2;
@@ -4919,7 +4921,7 @@ const SPELL_DEMOS = {
   curseDone(b) { b.std(); b.mark(0, 5, "cursed"); },
   shieldCast(b) { b.std(); for (let r = 6; r < 8; r++) for (let c = 0; c < 8; c++) if (b.sq(r, c).querySelector(".piece")) b.mark(r, c, "targetable"); },
   shieldDone(b) { b.std(); b.mark(7, 1, "shielded"); },
-  swapCast(b) { b.std(); for (const rc of [[7,1],[7,2],[7,5],[7,6],[6,1],[6,2],[6,5],[6,6]]) b.mark(rc[0], rc[1], "targetable"); },
+  swapCast(b) { b.std(); for (let r = 6; r < 8; r++) for (let c = 0; c < 8; c++) if (b.sq(r, c).querySelector(".piece") && !(r === 7 && c === 4)) b.mark(r, c, "targetable"); },
   swapDone(b) { b.std(); b.mark(7, 1, "swapped"); b.mark(7, 2, "swapped"); b.mark(7, 1, "last-move"); b.mark(7, 2, "last-move"); },
   sacrificeCast(b) { b.std(); for (let r = 6; r < 8; r++) for (let c = 0; c < 8; c++) if (b.sq(r, c).querySelector(".piece") && !(r === 7 && c === 4)) b.mark(r, c, "targetable"); },
   sacrificeDone(b) { b.std(); b.sq(7, 1).innerHTML = ""; b.mark(7, 1, "last-move"); }

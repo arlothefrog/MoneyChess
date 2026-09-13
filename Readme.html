@@ -172,7 +172,7 @@
   <h2>5. Money &amp; economy</h2>
   <ul>
     <li>Each player starts with <strong>$10</strong> (<span class="mono">initialState()</span>).</li>
-    <li><strong>Capturing</strong> earns the mover <code>floor(value/2)</code> of the captured piece (e.g. pawn&nbsp;0, knight/bishop&nbsp;1, rook&nbsp;2, queen&nbsp;4, cat&nbsp;2, Amazon&nbsp;6).</li>
+    <li><strong>Capturing</strong> earns the mover <code>floor(value/2)</code> of the captured piece, where value is its <em>shop</em> price for shop pieces (rat&nbsp;$4&#8594;2, cat&nbsp;$6&#8594;3, shooter&nbsp;$7&#8594;3) and <span class="mono">PIECE_VALUE</span> otherwise (pawn&nbsp;0, knight/bishop&nbsp;1, rook&nbsp;2, queen&nbsp;4, Amazon&nbsp;6).</li>
     <li>Bounties add +$1; golden pieces +$1 per capture; platinum +$3 per capture; piratified pieces +$2 per capture; thieves take $1 from the opponent per capture.</li>
     <li><strong>Tax Gain</strong> (+$3 and skip turn) is the classic money "generation" spell; <strong>Sacrifice</strong> ($1) liquefies one of your non-king pieces into its purchase value.</li>
     <li>Money is spent on <strong>shop pieces</strong> and on <strong>spell card costs</strong> (spells charge their printed price but do not consume your move).</li>
@@ -186,8 +186,8 @@
   </div>
 
   <h2>6. Pieces</h2>
-  <p>Internal letters (<span class="mono">type</span>), names, movement and matching shop prices
-  (<span class="mono">PIECE_VALUE</span>, with shop overrides <span class="mono">SHOP_PRICE.M = 4</span> for the Rat and <span class="mono">SHOP_PRICE.T = 6</span> for the Cat):</p>
+<p>Internal letters (<span class="mono">type</span>), names, movement and matching shop prices
+  (<span class="mono">PIECE_VALUE</span>, with shop overrides <span class="mono">SHOP_PRICE.M = 4</span> for the Rat, <span class="mono">SHOP_PRICE.T = 6</span> for the Cat and <span class="mono">SHOP_PRICE.X = 7</span> for the Shooter):</p>
   <table>
     <tr><th>Letter</th><th>Name</th><th>Glyph</th><th>Shop</th><th>Movement (per code)</th></tr>
     <tr><td>P</td><td>Pawn</td><td>â™Ÿ</td><td>$1</td><td>Move 1 forward (2 from start); capture diagonally forward; en passant (only while the just-double-stepped enemy pawn still stands beside the mover &#8212; a spell that relocates the pawn cancels the capture); promotes to queen on last rank.</td></tr>
@@ -202,9 +202,9 @@
     <tr><td>G</td><td>Cricket</td><td>ðŸ¦—</td><td>$1</td><td>1 diagonal step (move only) or 2-square diagonal leap (can jump &amp; capture).</td></tr>
     <tr><td>A</td><td>Amazon</td><td>â™ž+crown</td><td>$12*</td><td>Queen + knight moves. Only obtained via D/S auto-promotion (its shop price exists only for reference; it is not in the shop pool).</td></tr>
     <tr><td>H</td><td>Centaur</td><td>ðŸ¦„-like</td><td>$7</td><td>Knight + king moves.</td></tr>
-    <tr><td>M</td><td>Rat</td><td>ðŸ€</td><td>$4</td><td>Slides up to 2 squares in any of 8 directions; cannot jump.</td></tr>
-    <tr><td>T</td><td>Cat</td><td>ðŸ±</td><td>$6</td><td>Moves 1 square any of 8 directions; captures up to 2 away in those directions (leaps) and on knight squares (capture only, cannot land there). Shop price $6, capture value $5.</td></tr>
-    <tr><td>X</td><td>Shooter</td><td>sprite</td><td>$7</td><td>Moves 1 to an <em>empty</em> adjacent square (any direction, no capture-by-landing); instead shoots an enemy at Chebyshev distance exactly 2 (the 5Ã—5 ring), destroying it without moving.</td></tr>
+<tr><td>M</td><td>Rat</td><td>ðŸ€</td><td>$4</td><td>Slides up to 2 squares in any of 8 directions; cannot jump. Shop price $4, capture pays $2.</td></tr>
+    <tr><td>T</td><td>Cat</td><td>ðŸ±</td><td>$6</td><td>Moves 1 square any of 8 directions; captures up to 2 away in those directions (leaps) and on knight squares (capture only, cannot land there). Shop price $6, capture pays $3.</td></tr>
+    <tr><td>X</td><td>Shooter</td><td>sprite</td><td>$7</td><td>Moves 1 to an <em>empty</em> adjacent square (any direction, no capture-by-landing); instead shoots an enemy at Chebyshev distance exactly 2 (the 5Ã—5 ring), destroying it without moving. Shop price $7, capture pays $3.</td></tr>
     <tr><td>F</td><td>Fake Knight</td><td>â™ž-flip</td><td>$4</td><td>Slides 1â€“2 straight in any direction, or 2 straight then 1 sideways; may move or capture at any square on the path; <em>cannot jump</em>.</td></tr>
   </table>
   <p>
