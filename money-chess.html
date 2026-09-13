@@ -31,6 +31,14 @@
     text-align: center;
     user-select: all;
   }
+  #lastMoveLine {
+    margin: 6px 0 2px;
+    font-size: 0.95rem;
+    font-weight: 600;
+    color: #ffd24a;
+    min-height: 1.3em;
+    text-align: center;
+  }
   #board {
     display: grid;
     grid-template-columns: repeat(8, 60px);
@@ -51,6 +59,18 @@
   }
   .light { background: #f0d9b5; color: #000; }
   .dark  { background: #b58863; color: #000; }
+  .square .sqcoord {
+    position: absolute;
+    top: 1px;
+    left: 3px;
+    font-size: calc(var(--sq, 60px) * 0.22);
+    font-weight: 700;
+    line-height: 1;
+    pointer-events: none;
+    opacity: 0.85;
+  }
+  .square.light .sqcoord { color: #8a5a2b; }
+  .square.dark  .sqcoord { color: #f0d9b5; }
   .square .piece { pointer-events: none; }
   .square.selected { box-shadow: inset 0 0 0 4px #4d9fff; }
   .square.legal::after {
@@ -902,6 +922,7 @@
   </div>
   <div id="board" style="grid-template-columns: repeat(8, 60px); grid-template-rows: repeat(8, 60px); --sq: 60px;"><div class="square light" data-r="0" data-c="0"><span class="piece" style="color: rgb(26, 26, 26);">♜</span></div><div class="square dark" data-r="0" data-c="1"><span class="piece" style="color: rgb(26, 26, 26);">♞</span></div><div class="square light" data-r="0" data-c="2"><span class="piece" style="color: rgb(26, 26, 26);">♝</span></div><div class="square dark" data-r="0" data-c="3"><span class="piece" style="color: rgb(26, 26, 26);">♛</span></div><div class="square light" data-r="0" data-c="4"><span class="piece" style="color: rgb(26, 26, 26);">♚</span></div><div class="square dark" data-r="0" data-c="5"><span class="piece" style="color: rgb(26, 26, 26);">♝</span></div><div class="square light" data-r="0" data-c="6"><span class="piece" style="color: rgb(26, 26, 26);">♞</span></div><div class="square dark" data-r="0" data-c="7"><span class="piece" style="color: rgb(26, 26, 26);">♜</span></div><div class="square dark" data-r="1" data-c="0"><span class="piece" style="color: rgb(26, 26, 26);">♟︎</span></div><div class="square light" data-r="1" data-c="1"><span class="piece" style="color: rgb(26, 26, 26);">♟︎</span></div><div class="square dark" data-r="1" data-c="2"><span class="piece" style="color: rgb(26, 26, 26);">♟︎</span></div><div class="square light" data-r="1" data-c="3"><span class="piece" style="color: rgb(26, 26, 26);">♟︎</span></div><div class="square dark" data-r="1" data-c="4"><span class="piece" style="color: rgb(26, 26, 26);">♟︎</span></div><div class="square light" data-r="1" data-c="5"><span class="piece" style="color: rgb(26, 26, 26);">♟︎</span></div><div class="square dark" data-r="1" data-c="6"><span class="piece" style="color: rgb(26, 26, 26);">♟︎</span></div><div class="square light" data-r="1" data-c="7"><span class="piece" style="color: rgb(26, 26, 26);">♟︎</span></div><div class="square light" data-r="2" data-c="0"></div><div class="square dark" data-r="2" data-c="1"></div><div class="square light" data-r="2" data-c="2"></div><div class="square dark" data-r="2" data-c="3"></div><div class="square light" data-r="2" data-c="4"></div><div class="square dark" data-r="2" data-c="5"></div><div class="square light" data-r="2" data-c="6"></div><div class="square dark" data-r="2" data-c="7"></div><div class="square dark" data-r="3" data-c="0"></div><div class="square light" data-r="3" data-c="1"></div><div class="square dark" data-r="3" data-c="2"></div><div class="square light" data-r="3" data-c="3"></div><div class="square dark" data-r="3" data-c="4"></div><div class="square light" data-r="3" data-c="5"></div><div class="square dark" data-r="3" data-c="6"></div><div class="square light" data-r="3" data-c="7"></div><div class="square light" data-r="4" data-c="0"></div><div class="square dark" data-r="4" data-c="1"></div><div class="square light" data-r="4" data-c="2"></div><div class="square dark" data-r="4" data-c="3"></div><div class="square light" data-r="4" data-c="4"></div><div class="square dark" data-r="4" data-c="5"></div><div class="square light" data-r="4" data-c="6"></div><div class="square dark" data-r="4" data-c="7"></div><div class="square dark" data-r="5" data-c="0"></div><div class="square light" data-r="5" data-c="1"></div><div class="square dark" data-r="5" data-c="2"></div><div class="square light" data-r="5" data-c="3"></div><div class="square dark" data-r="5" data-c="4"></div><div class="square light" data-r="5" data-c="5"></div><div class="square dark" data-r="5" data-c="6"></div><div class="square light" data-r="5" data-c="7"></div><div class="square light" data-r="6" data-c="0"><span class="piece pawn-iw" style="color: rgb(0, 0, 0);">♟︎</span></div><div class="square dark" data-r="6" data-c="1"><span class="piece pawn-iw" style="color: rgb(0, 0, 0);">♟︎</span></div><div class="square light" data-r="6" data-c="2"><span class="piece pawn-iw" style="color: rgb(0, 0, 0);">♟︎</span></div><div class="square dark" data-r="6" data-c="3"><span class="piece pawn-iw" style="color: rgb(0, 0, 0);">♟︎</span></div><div class="square light" data-r="6" data-c="4"><span class="piece pawn-iw" style="color: rgb(0, 0, 0);">♟︎</span></div><div class="square dark" data-r="6" data-c="5"><span class="piece pawn-iw" style="color: rgb(0, 0, 0);">♟︎</span></div><div class="square light" data-r="6" data-c="6"><span class="piece pawn-iw" style="color: rgb(0, 0, 0);">♟︎</span></div><div class="square dark" data-r="6" data-c="7"><span class="piece pawn-iw" style="color: rgb(0, 0, 0);">♟︎</span></div><div class="square dark" data-r="7" data-c="0"><span class="piece" style="color: rgb(255, 255, 255);">♜</span></div><div class="square light" data-r="7" data-c="1"><span class="piece" style="color: rgb(255, 255, 255);">♞</span></div><div class="square dark" data-r="7" data-c="2"><span class="piece" style="color: rgb(255, 255, 255);">♝</span></div><div class="square light" data-r="7" data-c="3"><span class="piece" style="color: rgb(255, 255, 255);">♛</span></div><div class="square dark" data-r="7" data-c="4"><span class="piece" style="color: rgb(255, 255, 255);">♚</span></div><div class="square light" data-r="7" data-c="5"><span class="piece" style="color: rgb(255, 255, 255);">♝</span></div><div class="square dark" data-r="7" data-c="6"><span class="piece" style="color: rgb(255, 255, 255);">♞</span></div><div class="square light" data-r="7" data-c="7"><span class="piece" style="color: rgb(255, 255, 255);">♜</span></div></div>
   <div id="pieceTip" class="piece-tip" style="display: none;"></div>
+  <div id="lastMoveLine"></div>
   <div id="shopWrap">
     <div id="shopTitle">SHOP — buy &amp; place on your side (costs your move)</div>
     <div id="shop"><div class="card-col"><div class="shop-card"><div class="glyph pawn-iw">♟︎</div><div class="price">$1</div></div><div class="shop-next"><div class="glyph fakeknight">♞</div><span class="nxlabel">NEXT</span></div></div><div class="card-col"><div class="shop-card"><div class="glyph">♝</div><div class="price">$3</div></div><div class="shop-next"><div class="glyph pawn-iw">♟︎</div><span class="nxlabel">NEXT</span></div></div><div class="card-col"><div class="shop-card"><div class="glyph">♝</div><div class="price">$3</div></div><div class="shop-next"><div class="glyph">🐀</div><span class="nxlabel">NEXT</span></div></div></div>
@@ -1093,6 +1114,7 @@ const CENTAUR_SVG = `<img src="data:image/gif;base64,R0lGODlhMgAyAJH/AP///zMzM8D
 const BOARD_EL = document.getElementById("board");
 const STATUS_EL = document.getElementById("status");
 const HISTORY_SEL = document.getElementById("history");
+const LAST_MOVE_EL = document.getElementById("lastMoveLine");
 const PROMO_EL = document.getElementById("promotion");
 const PROMO_CHOICES = document.getElementById("promoChoices");
 
@@ -1162,6 +1184,7 @@ function initialState() {
     lastMove: null,   // {from, to}
     history: [],       // snapshots
     moveLog: [],      // SAN-ish
+    lastMoveText: "", // displayed "last move" line (moves, placements, spells, skips)
     gameOver: false,
     flipped: false,
     aiOpponent: false,
@@ -1343,6 +1366,7 @@ function cloneStateForHistory(s) {
     fullmove: s.fullmove,
     lastMove: s.lastMove ? {from:{...s.lastMove.from}, to:{...s.lastMove.to}} : null,
     moveLog: [...s.moveLog],
+    lastMoveText: s.lastMoveText || "",
 gameOver: s.gameOver,
     money: { w: s.money.w, b: s.money.b },
     shop: [...s.shop],
@@ -2039,6 +2063,7 @@ state.money[p.color] += gain;
     state.gameOver = true;
   }
   state.moveLog.push(san);
+  state.lastMoveText = (p.color === "w" ? "White" : "Black") + " played " + san;
   rebuildHistorySel();
 
   // Detect stalemate (no legal moves and not already won)
@@ -2162,6 +2187,17 @@ function render() {
       sq.className = "square " + (((r+c)%2===0) ? "light" : "dark");
       sq.dataset.r = r;
       sq.dataset.c = c;
+      // File letters along the bottom edge, rank numbers along the left
+      // edge (they follow the flipped view so each side sees its own a1).
+      // The bottom-left corner square shows the combined file+rank ("a1").
+      if (j === 0 || i === SIZE - 1) {
+        const coord = document.createElement("span");
+        coord.className = "sqcoord";
+        if (i === SIZE - 1 && j === 0) coord.textContent = BOARD_LETTERS[c] + (SIZE - r);
+        else if (i === SIZE - 1) coord.textContent = BOARD_LETTERS[c];
+        else coord.textContent = SIZE - r;
+        sq.appendChild(coord);
+      }
       const p = state.board[r][c];
       if (p) {
         const span = document.createElement("span");
@@ -2268,6 +2304,7 @@ renderShop();
   renderSpells();
   updateMoney();
   updateStatus();
+  updateLastMoveLine();
   document.getElementById("cancelBtn").style.display =
     (state.placementMode || state.targetMode || godSnipeMode) ? "inline-block" : "none";
 document.getElementById("skipBtn").style.display =
@@ -2964,6 +3001,43 @@ dispelable: "click a wall / sleeping / confused / bountied / piratified / thief 
   }
 }
 
+// Human-friendly text for a spell log like "B:Piratify@c5" or "W:Sacrifice@c4+$4".
+function friendlySpellText(txt) {
+  if (!txt) return "";
+  const m = /^([WB]):(.*)$/.exec(txt);
+  if (!m) return txt;
+  const who = m[1] === "W" ? "White" : "Black";
+  let name = m[2];
+  let param = "";
+  const at = name.indexOf("@");
+  if (at >= 0) { param = name.slice(at + 1); name = name.slice(0, at); }
+  name = name.replace(/ x2$/, "");
+  let target = "";
+  if (param) {
+    if (param.includes("?")) {
+      const parts = param.split("?");
+      target = parts[0] + " with " + parts[1];
+    } else if (param.includes("+$")) {
+      target = param.replace("+$", " (+$") + ")";
+    } else {
+      target = param.replace(/\(.*\)$/, "").split("+")[0];
+    }
+  }
+  let out = who + " cast " + name;
+  if (target) out += (param.includes("?") ? " " : " on ") + target;
+  return out;
+}
+
+// Update the "last move" line under the board: the latest action while live,
+// or the frame's action while reviewing.
+function updateLastMoveLine() {
+  if (!LAST_MOVE_EL) return;
+  const text = state.lastMoveText || "";
+  LAST_MOVE_EL.textContent = (reviewPos >= 0)
+    ? (text ? "Reviewing — " + text : "Reviewing the starting position")
+    : text;
+}
+
 // Glyph markup for a shop piece (shared by the card and its next-piece preview).
 function pieceGlyphHTML(piece) {
   if (piece === "H") return `<div class="glyph centaur" style="color:#1a1a1a">${CENTAUR_SVG}</div>`;
@@ -3239,6 +3313,7 @@ const placedType = state.placementPiece;
     onTurnStart(state.turn);
   }
   state.lastMove = {from:{r,c}, to:{r,c}, placed:true};
+  state.lastMoveText = (color === "w" ? "White" : "Black") + " placed " + placedType + " on " + sqName(r, c);
   pushPieceLog(`(${placedType} placed)`);
   tickShopRefresh();
   endTurnChecks();
@@ -3256,6 +3331,7 @@ function pushPieceLog(san) {
 function pushSpellLog(txt) {
   // Free-action spells don't switch turn and are not part of the W/B move log.
   // Effects are visible on the board; status bar shows king-in-danger.
+  state.lastMoveText = friendlySpellText(txt || "");
   endTurnChecks();
 }
 
@@ -3498,6 +3574,7 @@ function spellEndTurnSkip(grantMoney = true) {
   if (grantMoney) state.money[state.turn] += 3;
   if (state.turn === "b") state.fullmove++;
   state.moveLog.push(grantMoney ? "(skip +$3)" : "(skip)");
+  state.lastMoveText = (state.turn === "w" ? "White" : "Black") + " skipped" + (grantMoney ? " (+$3)" : "");
   state.noCapture[state.turn] = Math.max(0, state.noCapture[state.turn] - 1);
   settleTurnEnd(state.turn);
   // A skipped turn still passes a turn: advance both refresh timers by 1.
@@ -3858,6 +3935,7 @@ function cancelPlacement() {
       state.fullmove = prev.fullmove;
       state.lastMove = prev.lastMove;
 state.moveLog = prev.moveLog;
+state.lastMoveText = prev.lastMoveText || "";
 state.gameOver = prev.gameOver;
   state.money = prev.money;
   state.shop = prev.shop;
@@ -3908,6 +3986,7 @@ state.piratify = prev.piratify.map(b=>({...b}));
   state.fullmove = prev.fullmove;
   state.lastMove = prev.lastMove;
   state.moveLog = prev.moveLog;
+  state.lastMoveText = prev.lastMoveText || "";
   state.gameOver = prev.gameOver;
 state.money = prev.money;
   state.shop = prev.shop;
@@ -4722,6 +4801,13 @@ function updateHistoryButtons() {
 }
 document.getElementById("historyBack").addEventListener("click", reviewBack);
 document.getElementById("historyForward").addEventListener("click", reviewForward);
+// Left/right arrow keys also step through the move review (unless typing).
+document.addEventListener("keydown", (e) => {
+  const t = e.target;
+  if (t && (t.tagName === "INPUT" || t.tagName === "TEXTAREA" || t.tagName === "SELECT" || t.isContentEditable)) return;
+  if (e.key === "ArrowLeft") reviewBack();
+  else if (e.key === "ArrowRight") reviewForward();
+});
 document.getElementById("historyLive").addEventListener("click", () => {
   reviewExit();
   render();
