@@ -787,6 +787,28 @@
     gap: 12px; padding: 6px 0; text-align: left; font-size: 0.95rem;
   }
   .small-btn { width: 96px; padding: 8px 10px; flex: 0 0 auto; }
+  .setting-control { display: flex; align-items: center; gap: 10px; }
+  .setting-control input[type="range"] { width: 150px; accent-color: #ffd24a; }
+  #soundPct { min-width: 44px; text-align: right; font-size: 0.95rem; color: #ffd24a; }
+  #topSettingsBtn {
+    position: fixed; top: 10px; right: 10px; z-index: 900;
+    padding: 8px 12px; font-size: 0.9rem; font-weight: 600; letter-spacing: 1px;
+    border: 1px solid #3a5066; border-radius: 8px;
+    background: #2a3a52; color: #e8eef5; cursor: pointer;
+  }
+  #topSettingsBtn:hover { background: #3a5066; }
+  #gameSettings {
+    position: fixed; inset: 0; z-index: 950;
+    background: rgba(10, 16, 24, 0.85);
+    display: flex; align-items: center; justify-content: center; padding: 12px;
+  }
+  .game-settings-card {
+    background: #1f2c3d; border: 1px solid #3a5066; border-radius: 14px;
+    padding: 24px 28px; width: 360px; max-width: 100%; text-align: left;
+    box-shadow: 0 14px 50px rgba(0,0,0,0.65);
+  }
+  .game-settings-card h3 { margin: 0 0 12px; letter-spacing: 2px; color: #ffd24a; }
+  .game-settings-card .menu-btn { margin-top: 10px; }
 
   /* Phone-friendly: compact the header, allow controls/shop/spells to wrap,
      and let the board shrink (render() caps the square size to fit). */
@@ -831,10 +853,28 @@
         <h2>Settings</h2>
         <div class="setting-row">
           <span>Sound</span>
-          <button id="soundToggle" class="menu-btn small-btn">On</button>
+          <div class="setting-control">
+            <input type="range" id="soundSlider" min="0" max="100" step="1" value="100" aria-label="Sound volume">
+            <span id="soundPct">100%</span>
+          </div>
         </div>
         <button class="menu-btn back-btn" data-back="menuMain">Back</button>
       </div>
+    </div>
+  </div>
+  <button id="topSettingsBtn" title="Settings">Settings</button>
+  <div id="gameSettings" style="display:none;">
+    <div class="game-settings-card">
+      <h3>SETTINGS</h3>
+      <div class="setting-row">
+        <span>Sound</span>
+        <div class="setting-control">
+          <input type="range" id="gameSoundSlider" min="0" max="100" step="1" value="100" aria-label="Sound volume">
+          <span id="gameSoundPct">100%</span>
+        </div>
+      </div>
+      <button class="menu-btn" id="quitToMenuBtn">Quit to menu</button>
+      <button class="menu-btn" id="gameSettingsClose">Resume</button>
     </div>
   </div>
   <h1>MONEY CHESS</h1>
@@ -1209,7 +1249,7 @@ const SPELLS = {
   block:      { name:"Wall",        cost:1, glyph:"▣",  desc:"Block a square this & next turn" },
   sleep:      { name:"Sleep",       cost:4, glyph:"Zz", desc:"Enemy piece can't move next turn" },
   bounty:     { name:"Bounty",      cost:0, glyph:"★",  desc:"Bounties 1 of your pieces + 2 enemy pieces; you earn +$1 when each is captured (red halo)" },
-dispel:     { name:"Dispel",      cost:3, glyph:"✦",  desc:"Destroy a wall / wake a sleeping piece / clear confusion / clear a pirate or thief mark / remove a bounty" },
+dispel:     { name:"Dispel",      cost:3, glyph:"✦",  desc:"Destroy a wall / wake a sleeping piece / clear confusion / clear a pirate or thief mark / remove a curse / remove a bounty / drop a shield" },
   echo:       { name:"Echo",        cost:5, glyph:"↻",  desc:"Take an extra turn; no captures during this & the extra turn" },
   push:       { name:"Push",        cost:3, glyph:"⇦",  desc:"Push a piece back 3 squares (or until blocked)" },
   precast:    { name:"Freecast",    cost:3, glyph:"♻",  desc:"Refresh the spell slots, then you can cast one of the spells for free" },
@@ -2872,7 +2912,7 @@ function updateStatus() {
         thief: "click one of your pieces to make it a thief (cannot be a pirate thief)",
         curse: "click an enemy piece to curse it (it loses $1 each move)",
         anyEmpty: "click any empty square to block",
-        dispelable: "click a wall / sleeping / confused / bountied / piratified / thief / cursed piece to dispel",
+dispelable: "click a wall / sleeping / confused / bountied / piratified / thief / cursed / shielded piece to dispel",
         pushable: "click a piece to push it back 3 squares",
         ownPiece: "click one of your pieces to piratify it",
         shield: "click one of your pieces to shield it (can't capture or be captured)",
@@ -3942,9 +3982,9 @@ function enableAI() {
 // A short synthesized chime announces when it becomes this player's turn
 // (in online multiplayer, against the AI, or in a hotseat game).
 let dingCtx = null;
-let SOUND_ON = true;
+let SOUND_VOLUME = 100; // 0..100 percent
 function playDing() {
-  if (!SOUND_ON) return;
+  if (SOUND_VOLUME <= 0) return;
   try {
     const AC = window.AudioContext || window.webkitAudioContext;
     if (!AC) return;
@@ -3953,11 +3993,12 @@ function playDing() {
     const t = dingCtx.currentTime;
     const osc = dingCtx.createOscillator();
     const gain = dingCtx.createGain();
+    const peak = 0.25 * (SOUND_VOLUME / 100);
     osc.type = "sine";
     osc.frequency.setValueAtTime(880, t);
     osc.frequency.exponentialRampToValueAtTime(1320, t + 0.18);
     gain.gain.setValueAtTime(0.0001, t);
-    gain.gain.exponentialRampToValueAtTime(0.25, t + 0.02);
+    gain.gain.exponentialRampToValueAtTime(Math.max(peak, 0.0001), t + 0.02);
     gain.gain.exponentialRampToValueAtTime(0.0001, t + 0.4);
     osc.connect(gain);
     gain.connect(dingCtx.destination);
@@ -4513,7 +4554,7 @@ function reviewShow() {
     thief: "click one of your pieces to make it a thief (cannot be a pirate thief)",
     curse: "click an enemy piece to curse it (it loses $1 each move)",
     anyEmpty: "click any empty square to block",
-    dispelable: "click a wall / sleeping / confused / bountied / piratified / thief / cursed piece to dispel",
+    dispelable: "click a wall / sleeping / confused / bountied / piratified / thief / cursed / shielded piece to dispel",
     pushable: "click a piece to push it back 3 squares",
     ownPiece: "click one of your pieces to piratify it",
   };
@@ -4646,7 +4687,8 @@ try {
 {
   let settings = {};
   try { settings = JSON.parse(localStorage.getItem("moneyChessSettings")) || {}; } catch (e) {}
-  if (typeof settings.sound === "boolean") SOUND_ON = settings.sound;
+  if (typeof settings.volume === "number") SOUND_VOLUME = settings.volume;
+  else if (typeof settings.sound === "boolean") SOUND_VOLUME = settings.sound ? 100 : 0; // legacy on/off
 }
 
 newSeed();
@@ -4659,11 +4701,15 @@ render();
 
 // ---- Main menu ----
 function saveMenuSettings() {
-  try { localStorage.setItem("moneyChessSettings", JSON.stringify({ sound: SOUND_ON })); } catch (e) {}
+  try { localStorage.setItem("moneyChessSettings", JSON.stringify({ volume: SOUND_VOLUME })); } catch (e) {}
 }
-function syncMenuSettingsUI() {
-  const soundToggle = document.getElementById("soundToggle");
-  soundToggle.textContent = SOUND_ON ? "On" : "Off";
+function syncVolumeUI() {
+  for (const [slId, pctId] of [["soundSlider", "soundPct"], ["gameSoundSlider", "gameSoundPct"]]) {
+    const slider = document.getElementById(slId);
+    const pct = document.getElementById(pctId);
+    if (slider) slider.value = SOUND_VOLUME;
+    if (pct) pct.textContent = Math.round(SOUND_VOLUME) + "%";
+  }
 }
 function menuShow(id) {
   document.querySelectorAll(".menu-screen").forEach(s => s.classList.remove("active"));
@@ -4672,16 +4718,38 @@ function menuShow(id) {
 
 document.getElementById("menuSettingsBtn").addEventListener("click", () => {
   menuShow("menuSettings");
-  syncMenuSettingsUI();
+  syncVolumeUI();
 });
 document.querySelectorAll(".back-btn").forEach(b => b.addEventListener("click", () => menuShow(b.dataset.back)));
 
-document.getElementById("soundToggle").addEventListener("click", () => {
-  SOUND_ON = !SOUND_ON;
-  syncMenuSettingsUI();
-  saveMenuSettings();
+for (const id of ["soundSlider", "gameSoundSlider"]) {
+  document.getElementById(id).addEventListener("input", (e) => {
+    SOUND_VOLUME = +e.target.value;
+    syncVolumeUI();
+    saveMenuSettings();
+  });
+}
+syncVolumeUI();
+
+// ---- In-game settings (top-right button): volume slider + quit to menu ----
+function openGameSettings() {
+  syncVolumeUI();
+  document.getElementById("gameSettings").style.display = "flex";
+}
+function closeGameSettings() {
+  document.getElementById("gameSettings").style.display = "none";
+}
+document.getElementById("topSettingsBtn").addEventListener("click", openGameSettings);
+document.getElementById("gameSettingsClose").addEventListener("click", closeGameSettings);
+document.getElementById("gameSettings").addEventListener("click", (e) => {
+  if (e.target === e.currentTarget) closeGameSettings();
 });
-syncMenuSettingsUI();
+document.getElementById("quitToMenuBtn").addEventListener("click", () => {
+  closeGameSettings();
+  sandboxMode = false;
+  document.getElementById("menuOverlay").style.display = "flex";
+  menuShow("menuMain");
+})
 
 // ---- Catalogs: piece & spell reference popups ----
 function catPieceSpan(p) {
@@ -4893,6 +4961,7 @@ const SPELL_DEMOS = {
     kn.classList.add("piratifyed"); b.mark(7, 1, "targetable");
     const bi = b.sq(7, 2).querySelector(".piece") || b.put(7, 2, "B", "w");
     bi.classList.add("thieved"); b.mark(7, 2, "targetable");
+    b.mark(6, 0, "shielded"); b.mark(6, 0, "targetable");
   },
   dispelDone(b) { b.std(); },
   echo(b) { b.std(); b.badge("↻ extra turn"); },
