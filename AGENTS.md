@@ -38,7 +38,7 @@ Files:
   wrapped functions (`makeMove`, `buyPiece`, `placePiece`, `castSpell`, `finishSpell`,
   `skipFollowUpSpell`, `spellEndTurnSkip`, `cancelPlacement`, `handleTargetClick`) so networking keeps working.
 - **Reuse existing patterns:** pieces are objects `{type, color, ...}`; effect lists live on `state`
-  (`blocked`, `sleeping`, `confused`, `piratify`, `thief`, `cursed`); money is `state.money.w` / `state.money.b`.
+  (`blocked`, `sleeping`, `confused`, `piratify`, `thief`, `cursed`, `shielded`, `swapLocked`); money is `state.money.w` / `state.money.b`.
   Match the existing code style (spaces around operators, descriptive names) even though formatting varies.
 - **Do not add new emoji to the UI** unless asked. (Chess/effect glyphs that are already part of the game data are fine.)
 - **No secrets or credentials** belong in this repo (there are none; keep it that way).

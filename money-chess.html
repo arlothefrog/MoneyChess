@@ -307,6 +307,23 @@
   }
   @keyframes confuseWob { from { transform: rotate(-4deg); } to { transform: rotate(4deg); } }
   @keyframes confuseSpin { from { transform: rotate(0); } to { transform: rotate(360deg); } }
+  .square.shielded .piece { filter: drop-shadow(0 0 6px #6fd3ff); }
+  .square.shielded::after {
+    content: "🛡";
+    position: absolute;
+    bottom: 2px; right: 2px;
+    font-size: 13px;
+    filter: drop-shadow(0 0 4px #6fd3ff);
+    pointer-events: none;
+  }
+  .square.swapped::after {
+    content: "⇄";
+    position: absolute;
+    top: 2px; left: 2px;
+    font-size: 13px;
+    color: #ffb36f;
+    pointer-events: none;
+  }
   .piece.bounty { text-shadow: 0 0 6px #ff5252, 0 0 12px #ff5252; }
   .square.lightning::after {
     content: "⚡";
@@ -902,7 +919,8 @@
         </div>
       </div>
       <div class="god-section">
-        <div class="god-label">Place a piece (free, uses your move like a shop buy)</div>
+        <div class="god-label">Place a piece (free, anywhere on the board, doesn't end your turn)</div>
+        <div class="god-row" id="godPieceColors"></div>
         <div class="god-row" id="godPieceMods"></div>
         <div class="god-row" id="godPieces"></div>
       </div>
@@ -1027,6 +1045,7 @@ let flipped = false;
 let pendingPromotion = null; // {from, to, captured}
 let sandboxMode = false;     // sandbox: local play + God Mode panel
 let godPieceMod = "normal";  // modifier chosen in the God panel for pieces
+let godPieceColor = "w";     // color chosen in the God panel for placed pieces
 let godSpellMod = "normal";  // modifier chosen in the God panel for spells
 let godSnipeMode = false;    // God panel: click pieces to destroy them (no money)
 
@@ -1122,6 +1141,9 @@ confused: [],       // [{r,c}] pieces that must move randomly on their next move
     piratify: [],        // [{r,c}] pieces that earn +$2 per capture
     thief: [],           // [{r,c}] pieces that steal $1 from the opponent per capture
     cursed: [],          // [{r,c,owner}] enemy pieces that lose $1 every time they move
+    shielded: [],        // [{r,c,owner,rem}] own pieces that can't capture and can't be captured (rem 2)
+    swapLocked: [],      // [{r,c,owner,rem}] own pieces swapped this turn, can't move (rem 1)
+    swapSel: null,       // {r,c} first pick of the Swap spell
     lightningStrike: null, // {r,c} current lightning bolt animation target
     lightningStrikeTimer: null,
     targetMode: null,   // {kind, spellId}
@@ -1151,8 +1173,9 @@ function refillShop() {
 }
 
 // Effective shop price for an entry, honoring free / pricier modifiers.
-// The cat carries a bonus, so its shop cost differs from its capture value.
-const SHOP_PRICE = { T: 4 };
+// The rat is discounted and the cat is marked up, so their shop costs
+// differ from their capture values.
+const SHOP_PRICE = { M: 4, T: 6, X: 7 };
 function shopPrice(e) {
   const base = SHOP_PRICE[e.p] !== undefined ? SHOP_PRICE[e.p] : PIECE_VALUE[e.p];
   if (e.mod === "pricier") return base + 1;
@@ -1194,6 +1217,9 @@ dispel:     { name:"Dispel",      cost:3, glyph:"✦",  desc:"Destroy a wall / w
 piratify: { name:"Piratify",   cost:3, glyph:"¤↯", desc:"Marks one of your pieces to earn +$2 per capture (green stripes)" },
   thief:      { name:"Thief",      cost:3, glyph:"💰", desc:"Marks one of your pieces to steal $1 from the opponent each time it captures (can't be used on a piratified piece)" },
 curse:      { name:"Curse",      cost:3, glyph:"☠",  desc:"Curses an enemy piece so it loses $1 every time it moves (permanent until dispelled)" },
+  shield:     { name:"Shield",     cost:3, glyph:"🛡",  desc:"One of your pieces can't capture and can't be captured until your next turn (expires, dispellable)" },
+  swap:       { name:"Swap",       cost:4, glyph:"⇄",  desc:"Switch two of your own non-king pieces; both can't move this turn (can't land on a blocked square)" },
+  sacrifice:  { name:"Sacrifice",  cost:1, glyph:"🪙",  desc:"Destroy one of your own non-king pieces and gain its purchase value in cash" },
 };
 const SPELL_POOL = Object.keys(SPELLS);
 function randomSpell(rng) {
@@ -1285,6 +1311,9 @@ gameOver: s.gameOver,
     piratify: s.piratify.map(b=>({...b})),
     thief: s.thief.map(b=>({...b})),
     cursed: s.cursed.map(b=>({...b})),
+    shielded: (s.shielded||[]).map(b=>({...b})),
+    swapLocked: (s.swapLocked||[]).map(b=>({...b})),
+    swapSel: s.swapSel ? {...s.swapSel} : null,
     targetMode: s.targetMode ? {...s.targetMode} : null,
     noCapture: { w: s.noCapture.w, b: s.noCapture.b },
     extraTurns: { w: s.extraTurns.w, b: s.extraTurns.b },
@@ -1310,8 +1339,9 @@ function cloneStateForReview() {
 function inBounds(r,c){ return r>=0&&r<SIZE&&c>=0&&c<SIZE; }
 function opp(color){ return color === "w" ? "b" : "w"; }
 
-function blockedSet(s){ const set = new Set(); for (const b of s.blocked) set.add(b.r+","+b.c); return set; }
+function blockedSet(s){ const set = new Set(); for (const b of s.blocked) set.add(b.r+","+b.c); for (const sh of (s.shielded||[])) set.add(sh.r+","+sh.c); return set; }
 function isSleeping(s, r, c){ return s.sleeping.some(x => x.r===r && x.c===c); }
+function isShielded(s, r, c){ return s.shielded && s.shielded.some(x => x.r===r && x.c===c); }
 
 // Generate pseudo-legal moves from (r,c) on board, respecting castling rights & ep.
 // Fake Knight: presses forward toward the enemy — forward 1, forward 2, or
@@ -1390,7 +1420,14 @@ if (p.type === "P") {
       if (t && t.color !== color) {
         moves.push({r:rr, c:cc, promotion: rr===promoRow});
       } else if (!t && epTarget && epTarget.r===rr && epTarget.c===cc) {
-        moves.push({r:rr, c:cc, enpassant:true});
+        // En passant is only legal while the just-double-stepped enemy pawn
+        // still sits beside the mover. Spells (Push/Swap/transfer) or a
+        // promotion that relocate the pawn cancel the capture; otherwise an
+        // empty diagonal square would be offered as a red "capture".
+        const epPawn = board[r][cc];
+        if (epPawn && epPawn.type === "P" && epPawn.color !== color) {
+          moves.push({r:rr, c:cc, enpassant:true});
+        }
       }
     }
   }
@@ -1766,9 +1803,19 @@ function legalMoves(s, r, c) {
   const piece = s.board[r][c];
   if (!piece || piece.color !== s.turn) return [];
   if (isSleeping(s, r, c)) return [];   // sleeping pieces can't move
+  if (s.swapLocked && s.swapLocked.some(x => x.r===r && x.c===c)) return []; // swapped this turn
   let moves = pseudoMoves(s.board, r, c, s.castling, s.epTarget, blockedSet(s));
   // Frozen by a curse (owner has $0): no moving, only standing shots remain.
   if (cursedFrozen(s, r, c)) moves = moves.filter(m => m.shoot);
+  // A shielded piece may neither capture nor be captured (blockedSet already
+  // stops others landing/shooting on its square); its own non-capturing moves
+  // still work.
+  if (isShielded(s, r, c)) {
+    moves = moves.filter(m => {
+      const t = s.board[m.r][m.c];
+      return !t && !m.enpassant && !m.shoot;
+    });
+  }
   // Echo spell: no captures allowed this/extra turn
   if (s.noCapture && s.noCapture[s.turn] > 0) {
     moves = moves.filter(m => {
@@ -1984,7 +2031,7 @@ function onTurnStart(color) {
 // Echo turn is gone by the second. Every blocked/sleeping entry carries a `rem`
 // counter, decremented at every turn END (normal switch and Echo extra-turn alike).
 function expireEffectsAtTurnEnd() {
-  for (const list of [state.blocked, state.sleeping]) {
+  for (const list of [state.blocked, state.sleeping, state.shielded, state.swapLocked]) {
     for (let i = list.length - 1; i >= 0; i--) {
       list[i].rem -= 1;
       if (list[i].rem <= 0) list.splice(i, 1);
@@ -2139,7 +2186,7 @@ function render() {
         const isCap = state.board[r][c] || lm.enpassant;
         sq.classList.add(isCap ? "legal-capture" : "legal");
       }
-      if (state.placementMode && isPlaceable(r, c, state.turn)) {
+      if (state.placementMode && (!state.placementGod ? isPlaceable(r, c, state.turn) : !state.board[r][c])) {
         sq.classList.add("placeable");
       }
       if (state.blocked.some(b => b.r===r && b.c===c)) sq.classList.add("blocked-sq");
@@ -2148,6 +2195,8 @@ function render() {
       }
       if (isSleeping(state, r, c)) sq.classList.add("sleeping");
       if (state.confused.some(x => x.r===r && x.c===c)) sq.classList.add("confused");
+      if (isShielded(state, r, c)) sq.classList.add("shielded");
+      if (state.swapLocked && state.swapLocked.some(x => x.r===r && x.c===c)) sq.classList.add("swapped");
       if (state.targetMode && isTargetable(r, c, state.targetMode.kind)) {
         sq.classList.add("targetable");
       }
@@ -2272,6 +2321,7 @@ function snapshotFromState(s) {
     turn: s.turn,
     blocked: s.blocked.map(b=>({...b})),
     sleeping: s.sleeping.map(b=>({...b})),
+    shielded: (s.shielded||[]).map(b=>({...b})),
     money: { w: s.money.w, b: s.money.b },
   };
 }
@@ -2291,6 +2341,7 @@ function applyMove(snap, fr, fc, move, promoteTo) {
       turn: opp(snap.turn),
       blocked: snap.blocked.map(b=>({...b})),
       sleeping: snap.sleeping.map(b=>({...b})),
+      shielded: (snap.shielded||[]).map(b=>({...b})),
       money: snap.money,
     };
   }
@@ -2315,6 +2366,7 @@ const kingCol = SIZE >> 1;
     turn: opp(snap.turn),
     blocked: snap.blocked.map(b=>({...b})),
     sleeping: snap.sleeping.map(b=>({...b})),
+    shielded: (snap.shielded||[]).map(b=>({...b})),
     money: snap.money,
   };
 }
@@ -2761,11 +2813,16 @@ function isTargetable(r, c, kind) {
   if (kind === "piratify") return p && p.color === state.turn && !state.piratify.some(x => x.r===r && x.c===c) && !state.thief.some(x => x.r===r && x.c===c);
   if (kind === "thief") return p && p.color === state.turn && !state.piratify.some(x => x.r===r && x.c===c) && !state.thief.some(x => x.r===r && x.c===c);
   if (kind === "curse") return p && p.color !== state.turn && !state.cursed.some(x => x.r===r && x.c===c);
+  if (kind === "shield") return p && p.color === state.turn && !isShielded(state, r, c);
+  if (kind === "sacrifice") return p && p.color === state.turn && p.type !== "K";
+  if (kind === "swap") return p && p.color === state.turn && p.type !== "K" && !(state.swapSel && state.swapSel.r===r && state.swapSel.c===c);
+  if (kind === "swap2") return p && p.color === state.turn && p.type !== "K" && !(state.swapSel && state.swapSel.r===r && state.swapSel.c===c) && !state.blocked.some(b => b.r===r && b.c===c);
   if (kind === "anyEmpty") return !p;
   if (kind === "dispelable") {
     if (state.blocked.some(b => b.r===r && b.c===c)) return true;
     if (isSleeping(state, r, c)) return true;
     if (state.confused.some(x => x.r===r && x.c===c)) return true;
+    if (isShielded(state, r, c)) return true;
 if (p && p.bounty) return true;
     if (state.piratify.some(x => x.r===r && x.c===c)) return true;
     if (state.thief.some(x => x.r===r && x.c===c)) return true;
@@ -2816,12 +2873,18 @@ function updateStatus() {
         dispelable: "click a wall / sleeping / confused / bountied / piratified / thief / cursed piece to dispel",
         pushable: "click a piece to push it back 3 squares",
         ownPiece: "click one of your pieces to piratify it",
+        shield: "click one of your pieces to shield it (can't capture or be captured)",
+        swap: "click one of your non-king pieces to move to the second piece",
+        swap2: "click a second non-king piece to swap",
+        sacrifice: "click one of your non-king pieces to sacrifice for cash",
       };
   STATUS_EL.textContent = `${prefix}${who} — ${msgs[state.targetMode.kind]||"targeting"} (Cancel to abort)`;
       return;
     }
     if (state.placementMode) {
-      if (state.placementIsSpell) {
+      if (state.placementGod) {
+        STATUS_EL.textContent = `${prefix}${who}: place the ${state.placementPiece} anywhere (free ${state.placementColor === "w" ? "White" : "Black"} piece, doesn't end your turn); Cancel to abort`;
+      } else if (state.placementIsSpell) {
         STATUS_EL.textContent = `${prefix}${who}: place the spawned pawn on your side`;
       } else {
         const base = SHOP_PRICE[state.placementPiece] !== undefined ? SHOP_PRICE[state.placementPiece] : PIECE_VALUE[state.placementPiece];
@@ -2981,9 +3044,8 @@ function onSquareClick(e) {
   }
 
   if (state.placementMode) {
-    if (isPlaceable(r, c, state.turn)) {
-      placePiece(r, c);
-    }
+    const ok = state.placementGod ? !state.board[r][c] : isPlaceable(r, c, state.turn);
+    if (ok) placePiece(r, c);
     return;
   }
 
@@ -3081,6 +3143,7 @@ const gameOver = state.gameOver, placementMode = state.placementMode, targetMode
 }
 
 function placePiece(r, c) {
+  if (state.placementGod) { godPlacePiece(r, c); return; }
   const color = state.turn;
   const mod = state.placementMod || "normal";
   state.board[r][c] = { type: state.placementPiece, color, golden: mod === "golden", platinum: mod === "platinum" };
@@ -3100,6 +3163,11 @@ const placedType = state.placementPiece;
   }
   // Bought piece placement ends the turn (or grants the extra turn if Echo pending)
   expireEffectsAtTurnEnd();
+  // A buy is not a pawn double-step: the en passant window (from an earlier
+  // double-step) is only valid for the opponent's immediately next move, so it
+  // expired when their turn passed without one. Clearing here prevents a
+  // phantom "capture" being offered onto the empty skipped square.
+  state.epTarget = null;
   if (state.extraTurns[state.turn] > 0) {
     state.extraTurns[state.turn] -= 1;
     state.noCapture[state.turn] = Math.max(0, state.noCapture[state.turn] - 1);
@@ -3243,6 +3311,15 @@ function castSpell(slotIndex) {
       state.targetMode = { kind: "pushable", spellId: id };
       break;
     case "precast":
+      if (state.taxSkipPending === "random") {
+        // A rolled Freecast (Tax Gain RND bonus) grants its own free spell —
+        // keep the turn and clear the forced decision so that freeCast can
+        // actually be used (mirrors the rolled-Echo keep-turn rule). Without
+        // this the refreshed spells would stay locked (canCast's taxSkipPending
+        // branch requires a freeSpellId match) and the turn-passing would wipe
+        // freeCast at onTurnStart.
+        state.taxSkipPending = false;
+      }
       spellPrecast();
       break;
     case "confuse":
@@ -3256,6 +3333,16 @@ case "piratify":
       break;
 case "curse":
       state.targetMode = { kind: "curse", spellId: id };
+      break;
+    case "shield":
+      state.targetMode = { kind: "shield", spellId: id };
+      break;
+    case "swap":
+      state.swapSel = null;
+      state.targetMode = { kind: "swap", spellId: id };
+      break;
+    case "sacrifice":
+      state.targetMode = { kind: "sacrifice", spellId: id };
       break;
   }
   state.selected = null;
@@ -3338,6 +3425,10 @@ function spellEndTurnSkip(grantMoney = true) {
   // form is used by the "Skip Turn" button on a Tax Gain 2x offer, which just
   // passes the turn without taking the second +$3.
   expireEffectsAtTurnEnd();
+  // Skipping the turn is not a double-step: the en passant window expires the
+  // same way it would after a normal move, so the double-stepper's side cannot
+  // keep the capture offer alive next turn.
+  state.epTarget = null;
   // A double/random modifier earned by this turn-ending spell is handed to the
   // caster's next turn (the spell itself switches the turn below).
   queueFollowUpForNextTurn();
@@ -3384,6 +3475,8 @@ function clearPieceEffects(r, c) {
   state.thief = state.thief.filter(x => !(x.r===r && x.c===c));
   state.cursed = state.cursed.filter(x => !(x.r===r && x.c===c));
   state.confused = state.confused.filter(x => !(x.r===r && x.c===c));
+  state.shielded = (state.shielded||[]).filter(x => !(x.r===r && x.c===c));
+  state.swapLocked = (state.swapLocked||[]).filter(x => !(x.r===r && x.c===c));
   // A removed piece can no longer be sleeping either.
   const si = state.sleeping.findIndex(s => s.r===r && s.c===c);
   if (si >= 0) state.sleeping.splice(si, 1);
@@ -3512,6 +3605,49 @@ function handleTargetClick(r, c) {
     if (state.cursed.some(x => x.r===r && x.c===c)) { render(); return; }
     state.cursed.push({ r, c, owner: state.turn });
     finishSpell(`${state.turn==="w"?"W":"B"}:Curse@${sqName(r,c)}`);
+  } else if (tm.kind === "shield") {
+    const p = state.board[r][c];
+    if (!p || p.color !== state.turn || isShielded(state, r, c)) { render(); return; }
+    state.shielded.push({ r, c, owner: state.turn, rem: 2 });
+    finishSpell(`${state.turn==="w"?"W":"B"}:Shield@${sqName(r,c)}`);
+  } else if (tm.kind === "swap") {
+    // First pick of the Swap spell: remember it and switch to the second pick.
+    const p = state.board[r][c];
+    if (!p || p.color !== state.turn || p.type === "K") { render(); return; }
+    state.swapSel = { r, c };
+    state.targetMode = { kind: "swap2", spellId: tm.spellId };
+    render();
+  } else if (tm.kind === "swap2") {
+    const a = state.swapSel;
+    if (!a) { render(); return; }
+    const pA = state.board[a.r][a.c], pB = state.board[r][c];
+    if (!pA || !pB || pA.color !== state.turn || pB.color !== state.turn ||
+        pA.type === "K" || pB.type === "K" || (a.r===r && a.c===c)) { render(); return; }
+    if (state.blocked.some(b => b.r===r && b.c===c)) { render(); return; }
+    // Exchange the pieces.
+    state.board[a.r][a.c] = pB;
+    state.board[r][c] = pA;
+    // Square-keyed effects follow the pieces: re-key each marker between the
+    // two squares so an effect stays on the piece that carries it.
+    for (const list of [state.shielded, state.piratify, state.thief, state.cursed, state.confused, state.sleeping]) {
+      for (const entry of list) {
+        if (entry.r===a.r && entry.c===a.c) { entry.r = r; entry.c = c; }
+        else if (entry.r===r && entry.c===c) { entry.r = a.r; entry.c = a.c; }
+      }
+    }
+    state.swapLocked.push({ r: a.r, c: a.c, owner: state.turn, rem: 1 });
+    state.swapLocked.push({ r, c, owner: state.turn, rem: 1 });
+    state.swapSel = null;
+    finishSpell(`${state.turn==="w"?"W":"B"}:Swap@${sqName(a.r,a.c)}⇄${sqName(r,c)}`);
+  } else if (tm.kind === "sacrifice") {
+    const p = state.board[r][c];
+    if (!p || p.color !== state.turn || p.type === "K") { render(); return; }
+    const gain = SHOP_PRICE[p.type] !== undefined ? SHOP_PRICE[p.type] : PIECE_VALUE[p.type];
+    applyBountyIfAny(p);
+    state.board[r][c] = null;
+    clearPieceEffects(r, c);
+    state.money[state.turn] += gain;
+    finishSpell(`${state.turn==="w"?"W":"B"}:Sacrifice@${sqName(r,c)}+$${gain}`);
   } else if (tm.kind === "dispelable") {
     const blockedIdx = state.blocked.findIndex(b => b.r===r && b.c===c);
     const sleepIdx = state.sleeping.findIndex(s => s.r===r && s.c===c);
@@ -3519,8 +3655,9 @@ function handleTargetClick(r, c) {
 const pirIdx = state.piratify.findIndex(x => x.r===r && x.c===c);
 const thfIdx = state.thief.findIndex(x => x.r===r && x.c===c);
     const curIdx = state.cursed.findIndex(x => x.r===r && x.c===c);
+    const shdIdx = state.shielded.findIndex(x => x.r===r && x.c===c);
     const p = state.board[r][c];
-    if (blockedIdx < 0 && sleepIdx < 0 && confIdx < 0 && pirIdx < 0 && thfIdx < 0 && curIdx < 0 && !(p && p.bounty)) { render(); return; }
+    if (blockedIdx < 0 && sleepIdx < 0 && confIdx < 0 && pirIdx < 0 && thfIdx < 0 && curIdx < 0 && shdIdx < 0 && !(p && p.bounty)) { render(); return; }
     let what = "";
     if (blockedIdx >= 0) { state.blocked.splice(blockedIdx,1); what = "wall"; }
     if (sleepIdx >= 0) { state.sleeping.splice(sleepIdx,1); what = what ? what+"/sleep" : "sleep"; }
@@ -3528,6 +3665,7 @@ const thfIdx = state.thief.findIndex(x => x.r===r && x.c===c);
 if (pirIdx >= 0) { state.piratify.splice(pirIdx,1); what = what ? what+"/piratify" : "piratify"; }
     if (thfIdx >= 0) { state.thief.splice(thfIdx,1); what = what ? what+"/thief" : "thief"; }
     if (curIdx >= 0) { state.cursed.splice(curIdx,1); what = what ? what+"/curse" : "curse"; }
+    if (shdIdx >= 0) { state.shielded.splice(shdIdx,1); what = what ? what+"/shield" : "shield"; }
     if (p && p.bounty) { p.bounty = null; what = what ? what+"/bounty" : "bounty"; }
     finishSpell(`${state.turn==="w"?"W":"B"}:Dispel@${sqName(r,c)}(${what})`);
   } else if (tm.kind === "pushable") {
@@ -3547,6 +3685,11 @@ if (pirIdx >= 0) { state.piratify.splice(pirIdx,1); what = what ? what+"/piratif
     // Curse marker travels with its piece too (a push is not a "move" so no fee)
     const ci = state.cursed.findIndex(x => x.r===r && x.c===c);
     if (ci >= 0) state.cursed[ci].r = tr;
+    // Shield and swapped-markers travel with the piece too
+    const shi = state.shielded.findIndex(x => x.r===r && x.c===c);
+    if (shi >= 0) state.shielded[shi].r = tr;
+    const swi = state.swapLocked.findIndex(x => x.r===r && x.c===c);
+    if (swi >= 0) state.swapLocked[swi].r = tr;
     state.board[tr][c] = p;
     state.board[r][c] = null;
     finishSpell(`${state.turn==="w"?"W":"B"}:Push@${sqName(r,c)}?${sqName(tr,c)}`);
@@ -3579,6 +3722,8 @@ function renderTip(r, c, sq) {
       : "cursed (loses $1 each time it moves)");
   }
   if (state.confused.some(x => x.r===r && x.c===c)) statuses.push("confused (moves randomly)");
+  if (isShielded(state, r, c)) statuses.push("shielded (can't capture or be captured)");
+  if (state.swapLocked && state.swapLocked.some(x => x.r===r && x.c===c)) statuses.push("swapped (can't move this turn)");
   if (state.blocked.some(b => b.r===r && b.c===c)) statuses.push("blocked");
   let html = `<span class="tip-name">${name}</span>`;
   if (statuses.length) html += `<div class="tip-status">Status: ${statuses.join(", ")}</div>`;
@@ -3681,6 +3826,9 @@ state.confused = prev.confused.map(b=>({...b}));
 state.piratify = prev.piratify.map(b=>({...b}));
       state.thief = prev.thief.map(b=>({...b}));
       state.cursed = prev.cursed.map(b=>({...b}));
+      state.shielded = (prev.shielded||[]).map(b=>({...b}));
+      state.swapLocked = (prev.swapLocked||[]).map(b=>({...b}));
+      state.swapSel = prev.swapSel ? {...prev.swapSel} : null;
       state.targetMode = prev.targetMode ? {...prev.targetMode} : null;
       state.noCapture = { w: prev.noCapture.w, b: prev.noCapture.b };
       state.extraTurns = { w: prev.extraTurns.w, b: prev.extraTurns.b };
@@ -3712,6 +3860,8 @@ state.money = prev.money;
   state.placementMod = null;
   state.placementIsSpell = false;
   state.placementSpellId = null;
+  state.placementColor = null;
+  state.placementGod = false;
   state.selected = null;
   state.legalForSelected = [];
   rebuildHistorySel();
@@ -4766,7 +4916,13 @@ const SPELL_DEMOS = {
   thiefCast(b) { b.std(); for (let r = 6; r < 8; r++) for (let c = 0; c < 8; c++) b.mark(r, c, "targetable"); },
   thiefDone(b) { b.std(); const bi = b.sq(7, 2).querySelector(".piece"); bi.classList.add("thieved"); },
   curseCast(b) { b.std(); for (let r = 0; r < 2; r++) for (let c = 0; c < 8; c++) b.mark(r, c, "targetable"); },
-  curseDone(b) { b.std(); b.mark(0, 5, "cursed"); }
+  curseDone(b) { b.std(); b.mark(0, 5, "cursed"); },
+  shieldCast(b) { b.std(); for (let r = 6; r < 8; r++) for (let c = 0; c < 8; c++) if (b.sq(r, c).querySelector(".piece")) b.mark(r, c, "targetable"); },
+  shieldDone(b) { b.std(); b.mark(7, 1, "shielded"); },
+  swapCast(b) { b.std(); for (const rc of [[7,1],[7,2],[7,5],[7,6],[6,1],[6,2],[6,5],[6,6]]) b.mark(rc[0], rc[1], "targetable"); },
+  swapDone(b) { b.std(); b.mark(7, 1, "swapped"); b.mark(7, 2, "swapped"); b.mark(7, 1, "last-move"); b.mark(7, 2, "last-move"); },
+  sacrificeCast(b) { b.std(); for (let r = 6; r < 8; r++) for (let c = 0; c < 8; c++) if (b.sq(r, c).querySelector(".piece") && !(r === 7 && c === 4)) b.mark(r, c, "targetable"); },
+  sacrificeDone(b) { b.std(); b.sq(7, 1).innerHTML = ""; b.mark(7, 1, "last-move"); }
 };
 
 function buildSpellCatalog(body) {
@@ -4819,8 +4975,11 @@ document.getElementById("catalogOverlay").addEventListener("click", (e) => {
 // ---- God Mode (sandbox) ----
 const GOD_PIECE_MODS = ["normal", "golden", "platinum", "pricier", "discount"];
 const GOD_SPELL_MODS = ["normal", "cheap", "pricier", "double", "random"];
+const GOD_PIECE_COLORS = ["w", "b"];
 
 function godModLabel(m) {
+  if (m === "w") return "White";
+  if (m === "b") return "Black";
   if (m === "golden") return "Golden";
   if (m === "platinum") return "Platinum";
   if (m === "pricier") return "+$1 price";
@@ -4844,6 +5003,7 @@ function buildGodRow(containerId, values, current, onPick) {
 }
 
 function buildGodPanel() {
+  buildGodRow("godPieceColors", GOD_PIECE_COLORS, godPieceColor, v => godPieceColor = v);
   buildGodRow("godPieceMods", GOD_PIECE_MODS, godPieceMod, v => godPieceMod = v);
   buildGodRow("godSpellMods", GOD_SPELL_MODS, godSpellMod, v => godSpellMod = v);
   const pieces = document.getElementById("godPieces");
@@ -4913,6 +5073,8 @@ function godSnipePiece(r, c) {
 // God Mode: free shop-style placement of any piece with any modifier.
 // Mirrors buyPiece()'s placement setup (incl. the history snapshot that
 // Cancel Placement pops) but skips cost and shop-slot consumption.
+// God placements can go anywhere on the board, for either color, and don't
+// end the current player's turn.
 function godSpawnPiece(type) {
   closeGod();
   if (state.gameOver || state.placementMode || state.targetMode || pendingPromotion) return;
@@ -4921,10 +5083,31 @@ function godSpawnPiece(type) {
   state.placementMode = true;
   state.placementPiece = type;
   state.placementMod = godPieceMod;
+  state.placementColor = godPieceColor;
+  state.placementGod = true;
   state.placementIsSpell = false;
   state.placementSpellId = null;
   state.selected = null;
   state.legalForSelected = [];
+  render();
+}
+
+// Complete a God Mode placement: place the piece, then keep the current
+// player's turn (no money, no move-log entry, no shop refill).
+function godPlacePiece(r, c) {
+  const color = state.placementColor || state.turn;
+  const mod = state.placementMod || "normal";
+  state.board[r][c] = { type: state.placementPiece, color, golden: mod === "golden", platinum: mod === "platinum" };
+  state.placementMode = false;
+  state.placementPiece = null;
+  state.placementMod = null;
+  state.placementColor = null;
+  state.placementGod = false;
+  state.placementIsSpell = false;
+  state.placementSpellId = null;
+  state.selected = null;
+  state.legalForSelected = [];
+  viewStartLive();
   render();
 }
 
