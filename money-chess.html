@@ -2826,7 +2826,7 @@ function quiesce(snap, alpha, beta, aiColor, qdepth) {
   if (qdepth <= 0) return stand;
   const caps = [];
   for (const mv of allMoves(snap)) {
-    if (mv.move.shoot || snap.board[mv.move.r][mv.move.c] || mv.move.enpassant) caps.push(mv);
+    if (mv.move.shoot || snap.board[mv.move.r][mv.move.c] || mv.move.enpassant || mv.move.promotion) caps.push(mv);
   }
   if (!caps.length) return stand;
   const ordered = orderMoves(snap, caps, 0);
