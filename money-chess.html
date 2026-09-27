@@ -59,19 +59,29 @@
   }
   .light { background: #f0d9b5; color: #000; }
   .dark  { background: #b58863; color: #000; }
-  .square .sqcoord {
-    position: absolute;
-    top: 1px;
-    left: 3px;
-    font-size: calc(var(--sq, 60px) * 0.22);
+  .square .piece { pointer-events: none; }
+  #boardFrame {
+    display: grid;
+    grid-template-columns: auto auto;
+    grid-template-rows: auto auto;
+    grid-template-areas:
+      "ranks board"
+      "corner files";
+    width: max-content;
+    margin: 4px auto 0;
+    padding: 8px;
+    background: #16222e;
+    border-radius: 8px;
+  }
+  #ranks { grid-area: ranks; display: grid; align-content: center; align-items: center; }
+  #files { grid-area: files; display: grid; justify-items: center; }
+  #coordCorner { grid-area: corner; }
+  .coord-label {
+    color: #c9d6e5;
     font-weight: 700;
     line-height: 1;
-    pointer-events: none;
-    opacity: 0.85;
+    user-select: none;
   }
-  .square.light .sqcoord { color: #8a5a2b; }
-  .square.dark  .sqcoord { color: #f0d9b5; }
-  .square .piece { pointer-events: none; }
   .square.selected { box-shadow: inset 0 0 0 4px #4d9fff; }
   .square.legal::after {
     content: "";
@@ -920,7 +930,12 @@
     <div id="walletW" class="wallet w active">White: $10</div>
 <div id="walletB" class="wallet b">Black: $10</div>
   </div>
-  <div id="board" style="grid-template-columns: repeat(8, 60px); grid-template-rows: repeat(8, 60px); --sq: 60px;"><div class="square light" data-r="0" data-c="0"><span class="piece" style="color: rgb(26, 26, 26);">♜</span></div><div class="square dark" data-r="0" data-c="1"><span class="piece" style="color: rgb(26, 26, 26);">♞</span></div><div class="square light" data-r="0" data-c="2"><span class="piece" style="color: rgb(26, 26, 26);">♝</span></div><div class="square dark" data-r="0" data-c="3"><span class="piece" style="color: rgb(26, 26, 26);">♛</span></div><div class="square light" data-r="0" data-c="4"><span class="piece" style="color: rgb(26, 26, 26);">♚</span></div><div class="square dark" data-r="0" data-c="5"><span class="piece" style="color: rgb(26, 26, 26);">♝</span></div><div class="square light" data-r="0" data-c="6"><span class="piece" style="color: rgb(26, 26, 26);">♞</span></div><div class="square dark" data-r="0" data-c="7"><span class="piece" style="color: rgb(26, 26, 26);">♜</span></div><div class="square dark" data-r="1" data-c="0"><span class="piece" style="color: rgb(26, 26, 26);">♟︎</span></div><div class="square light" data-r="1" data-c="1"><span class="piece" style="color: rgb(26, 26, 26);">♟︎</span></div><div class="square dark" data-r="1" data-c="2"><span class="piece" style="color: rgb(26, 26, 26);">♟︎</span></div><div class="square light" data-r="1" data-c="3"><span class="piece" style="color: rgb(26, 26, 26);">♟︎</span></div><div class="square dark" data-r="1" data-c="4"><span class="piece" style="color: rgb(26, 26, 26);">♟︎</span></div><div class="square light" data-r="1" data-c="5"><span class="piece" style="color: rgb(26, 26, 26);">♟︎</span></div><div class="square dark" data-r="1" data-c="6"><span class="piece" style="color: rgb(26, 26, 26);">♟︎</span></div><div class="square light" data-r="1" data-c="7"><span class="piece" style="color: rgb(26, 26, 26);">♟︎</span></div><div class="square light" data-r="2" data-c="0"></div><div class="square dark" data-r="2" data-c="1"></div><div class="square light" data-r="2" data-c="2"></div><div class="square dark" data-r="2" data-c="3"></div><div class="square light" data-r="2" data-c="4"></div><div class="square dark" data-r="2" data-c="5"></div><div class="square light" data-r="2" data-c="6"></div><div class="square dark" data-r="2" data-c="7"></div><div class="square dark" data-r="3" data-c="0"></div><div class="square light" data-r="3" data-c="1"></div><div class="square dark" data-r="3" data-c="2"></div><div class="square light" data-r="3" data-c="3"></div><div class="square dark" data-r="3" data-c="4"></div><div class="square light" data-r="3" data-c="5"></div><div class="square dark" data-r="3" data-c="6"></div><div class="square light" data-r="3" data-c="7"></div><div class="square light" data-r="4" data-c="0"></div><div class="square dark" data-r="4" data-c="1"></div><div class="square light" data-r="4" data-c="2"></div><div class="square dark" data-r="4" data-c="3"></div><div class="square light" data-r="4" data-c="4"></div><div class="square dark" data-r="4" data-c="5"></div><div class="square light" data-r="4" data-c="6"></div><div class="square dark" data-r="4" data-c="7"></div><div class="square dark" data-r="5" data-c="0"></div><div class="square light" data-r="5" data-c="1"></div><div class="square dark" data-r="5" data-c="2"></div><div class="square light" data-r="5" data-c="3"></div><div class="square dark" data-r="5" data-c="4"></div><div class="square light" data-r="5" data-c="5"></div><div class="square dark" data-r="5" data-c="6"></div><div class="square light" data-r="5" data-c="7"></div><div class="square light" data-r="6" data-c="0"><span class="piece pawn-iw" style="color: rgb(0, 0, 0);">♟︎</span></div><div class="square dark" data-r="6" data-c="1"><span class="piece pawn-iw" style="color: rgb(0, 0, 0);">♟︎</span></div><div class="square light" data-r="6" data-c="2"><span class="piece pawn-iw" style="color: rgb(0, 0, 0);">♟︎</span></div><div class="square dark" data-r="6" data-c="3"><span class="piece pawn-iw" style="color: rgb(0, 0, 0);">♟︎</span></div><div class="square light" data-r="6" data-c="4"><span class="piece pawn-iw" style="color: rgb(0, 0, 0);">♟︎</span></div><div class="square dark" data-r="6" data-c="5"><span class="piece pawn-iw" style="color: rgb(0, 0, 0);">♟︎</span></div><div class="square light" data-r="6" data-c="6"><span class="piece pawn-iw" style="color: rgb(0, 0, 0);">♟︎</span></div><div class="square dark" data-r="6" data-c="7"><span class="piece pawn-iw" style="color: rgb(0, 0, 0);">♟︎</span></div><div class="square dark" data-r="7" data-c="0"><span class="piece" style="color: rgb(255, 255, 255);">♜</span></div><div class="square light" data-r="7" data-c="1"><span class="piece" style="color: rgb(255, 255, 255);">♞</span></div><div class="square dark" data-r="7" data-c="2"><span class="piece" style="color: rgb(255, 255, 255);">♝</span></div><div class="square light" data-r="7" data-c="3"><span class="piece" style="color: rgb(255, 255, 255);">♛</span></div><div class="square dark" data-r="7" data-c="4"><span class="piece" style="color: rgb(255, 255, 255);">♚</span></div><div class="square light" data-r="7" data-c="5"><span class="piece" style="color: rgb(255, 255, 255);">♝</span></div><div class="square dark" data-r="7" data-c="6"><span class="piece" style="color: rgb(255, 255, 255);">♞</span></div><div class="square light" data-r="7" data-c="7"><span class="piece" style="color: rgb(255, 255, 255);">♜</span></div></div>
+  <div id="boardFrame">
+    <div id="ranks"></div>
+    <div id="board" style="grid-template-columns: repeat(8, 60px); grid-template-rows: repeat(8, 60px); --sq: 60px;"><div class="square light" data-r="0" data-c="0"><span class="piece" style="color: rgb(26, 26, 26);">♜</span></div><div class="square dark" data-r="0" data-c="1"><span class="piece" style="color: rgb(26, 26, 26);">♞</span></div><div class="square light" data-r="0" data-c="2"><span class="piece" style="color: rgb(26, 26, 26);">♝</span></div><div class="square dark" data-r="0" data-c="3"><span class="piece" style="color: rgb(26, 26, 26);">♛</span></div><div class="square light" data-r="0" data-c="4"><span class="piece" style="color: rgb(26, 26, 26);">♚</span></div><div class="square dark" data-r="0" data-c="5"><span class="piece" style="color: rgb(26, 26, 26);">♝</span></div><div class="square light" data-r="0" data-c="6"><span class="piece" style="color: rgb(26, 26, 26);">♞</span></div><div class="square dark" data-r="0" data-c="7"><span class="piece" style="color: rgb(26, 26, 26);">♜</span></div><div class="square dark" data-r="1" data-c="0"><span class="piece" style="color: rgb(26, 26, 26);">♟︎</span></div><div class="square light" data-r="1" data-c="1"><span class="piece" style="color: rgb(26, 26, 26);">♟︎</span></div><div class="square dark" data-r="1" data-c="2"><span class="piece" style="color: rgb(26, 26, 26);">♟︎</span></div><div class="square light" data-r="1" data-c="3"><span class="piece" style="color: rgb(26, 26, 26);">♟︎</span></div><div class="square dark" data-r="1" data-c="4"><span class="piece" style="color: rgb(26, 26, 26);">♟︎</span></div><div class="square light" data-r="1" data-c="5"><span class="piece" style="color: rgb(26, 26, 26);">♟︎</span></div><div class="square dark" data-r="1" data-c="6"><span class="piece" style="color: rgb(26, 26, 26);">♟︎</span></div><div class="square light" data-r="1" data-c="7"><span class="piece" style="color: rgb(26, 26, 26);">♟︎</span></div><div class="square light" data-r="2" data-c="0"></div><div class="square dark" data-r="2" data-c="1"></div><div class="square light" data-r="2" data-c="2"></div><div class="square dark" data-r="2" data-c="3"></div><div class="square light" data-r="2" data-c="4"></div><div class="square dark" data-r="2" data-c="5"></div><div class="square light" data-r="2" data-c="6"></div><div class="square dark" data-r="2" data-c="7"></div><div class="square dark" data-r="3" data-c="0"></div><div class="square light" data-r="3" data-c="1"></div><div class="square dark" data-r="3" data-c="2"></div><div class="square light" data-r="3" data-c="3"></div><div class="square dark" data-r="3" data-c="4"></div><div class="square light" data-r="3" data-c="5"></div><div class="square dark" data-r="3" data-c="6"></div><div class="square light" data-r="3" data-c="7"></div><div class="square light" data-r="4" data-c="0"></div><div class="square dark" data-r="4" data-c="1"></div><div class="square light" data-r="4" data-c="2"></div><div class="square dark" data-r="4" data-c="3"></div><div class="square light" data-r="4" data-c="4"></div><div class="square dark" data-r="4" data-c="5"></div><div class="square light" data-r="4" data-c="6"></div><div class="square dark" data-r="4" data-c="7"></div><div class="square dark" data-r="5" data-c="0"></div><div class="square light" data-r="5" data-c="1"></div><div class="square dark" data-r="5" data-c="2"></div><div class="square light" data-r="5" data-c="3"></div><div class="square dark" data-r="5" data-c="4"></div><div class="square light" data-r="5" data-c="5"></div><div class="square dark" data-r="5" data-c="6"></div><div class="square light" data-r="5" data-c="7"></div><div class="square light" data-r="6" data-c="0"><span class="piece pawn-iw" style="color: rgb(0, 0, 0);">♟︎</span></div><div class="square dark" data-r="6" data-c="1"><span class="piece pawn-iw" style="color: rgb(0, 0, 0);">♟︎</span></div><div class="square light" data-r="6" data-c="2"><span class="piece pawn-iw" style="color: rgb(0, 0, 0);">♟︎</span></div><div class="square dark" data-r="6" data-c="3"><span class="piece pawn-iw" style="color: rgb(0, 0, 0);">♟︎</span></div><div class="square light" data-r="6" data-c="4"><span class="piece pawn-iw" style="color: rgb(0, 0, 0);">♟︎</span></div><div class="square dark" data-r="6" data-c="5"><span class="piece pawn-iw" style="color: rgb(0, 0, 0);">♟︎</span></div><div class="square light" data-r="6" data-c="6"><span class="piece pawn-iw" style="color: rgb(0, 0, 0);">♟︎</span></div><div class="square dark" data-r="6" data-c="7"><span class="piece pawn-iw" style="color: rgb(0, 0, 0);">♟︎</span></div><div class="square dark" data-r="7" data-c="0"><span class="piece" style="color: rgb(255, 255, 255);">♜</span></div><div class="square light" data-r="7" data-c="1"><span class="piece" style="color: rgb(255, 255, 255);">♞</span></div><div class="square dark" data-r="7" data-c="2"><span class="piece" style="color: rgb(255, 255, 255);">♝</span></div><div class="square light" data-r="7" data-c="3"><span class="piece" style="color: rgb(255, 255, 255);">♛</span></div><div class="square dark" data-r="7" data-c="4"><span class="piece" style="color: rgb(255, 255, 255);">♚</span></div><div class="square light" data-r="7" data-c="5"><span class="piece" style="color: rgb(255, 255, 255);">♝</span></div><div class="square dark" data-r="7" data-c="6"><span class="piece" style="color: rgb(255, 255, 255);">♞</span></div><div class="square light" data-r="7" data-c="7"><span class="piece" style="color: rgb(255, 255, 255);">♜</span></div></div>
+  </div>
+  <div id="coordCorner"></div>
+  <div id="files"></div>
   <div id="pieceTip" class="piece-tip" style="display: none;"></div>
   <div id="lastMoveLine"></div>
   <div id="shopWrap">
@@ -952,7 +967,7 @@
       <button id="historyLive" disabled title="Return to current move" style="font-size: 0.7rem; padding: 4px 6px;">current move</button>
       <button id="historyForward" disabled>→</button>
     </span>
-    <div id="reviewBanner" style="display: none; position: fixed; top: 0; left: 0; right: 0; z-index: 900; background: #2b3a4a; color: #f0d9b5; padding: 6px 10px; font-size: 0.95rem; justify-content: space-between; align-items: center; box-shadow: 0 2px 6px rgba(0,0,0,0.4);">
+    <div id="reviewBanner" style="display: none; position: fixed; top: 0; left: 0; right: 0; z-index: 880; background: #2b3a4a; color: #f0d9b5; padding: 6px 96px 6px 10px; font-size: 0.95rem; justify-content: space-between; align-items: center; box-shadow: 0 2px 6px rgba(0,0,0,0.4);">
       <span id="reviewBannerText"></span>
       <button id="reviewResume">Resume live ►</button>
     </div>
@@ -1068,11 +1083,7 @@ function updateSeedLabel() {
 }
 
 // ---- Piece representation: {type, color} where type in P,N,B,R,Q,K and color in 'w','b' ----
-const PIECE_GLYPH = {
-  wP:"\u2659", wN:"\u2658", wB:"\u2655", wR:"\u2656", wQ:"\u2655", wK:"\u2654", wC:"\ud83d\udc2b", wG:"\ud83e\udd97", wM:"\ud83d\udc00", wT:"\ud83d\udc31",
-  bP:"\u265F", bN:"\u265E", bB:"\u265D", bR:"\u265E", bQ:"\u265B", bK:"\u265A", bC:"\ud83d\udc2b", bG:"\ud83e\udd97", bM:"\ud83d\udc00", bT:"\ud83d\udc31"
-};
-// Fix discrepancies (use filled glyphs for both colors via text-color; we use standard unicode):
+// One solid glyph per type; the side is shown with CSS color / the pawn-iw class.
 const GLYPH = {
   P:"\u265F", N:"\u265E", B:"\u265D", R:"\u265C", Q:"\u265B", K:"\u265A", C:"\ud83d\udc2b", G:"\ud83e\udd97", D:"\u265F", A:"\u265E", S:"\u265F", H:"\u265E", M:"\ud83d\udc00", T:"\ud83d\udc31", X:"\u265E", F:"\u265E"
 };
@@ -1184,7 +1195,8 @@ function initialState() {
     lastMove: null,   // {from, to}
     history: [],       // snapshots
     moveLog: [],      // SAN-ish
-    lastMoveText: "", // displayed "last move" line (moves, placements, spells, skips)
+    turnActivity: [],   // phrases for the current player's turn ("played e4", "cast Confusion on b1"...)
+    activityOwner: null, // color whose turn the activity list describes
     gameOver: false,
     flipped: false,
     aiOpponent: false,
@@ -1211,6 +1223,8 @@ extraTurns: { w: 0, b: 0 },
     freeSpellId: null,      // spell id the pending follow-up allows for free
     nextFollowUp: null,     // { player, kind, id } follow-up earned by a turn-ending spell, granted on that player's next turn
     followUpOwner: null,    // color the current follow-up offer belongs to
+    stashSpells: null,      // spell shop saved while a free follow-up offer is shown
+    stashSpellMods: null,   // spell modifiers saved alongside stashSpells
     spellUsedThisTurn: false,
     freeCast: false,
 taxSkipPending: false, // Tax Gain 2x cast: player must take the free Tax or hit Skip Turn
@@ -1284,7 +1298,7 @@ function tickShopRefresh() {
 const SPELLS = {
   moneySkip:  { name:"Tax Gain",    cost:0, glyph:"+3$", desc:"+$3 and skip your turn" },
   killRandom: { name:"Lightning",   cost:1, glyph:"⚡",  desc:"75% strike enemy, 25% strike your piece (random non-king)" },
-  killPawn:   { name:"Snipe Pawn",  cost:2, glyph:"×P", desc:"Kill an enemy pawn of your choice (normal, D-pawn, soldier)" },
+  killPawn:   { name:"Snipe Pawn",  cost:2, glyph:"×P", desc:"Kill any pawn of your choice (normal, D-pawn or soldier, either side)" },
   block:      { name:"Wall",        cost:1, glyph:"▣",  desc:"Block a square this & next turn" },
   sleep:      { name:"Sleep",       cost:4, glyph:"Zz", desc:"Enemy piece can't move next turn" },
   bounty:     { name:"Bounty",      cost:0, glyph:"★",  desc:"Bounties 1 of your pieces + 2 enemy pieces; you earn +$1 when each is captured (red halo)" },
@@ -1366,7 +1380,8 @@ function cloneStateForHistory(s) {
     fullmove: s.fullmove,
     lastMove: s.lastMove ? {from:{...s.lastMove.from}, to:{...s.lastMove.to}} : null,
     moveLog: [...s.moveLog],
-    lastMoveText: s.lastMoveText || "",
+    turnActivity: [...(s.turnActivity || [])],
+    activityOwner: s.activityOwner || null,
 gameOver: s.gameOver,
     money: { w: s.money.w, b: s.money.b },
     shop: [...s.shop],
@@ -1384,6 +1399,8 @@ gameOver: s.gameOver,
     freeSpellId: s.freeSpellId || null,
     nextFollowUp: s.nextFollowUp ? {...s.nextFollowUp} : null,
     followUpOwner: s.followUpOwner || null,
+    stashSpells: s.stashSpells ? [...s.stashSpells] : null,
+    stashSpellMods: s.stashSpellMods ? [...s.stashSpellMods] : null,
     spellUsedThisTurn: s.spellUsedThisTurn,
     blocked: s.blocked.map(b=>({...b})),
     sleeping: s.sleeping.map(b=>({...b})),
@@ -1398,7 +1415,6 @@ gameOver: s.gameOver,
     noCapture: { w: s.noCapture.w, b: s.noCapture.b },
     extraTurns: { w: s.extraTurns.w, b: s.extraTurns.b },
     freeCast: !!s.freeCast,
-didSkip: s.didSkip,
     taxSkipPending: s.taxSkipPending || false,
     gameStarted: !!s.gameStarted,
     selected: s.selected ? {r:s.selected.r, c:s.selected.c} : null,
@@ -1424,9 +1440,11 @@ function isSleeping(s, r, c){ return s.sleeping.some(x => x.r===r && x.c===c); }
 function isShielded(s, r, c){ return s.shielded && s.shielded.some(x => x.r===r && x.c===c); }
 
 // Generate pseudo-legal moves from (r,c) on board, respecting castling rights & ep.
-// Fake Knight: presses forward toward the enemy — forward 1, forward 2, or
-// forward 2 then 1 sideways. It can move or capture at ANY square along that
-// path, so it cannot jump: the deeper squares need the earlier ones empty.
+// Fake Knight: direction-symmetric (no colour-based "forward"). It slides 1-2
+// squares straight along any cardinal direction, or 2 straight then 1 to the
+// side (both straight squares must be clear). It can move or capture at ANY
+// square along the path, so it cannot jump: the deeper squares need the earlier
+// ones empty.
 function fakeKnightReach(br, bc, board, blk) {
   const s = new Set();
   const p = board[br][bc];
@@ -1760,8 +1778,8 @@ function squareAttacked(board, r, c, attackerColor) {
       if (t && t.color===attackerColor && t.type==="C") return true;
     }
   }
-  // Fake Knight: presses forward (1, 2, or 2-then-side); threatens any square
-  // it can move or capture to along its path.
+  // Fake Knight: threatens any square it can reach (1-2 straight, or 2-then-side)
+  // from anywhere on the board.
   for (let rr=0;rr<SIZE;rr++) for (let cc=0;cc<SIZE;cc++) {
     const t=board[rr][cc];
     if (t && t.color===attackerColor && t.type==="F" && fakeKnightReach(rr, cc, board).has(r+","+c)) return true;
@@ -2063,7 +2081,7 @@ state.money[p.color] += gain;
     state.gameOver = true;
   }
   state.moveLog.push(san);
-  state.lastMoveText = (p.color === "w" ? "White" : "Black") + " played " + san;
+  logTurnAction("played " + san, p.color);
   rebuildHistorySel();
 
   // Detect stalemate (no legal moves and not already won)
@@ -2172,11 +2190,39 @@ function render() {
   const sqLen = SIZE <= 8 ? 60 : SIZE <= 10 ? 52 : SIZE <= 12 ? 46 : 40;
   // Shrink the board to fit narrow screens (phones): keep the whole grid plus a
   // small margin inside the viewport width.
-  const fitSq = Math.max(2, Math.floor((Math.min(window.innerWidth, 860) - 24) / SIZE));
+  const fitSq = Math.max(2, Math.floor((Math.min(window.innerWidth, 860) - 48) / SIZE));
   const sq = Math.min(sqLen, fitSq);
   BOARD_EL.style.gridTemplateColumns = `repeat(${SIZE}, ${sq}px)`;
   BOARD_EL.style.gridTemplateRows = `repeat(${SIZE}, ${sq}px)`;
   BOARD_EL.style.setProperty("--sq", sq + "px");
+  // Coordinate frame around the board: rank numbers beside the left column,
+  // file letters under the bottom row (they follow the flipped view so each
+  // side sees its own a1 in its usual corner).
+  const ranksEl = document.getElementById("ranks");
+  const filesEl = document.getElementById("files");
+  if (ranksEl && filesEl) {
+    ranksEl.style.gridTemplateRows = `repeat(${SIZE}, ${sq}px)`;
+    filesEl.style.gridTemplateColumns = `repeat(${SIZE}, ${sq}px)`;
+    const labelFs = Math.max(9, Math.round(sq * 0.32)) + "px";
+    ranksEl.style.fontSize = labelFs;
+    filesEl.style.fontSize = labelFs;
+    ranksEl.innerHTML = "";
+    filesEl.innerHTML = "";
+    for (let i = 0; i < SIZE; i++) {
+      const r = flipped ? SIZE - 1 - i : i;
+      const rank = document.createElement("span");
+      rank.className = "coord-label";
+      rank.textContent = SIZE - r;
+      ranksEl.appendChild(rank);
+    }
+    for (let j = 0; j < SIZE; j++) {
+      const c = flipped ? SIZE - 1 - j : j;
+      const f = document.createElement("span");
+      f.className = "coord-label";
+      f.textContent = BOARD_LETTERS[c];
+      filesEl.appendChild(f);
+    }
+  }
   const checkW = inCheck(state.board, "w") ? findKing(state.board, "w") : null;
   const checkB = inCheck(state.board, "b") ? findKing(state.board, "b") : null;
   for (let i=0;i<SIZE;i++) {
@@ -2187,17 +2233,6 @@ function render() {
       sq.className = "square " + (((r+c)%2===0) ? "light" : "dark");
       sq.dataset.r = r;
       sq.dataset.c = c;
-      // File letters along the bottom edge, rank numbers along the left
-      // edge (they follow the flipped view so each side sees its own a1).
-      // The bottom-left corner square shows the combined file+rank ("a1").
-      if (j === 0 || i === SIZE - 1) {
-        const coord = document.createElement("span");
-        coord.className = "sqcoord";
-        if (i === SIZE - 1 && j === 0) coord.textContent = BOARD_LETTERS[c] + (SIZE - r);
-        else if (i === SIZE - 1) coord.textContent = BOARD_LETTERS[c];
-        else coord.textContent = SIZE - r;
-        sq.appendChild(coord);
-      }
       const p = state.board[r][c];
       if (p) {
         const span = document.createElement("span");
@@ -2400,11 +2435,28 @@ function evaluate(s, aiColor) {
     if (p.bounty && p.color === aiColor) v -= 15; // my bountied piece is a liability
     // sleeping piece is worth less
     if (isSleeping(s, r, c)) v -= 20;
+    // confused piece is unreliable (must move randomly); a cursed piece bleeds money
+    if (s.confused && s.confused.some(x => x.r===r && x.c===c)) v -= 25;
+    if (s.cursed && s.cursed.some(x => x.r===r && x.c===c)) v -= 20;
     score += sign * v;
   }
   // Money advantage
   score += (s.money[aiColor] - s.money[opp(aiColor)]) * 8;
   return score;
+}
+
+// Copy every square-keyed effect list so snapshots are self-contained.
+function snapEffects(s) {
+  return {
+    blocked: (s.blocked||[]).map(b=>({...b})),
+    sleeping: (s.sleeping||[]).map(b=>({...b})),
+    shielded: (s.shielded||[]).map(b=>({...b})),
+    confused: (s.confused||[]).map(b=>({...b})),
+    piratify: (s.piratify||[]).map(b=>({...b})),
+    thief: (s.thief||[]).map(b=>({...b})),
+    cursed: (s.cursed||[]).map(b=>({...b})),
+    noCapture: { w: (s.noCapture && s.noCapture.w) || 0, b: (s.noCapture && s.noCapture.b) || 0 },
+  };
 }
 
 // Build a lightweight search snapshot from the live state
@@ -2414,9 +2466,7 @@ function snapshotFromState(s) {
     castling: {...s.castling},
     epTarget: s.epTarget ? {...s.epTarget} : null,
     turn: s.turn,
-    blocked: s.blocked.map(b=>({...b})),
-    sleeping: s.sleeping.map(b=>({...b})),
-    shielded: (s.shielded||[]).map(b=>({...b})),
+    ...snapEffects(s),
     money: { w: s.money.w, b: s.money.b },
   };
 }
@@ -2434,9 +2484,7 @@ function applyMove(snap, fr, fc, move, promoteTo) {
     return {
       board, castling, epTarget,
       turn: opp(snap.turn),
-      blocked: snap.blocked.map(b=>({...b})),
-      sleeping: snap.sleeping.map(b=>({...b})),
-      shielded: (snap.shielded||[]).map(b=>({...b})),
+      ...snapEffects(snap),
       money: snap.money,
     };
   }
@@ -2459,9 +2507,22 @@ const kingCol = SIZE >> 1;
   return {
     board, castling, epTarget,
     turn: opp(snap.turn),
-    blocked: snap.blocked.map(b=>({...b})),
-    sleeping: snap.sleeping.map(b=>({...b})),
-    shielded: (snap.shielded||[]).map(b=>({...b})),
+    ...snapEffects(snap),
+    money: snap.money,
+  };
+}
+
+// Apply a shop placement onto a snapshot: put `piece` (type) on (r,c) for
+// `color` and hand the turn to the opponent (a buy ends the turn).
+function applyPlacement(snap, piece, color, r, c) {
+  const board = cloneBoard(snap.board);
+  board[r][c] = { type: piece, color, bounty: null, golden: false, platinum: false };
+  return {
+    board,
+    castling: {...snap.castling},
+    epTarget: null,
+    turn: opp(color),
+    ...snapEffects(snap),
     money: snap.money,
   };
 }
@@ -2474,6 +2535,10 @@ function snapLegal(snap, r, c) {
   let pm = pseudoMoves(snap.board, r, c, snap.castling, snap.epTarget, blockedSet(snap));
   // A cursed piece whose owner has $0 is frozen: no moving, only standing shots.
   if (cursedFrozen(snap, r, c)) pm = pm.filter(m => m.shoot);
+  // Echo's no-capture window: keep the search honest about legal captures.
+  if (snap.noCapture && snap.noCapture[color] > 0) {
+    pm = pm.filter(m => { const t = snap.board[m.r][m.c]; return !t && !m.enpassant; });
+  }
   const inCheckNow = snapInCheck(snap, color);
   const out = [];
   for (const m of pm) {
@@ -2504,7 +2569,7 @@ function snapInCheck(snap, color) {
 
 // If (r,c) sits directly between `color`'s king and an enemy slider on a
 // straight ray, return the pin geometry {kingR,kingC,dr,dc,dist}; else null.
-// (Bishops pin diagonally, rooks/queens/Aezons straight.)
+// (Bishops pin diagonally, rooks/queens/Amazons straight.)
 function snapPinRay(snap, color, r, c) {
   const k = findKing(snap.board, color);
   if (!k) return null;
@@ -2706,16 +2771,28 @@ function aiMove() {
     setTimeout(aiMove, 400);
     return;
   }
-  // A 2x/RND follow-up was already granted as a free spell; the AI declines it
-  // and plays on normally with its normal spell bar.
-  if (state.freeSpellId && state.followUpOwner === me &&
-      !state.taxSkipPending) {
-    skipFollowUpSpell();
+  // A 2x/RND follow-up was granted as a free spell: take it if it's useful,
+  // otherwise decline it and play on with the normal spell bar.
+  if (state.freeSpellId && state.followUpOwner === me && !state.taxSkipPending) {
+    aiTryFreeFollowUp(me);
   }
 
-// Sometimes buy a piece if it materially helps (affordable strong piece)
+  // Consider the shop and a free spell together. Buying ends the turn, and
+  // casting blocks buying, so pick the better of the two: a very valuable spell
+  // target wins, otherwise a sound buy is preferred (a spell is still cast when
+  // there's nothing worth buying). Either way the AI can still make a move.
   const shopBuy = aiConsiderBuy(me);
-  if (shopBuy !== null) {
+  const sp = (!state.spellUsedThisTurn && !state.placementMode && !state.targetMode)
+    ? aiConsiderSpell(me) : null;
+  if (sp && (shopBuy === null || sp.score >= AI_SPELL_OVERRIDE)) {
+    castSpell(sp.slot);
+    if (state.targetMode) {
+      if (isTargetable(sp.r, sp.c, state.targetMode.kind)) handleTargetClick(sp.r, sp.c);
+      else cancelPlacement();
+    }
+    // A 2x/RND modifier may have granted a free second cast — take it too.
+    aiTryFreeFollowUp(me);
+  } else if (shopBuy !== null) {
     buyPiece(shopBuy);
     setTimeout(aiFinishPlacement, 400);
     return;
@@ -2776,6 +2853,10 @@ const start = snapshotFromState(state);
   } finally {
     aiThinking = false;
   }
+  // Echo leaves the AI on move (an extra turn). makeMove kept the turn while
+  // aiThinking was still true, so render() must run again now that it's false
+  // for the AI trigger to schedule the extra move.
+  if (state.turn === me && !state.gameOver) render();
 }
 
 // Emergency escape hatch: if the chosen move can't be applied, play any
@@ -2795,43 +2876,330 @@ function aiFallbackMove(me) {
 }
 
 // Pick the best empty square on `me`'s half to place a held piece (a shop buy).
+// Heuristic-scored squares are shortlisted, then each is actually placed on a
+// snapshot and evaluated by the search — so the choice reflects the resulting
+// position (king safety, tactics) rather than the square's raw features.
 function aiBestPlacement(me, piece) {
   if (!piece) return null;
   const enemy = opp(me);
   const lo = me === "w" ? Math.ceil(SIZE / 2) : 0;
   const hi = me === "w" ? SIZE - 1 : Math.floor(SIZE / 2) - 1;
-  let best = null;
+  const cands = [];
   for (let r = lo; r <= hi; r++) {
     for (let c = 0; c < SIZE; c++) {
       if (state.board[r][c]) continue;
       if (state.blocked.some(b => b.r === r && b.c === c)) continue;
-      const sc = aiPlacementScore(me, enemy, piece, r, c);
-      if (!best || sc > best.score) best = { r, c, score: sc };
+      cands.push({ r, c, h: aiPlacementScore(me, enemy, piece, r, c) });
     }
   }
-  return best ? { r: best.r, c: best.c, score: best.score } : null;
+  if (!cands.length) return null;
+  cands.sort((a, b) => b.h - a.h);
+  const shortlist = cands.slice(0, SIZE >= 12 ? 6 : 10);
+  const snap0 = snapshotFromState(state);
+  const depth = SIZE >= 12 ? 1 : SIZE === 10 ? 1 : 2;
+  let best = null, bestVal = -Infinity;
+  for (const cd of shortlist) {
+    let v;
+    try {
+      const child = applyPlacement(snap0, piece, me, cd.r, cd.c);
+      v = minimax(child, depth, -Infinity, Infinity, me, 1);
+    } catch (e) {
+      v = cd.h;   // search hiccup: fall back to the heuristic square
+    }
+    const total = v + cd.h * 0.02;   // tie-break toward the safer square
+    if (total > bestVal) { bestVal = total; best = { r: cd.r, c: cd.c, score: cd.h }; }
+  }
+  return best;
+}
+
+// Is there a friendly pawn within one square (for pawn-chain support)?
+function friendlyPawnNear(r, c, color) {
+  for (let dr = -1; dr <= 1; dr++) for (let dc = -1; dc <= 1; dc++) {
+    if (!dr && !dc) continue;
+    const rr = r + dr, cc = c + dc;
+    if (rr < 0 || rr >= SIZE || cc < 0 || cc >= SIZE) continue;
+    const q = state.board[rr][cc];
+    if (q && q.color === color && q.type === "P") return true;
+  }
+  return false;
+}
+function friendlyPawnOnFile(c, color) {
+  for (let r = 0; r < SIZE; r++) {
+    const q = state.board[r][c];
+    if (q && q.color === color && q.type === "P") return true;
+  }
+  return false;
 }
 
 // Score an empty square (r,c) in the AI's own half for placing `piece`.
 function aiPlacementScore(me, enemy, piece, r, c) {
-  let score = 0;
   const mid = (SIZE - 1) / 2;
-  score += (mid - Math.abs(c - mid)) * 10;            // central files first
-  const backRank = me === "w" ? SIZE - 1 : 0;
   const depth = me === "w" ? SIZE - 1 - r : r;        // 0 = own back rank
   const isPawnLike = piece === "P" || piece === "D" || piece === "S" || piece === "G" || piece === "F";
   const isSlider = piece === "Q" || piece === "B" || piece === "R" || piece === "X";
+  const pv = PIECE_SCORE[piece] || 300;
+
+  let score = 0;
+  score += (mid - Math.abs(c - mid)) * 12;            // central files first
+
   if (isPawnLike) score += 110 - Math.abs(depth - 1) * 18;   // right where pawns belong
   else if (isSlider) score += 90 - depth * 22;               // keep sliders sheltered
   else score += 70 - Math.abs(depth - 2) * 12;               // minor-ish: two rows out
-  // Safety: a square the enemy attacks is a free capture unless we defend it.
+
+  // Danger: weight the penalty by the piece's value, so a hanging queen is
+  // avoided far more strongly than a hanging pawn.
   const attacked = squareAttacked(state.board, r, c, enemy);
   const defended = squareAttacked(state.board, r, c, me);
-  if (attacked) score += defended ? -150 : -600;
+  if (attacked) score -= (defended ? 0.55 : 1.25) * pv;
   else score += 70;
-  if (defended) score += 40;
-  score += gRng() * 8;                          // tiny variety
+  if (defended) score += Math.min(60, pv * 0.15);
+
+  // Pawn structure: reward chaining with a neighbour, avoid doubling on a file.
+  if (piece === "P") {
+    if (friendlyPawnNear(r, c, me)) score += 35;
+    if (friendlyPawnOnFile(c, me)) score -= 25;
+  }
+
+  score += gRng() * 6;                                // tiny variety
   return score;
+}
+
+// ---- AI spell use ----
+// Spells are a free action, so the AI may cast one and still move. Each spell's
+// candidate target is scored on the same rough scale and must clear its
+// threshold; a good buy still beats a mediocre spell (AI_SPELL_OVERRIDE).
+const AI_SPELL_MIN = 180;      // generic fallback floor
+const AI_SPELL_OVERRIDE = 500; // a spell this valuable beats a shop buy
+const AI_SPELL_THRESHOLD = {
+  sleep: 300, confuse: 300, curse: 400, shield: 300, dispel: 300,
+  push: 400, sacrifice: 24, killPawn: 180, killRandom: 100, bounty: 90, echo: 350,
+};
+
+// Does the enemy piece at (r,c) attack any of `me`'s non-king pieces?
+function aiPieceThreatensUs(r, c, me) {
+  const p = state.board[r][c];
+  if (!p || p.color === me) return false;
+  let ms;
+  try { ms = pseudoMoves(state.board, r, c, state.castling, state.epTarget, blockedSet(state)); }
+  catch (e) { return false; }
+  for (const m of ms) {
+    const t = state.board[m.r][m.c];
+    if (t && t.color === me && t.type !== "K") return true;
+  }
+  return false;
+}
+
+// Put the enemy's most valuable active piece to sleep.
+function aiSleepTarget(me) {
+  let best = null;
+  for (let r = 0; r < SIZE; r++) for (let c = 0; c < SIZE; c++) {
+    const p = state.board[r][c];
+    if (!p || p.color === me || p.type === "K") continue;
+    if (isSleeping(state, r, c)) continue;
+    let v = PIECE_SCORE[p.type] || 300;
+    if (aiPieceThreatensUs(r, c, me)) v += 60;
+    if (!best || v > best.score) best = { r, c, score: v };
+  }
+  return best;
+}
+
+// Shield our most valuable piece that is currently under attack.
+function aiShieldTarget(me) {
+  let best = null;
+  for (let r = 0; r < SIZE; r++) for (let c = 0; c < SIZE; c++) {
+    const p = state.board[r][c];
+    if (!p || p.color !== me || p.type === "K") continue;
+    if (isShielded(state, r, c)) continue;
+    if (!squareAttacked(state.board, r, c, opp(me))) continue;   // only shield if in danger
+    const defended = squareAttacked(state.board, r, c, me);
+    const v = (PIECE_SCORE[p.type] || 300) * (defended ? 0.6 : 1.0);
+    if (!best || v > best.score) best = { r, c, score: v };
+  }
+  return best;
+}
+
+// Dispel the most harmful enemy effect on our own pieces (sleep/confusion/curse
+// or an enemy bounty), picking the highest-value piece affected.
+function aiDispelTarget(me) {
+  let best = null;
+  for (let r = 0; r < SIZE; r++) for (let c = 0; c < SIZE; c++) {
+    const p = state.board[r][c];
+    if (!p || p.color !== me) continue;
+    const sleeping = isSleeping(state, r, c);
+    const confused = state.confused.some(x => x.r === r && x.c === c);
+    const cursed   = state.cursed.some(x => x.r === r && x.c === c && x.owner !== me);
+    const foeBounty = p.bounty && p.bounty !== me;
+    if (!sleeping && !confused && !cursed && !foeBounty) continue;
+    let v = PIECE_SCORE[p.type] || 300;
+    if (sleeping) v += 40;
+    if (!best || v > best.score) best = { r, c, score: v };
+  }
+  return best;
+}
+
+// Confuse the enemy's most valuable active piece (it must then move randomly).
+function aiConfuseTarget(me) {
+  let best = null;
+  for (let r = 0; r < SIZE; r++) for (let c = 0; c < SIZE; c++) {
+    const p = state.board[r][c];
+    if (!p || p.color === me || p.type === "K") continue;
+    if (state.confused.some(x => x.r === r && x.c === c)) continue;
+    let v = (PIECE_SCORE[p.type] || 300) * 0.9;
+    if (aiPieceThreatensUs(r, c, me)) v += 60;
+    if (!best || v > best.score) best = { r, c, score: v };
+  }
+  return best;
+}
+
+// Curse the enemy's most valuable piece (its owner bleeds $1 per move).
+function aiCurseTarget(me) {
+  let best = null;
+  for (let r = 0; r < SIZE; r++) for (let c = 0; c < SIZE; c++) {
+    const p = state.board[r][c];
+    if (!p || p.color === me || p.type === "K") continue;
+    if (state.cursed.some(x => x.r === r && x.c === c)) continue;
+    let v = (PIECE_SCORE[p.type] || 300) * 0.6;
+    if (aiPieceThreatensUs(r, c, me)) v += 40;
+    if (!best || v > best.score) best = { r, c, score: v };
+  }
+  return best;
+}
+
+// Push an enemy piece back toward its own side, ideally one that threatens us.
+function aiPushTarget(me) {
+  let best = null;
+  for (let r = 0; r < SIZE; r++) for (let c = 0; c < SIZE; c++) {
+    const p = state.board[r][c];
+    if (!p || p.color === me) continue;
+    if (!isTargetable(r, c, "pushable")) continue;
+    let v = PIECE_SCORE[p.type] || 300;
+    if (aiPieceThreatensUs(r, c, me)) v += 100;
+    if (!best || v > best.score) best = { r, c, score: v };
+  }
+  return best;
+}
+
+// Sacrifice a genuinely lost piece (attacked and undefended) to salvage cash.
+function aiSacrificeTarget(me) {
+  let best = null;
+  for (let r = 0; r < SIZE; r++) for (let c = 0; c < SIZE; c++) {
+    const p = state.board[r][c];
+    if (!p || p.color !== me || p.type === "K") continue;
+    if (!squareAttacked(state.board, r, c, opp(me))) continue;
+    if (squareAttacked(state.board, r, c, me)) continue;
+    // Only salvage a piece that has no safe square to escape to.
+    const lm = legalMoves(state, r, c);
+    if (lm.some(m => !squareAttacked(state.board, m.r, m.c, opp(me)))) continue;
+    const gain = SHOP_PRICE[p.type] !== undefined ? SHOP_PRICE[p.type] : (PIECE_VALUE[p.type] || 0);
+    const v = gain * 12;
+    if (!best || v > best.score) best = { r, c, score: v };
+  }
+  return best;
+}
+
+// Snipe an enemy pawn, preferring one that threatens us or is near our side.
+function aiSnipeTarget(me) {
+  let best = null;
+  for (let r = 0; r < SIZE; r++) for (let c = 0; c < SIZE; c++) {
+    const p = state.board[r][c];
+    if (!p || p.color === me) continue;
+    if (p.type !== "P" && p.type !== "D" && p.type !== "S") continue;
+    let v = 100;
+    if (aiPieceThreatensUs(r, c, me)) v += 120;
+    const depth = me === "w" ? (SIZE - 1 - r) : r;   // rows into our own half
+    if (depth <= 1) v += 60;
+    if (!best || v > best.score) best = { r, c, score: v };
+  }
+  return best;
+}
+
+// Expected value of a spell that needs no target square.
+function aiInstantScore(id, me) {
+  const enemy = opp(me);
+  if (id === "killRandom") {
+    // 75% hits a random enemy, 25% hits one of ours — score the net expectation.
+    let eSum = 0, eN = 0, oSum = 0, oN = 0;
+    for (let r = 0; r < SIZE; r++) for (let c = 0; c < SIZE; c++) {
+      const p = state.board[r][c];
+      if (!p || p.type === "K") continue;
+      if (p.color === enemy) { eSum += PIECE_SCORE[p.type] || 300; eN++; }
+      else { oSum += PIECE_SCORE[p.type] || 300; oN++; }
+    }
+    if (!eN) return 0;
+    return (eSum / eN) * 0.75 - (oN ? oSum / oN : 0) * 0.25;
+  }
+  if (id === "bounty") {
+    let fresh = 0;
+    for (let r = 0; r < SIZE; r++) for (let c = 0; c < SIZE; c++) {
+      const p = state.board[r][c];
+      if (p && p.color === enemy && p.type !== "K" && !p.bounty) fresh++;
+    }
+    return Math.min(fresh, 2) * 45 + 20;
+  }
+  if (id === "echo") return state.money[me] >= 10 ? 350 : 0;
+  return 0;
+}
+
+// Candidate {r, c, score} (or {instant:true, score}) for casting `id`, or null.
+function aiSpellTarget(id, me) {
+  switch (id) {
+    case "sleep":     return aiSleepTarget(me);
+    case "confuse":   return aiConfuseTarget(me);
+    case "curse":     return aiCurseTarget(me);
+    case "shield":    return aiShieldTarget(me);
+    case "dispel":    return aiDispelTarget(me);
+    case "push":      return aiPushTarget(me);
+    case "sacrifice": return aiSacrificeTarget(me);
+    case "killPawn":  return aiSnipeTarget(me);
+    case "killRandom":
+    case "bounty":
+    case "echo": {
+      const v = aiInstantScore(id, me);
+      return v > 0 ? { instant: true, score: v } : null;
+    }
+    default: return null;
+  }
+}
+
+function aiSpellThreshold(id) {
+  return AI_SPELL_THRESHOLD[id] != null ? AI_SPELL_THRESHOLD[id] : AI_SPELL_MIN;
+}
+
+// Pick a worthwhile free spell to cast (slot + target), or null.
+function aiConsiderSpell(me) {
+  if (state.spellUsedThisTurn || state.placementMode || state.targetMode) return null;
+  if (inCheck(state.board, me)) return null;   // answer the check on the board first
+  let best = null;
+  for (let i = 0; i < state.spells.length; i++) {
+    const id = state.spells[i];
+    if (!id) continue;
+    const mod = state.spellMods[i] || "normal";
+    if (state.money[me] < spellEffCost(id, mod)) continue;
+    const cand = aiSpellTarget(id, me);
+    if (!cand || cand.score < aiSpellThreshold(id)) continue;
+    if (!best || cand.score > best.score)
+      best = { slot: i, id, r: cand.r, c: cand.c, instant: !!cand.instant, score: cand.score };
+  }
+  return best;
+}
+
+// Cast the free 2x/RND follow-up if it's worthwhile, else decline it.
+function aiTryFreeFollowUp(me) {
+  if (!state.freeSpellId || state.followUpOwner !== me) return false;
+  const id = state.freeSpellId;
+  const slot = state.spells.indexOf(id);
+  if (slot < 0) { skipFollowUpSpell(); return false; }
+  const cand = aiSpellTarget(id, me);
+  if (cand && cand.score >= aiSpellThreshold(id)) {
+    castSpell(slot);
+    if (state.targetMode) {
+      if (isTargetable(cand.r, cand.c, state.targetMode.kind)) handleTargetClick(cand.r, cand.c);
+      else cancelPlacement();
+    }
+    return true;
+  }
+  skipFollowUpSpell();
+  return false;
 }
 
 // Decide whether the AI buys from the shop this turn, and which slot. It skips
@@ -2901,9 +3269,8 @@ function aiFinishPlacement() {
 
 function isTargetable(r, c, kind) {
   const p = state.board[r][c];
-  if (kind === "enemyPawn") return p && (p.type === "P" || p.type === "D" || p.type === "S") && p.color !== state.turn;
+  if (kind === "enemyPawn") return p && (p.type === "P" || p.type === "D" || p.type === "S");
   if (kind === "enemyPiece") return p && p.color !== state.turn;
-  if (kind === "ownPiece") return p && p.color === state.turn;
   if (kind === "confuse") return p && p.color !== state.turn && !state.confused.some(x => x.r===r && x.c===c);
   if (kind === "piratify") return p && p.color === state.turn && !state.piratify.some(x => x.r===r && x.c===c) && !state.thief.some(x => x.r===r && x.c===c);
   if (kind === "thief") return p && p.color === state.turn && !state.piratify.some(x => x.r===r && x.c===c) && !state.thief.some(x => x.r===r && x.c===c);
@@ -2958,7 +3325,7 @@ function updateStatus() {
     }
     if (state.targetMode) {
       const msgs = {
-        enemyPawn: "click an enemy pawn to snipe",
+        enemyPawn: "click any pawn to snipe (either side)",
         enemyPiece: "click an enemy piece to put to sleep",
         confuse: "click an enemy piece to confuse (cannot re-target a confused piece)",
   piratify: "click one of your pieces to piratify it (cannot re-target a piratified piece)",
@@ -2967,7 +3334,6 @@ function updateStatus() {
         anyEmpty: "click any empty square to block",
 dispelable: "click a wall / sleeping / confused / bountied / piratified / thief / cursed / shielded piece to dispel",
         pushable: "click a piece to push it back 3 squares",
-        ownPiece: "click one of your pieces to piratify it",
         shield: "click one of your pieces to shield it (can't capture or be captured)",
         swap: "click one of your non-king pieces to move to the second piece",
         swap2: "click a second non-king piece to swap",
@@ -3001,13 +3367,23 @@ dispelable: "click a wall / sleeping / confused / bountied / piratified / thief 
   }
 }
 
-// Human-friendly text for a spell log like "B:Piratify@c5" or "W:Sacrifice@c4+$4".
-function friendlySpellText(txt) {
+// Turn-log phrases for the last-move line: what the current player has done
+// this turn (a piece action plus any free spell). A new owner starts a fresh list.
+function logTurnAction(phrase, color) {
+  if (!phrase) return;
+  color = color || state.turn;
+  if (state.activityOwner !== color) {
+    state.activityOwner = color;
+    state.turnActivity = [];
+  }
+  state.turnActivity.push(phrase);
+}
+
+// Human-readable phrase for a spell log like "B:Piratify@c5" -> "cast Piratify on c5".
+function spellActionPhrase(txt) {
   if (!txt) return "";
   const m = /^([WB]):(.*)$/.exec(txt);
-  if (!m) return txt;
-  const who = m[1] === "W" ? "White" : "Black";
-  let name = m[2];
+  let name = m ? m[2] : txt;
   let param = "";
   const at = name.indexOf("@");
   if (at >= 0) { param = name.slice(at + 1); name = name.slice(0, at); }
@@ -3016,23 +3392,33 @@ function friendlySpellText(txt) {
   if (param) {
     if (param.includes("?")) {
       const parts = param.split("?");
-      target = parts[0] + " with " + parts[1];
+      target = (name === "Push")
+        ? parts[0] + " moving it to " + parts[1]
+        : parts[0] + " with " + parts[1];
     } else if (param.includes("+$")) {
       target = param.replace("+$", " (+$") + ")";
     } else {
       target = param.replace(/\(.*\)$/, "").split("+")[0];
     }
   }
-  let out = who + " cast " + name;
-  if (target) out += (param.includes("?") ? " " : " on ") + target;
+  let out = "cast " + name;
+  if (target) out += ((param.includes("?") && name !== "Push") ? " " : " on ") + target;
   return out;
 }
 
-// Update the "last move" line under the board: the latest action while live,
-// or the frame's action while reviewing.
+// The last-move line under the board: everything the current player did this
+// turn ("White: played e4, cast Confusion on b1"), or the frame's turn while
+// reviewing.
+function turnActivityText() {
+  const items = state.turnActivity || [];
+  if (!items.length) return "";
+  const who = (state.activityOwner || state.turn) === "w" ? "White" : "Black";
+  return who + ": " + items.join(", ");
+}
+
 function updateLastMoveLine() {
   if (!LAST_MOVE_EL) return;
-  const text = state.lastMoveText || "";
+  const text = turnActivityText();
   LAST_MOVE_EL.textContent = (reviewPos >= 0)
     ? (text ? "Reviewing — " + text : "Reviewing the starting position")
     : text;
@@ -3303,17 +3689,15 @@ const placedType = state.placementPiece;
   if (state.extraTurns[state.turn] > 0) {
     state.extraTurns[state.turn] -= 1;
     state.noCapture[state.turn] = Math.max(0, state.noCapture[state.turn] - 1);
-    state.didSkip = false;
   } else {
     if (state.turn === "b") state.fullmove++;
     state.noCapture[state.turn] = Math.max(0, state.noCapture[state.turn] - 1);
     settleTurnEnd(state.turn);
     state.turn = opp(state.turn);
-    state.lastMove = {from:{r,c}, to:{r,c}, placed:true};
     onTurnStart(state.turn);
   }
   state.lastMove = {from:{r,c}, to:{r,c}, placed:true};
-  state.lastMoveText = (color === "w" ? "White" : "Black") + " placed " + placedType + " on " + sqName(r, c);
+  logTurnAction("placed " + (PIECE_NAME[placedType] || placedType) + " on " + sqName(r, c), color);
   pushPieceLog(`(${placedType} placed)`);
   tickShopRefresh();
   endTurnChecks();
@@ -3331,7 +3715,7 @@ function pushPieceLog(san) {
 function pushSpellLog(txt) {
   // Free-action spells don't switch turn and are not part of the W/B move log.
   // Effects are visible on the board; status bar shows king-in-danger.
-  state.lastMoveText = friendlySpellText(txt || "");
+  logTurnAction(spellActionPhrase(txt || ""));
   endTurnChecks();
 }
 
@@ -3424,6 +3808,7 @@ function castSpell(slotIndex) {
       spellKillRandom();
       break;
     case "killPawn":
+      // Snipe may target any pawn, own or enemy (the kind name is legacy).
       state.targetMode = { kind: "enemyPawn", spellId: id };
       break;
     case "block":
@@ -3574,7 +3959,7 @@ function spellEndTurnSkip(grantMoney = true) {
   if (grantMoney) state.money[state.turn] += 3;
   if (state.turn === "b") state.fullmove++;
   state.moveLog.push(grantMoney ? "(skip +$3)" : "(skip)");
-  state.lastMoveText = (state.turn === "w" ? "White" : "Black") + " skipped" + (grantMoney ? " (+$3)" : "");
+  logTurnAction(grantMoney ? "played tax gain (+$3)" : "skipped");
   state.noCapture[state.turn] = Math.max(0, state.noCapture[state.turn] - 1);
   settleTurnEnd(state.turn);
   // A skipped turn still passes a turn: advance both refresh timers by 1.
@@ -3636,6 +4021,17 @@ function spellKillRandom() {
   strikeLightning(t.r, t.c);
 }
 
+// Pick n targets, preferring squares that carry no bounty yet so a cast always
+// adds fresh bounties; only top up from already-bountied squares if it must.
+function pickBountyTargets(cands, n) {
+  const fresh = cands.filter(x => !state.board[x.r][x.c].bounty);
+  const rest  = cands.filter(x =>  state.board[x.r][x.c].bounty);
+  const pick = [];
+  while (pick.length < n && fresh.length) pick.push(fresh.splice(Math.floor(gRng()*fresh.length), 1)[0]);
+  while (pick.length < n && rest.length)  pick.push(rest.splice(Math.floor(gRng()*rest.length), 1)[0]);
+  return pick;
+}
+
 function spellBounty() {
   const myCands = [], foeCands = [];
   for (let r=0;r<SIZE;r++) for (let c=0;c<SIZE;c++) {
@@ -3647,9 +4043,8 @@ function spellBounty() {
   }
   // Bounty a single caster piece, but TWO enemy pieces.
   if (!myCands.length || foeCands.length < 2) { refundSpellNoEffect("bounty"); return; }
-  const mine = myCands[Math.floor(gRng()*myCands.length)];
-  const f1 = foeCands.splice(Math.floor(gRng()*foeCands.length), 1)[0];
-  const f2 = foeCands.splice(Math.floor(gRng()*foeCands.length), 1)[0];
+  const mine = pickBountyTargets(myCands, 1)[0];
+  const [f1, f2] = pickBountyTargets(foeCands, 2);
   state.board[mine.r][mine.c] = { ...state.board[mine.r][mine.c], bounty: state.turn };
   state.board[f1.r][f1.c] = { ...state.board[f1.r][f1.c], bounty: state.turn };
   state.board[f2.r][f2.c] = { ...state.board[f2.r][f2.c], bounty: state.turn };
@@ -3697,7 +4092,7 @@ function handleTargetClick(r, c) {
   if (!tm) return;
   if (tm.kind === "enemyPawn") {
     const p = state.board[r][c];
-    if (!p || (p.type !== "P" && p.type !== "D" && p.type !== "S") || p.color === state.turn) { render(); return; }
+    if (!p || (p.type !== "P" && p.type !== "D" && p.type !== "S")) { render(); return; }
     applyBountyIfAny(p);
     state.board[r][c] = null;
     clearPieceEffects(r, c);
@@ -3717,12 +4112,7 @@ function handleTargetClick(r, c) {
     if (state.confused.some(x => x.r===r && x.c===c)) { render(); return; }
     state.confused.push({ r, c });
     finishSpell(`${state.turn==="w"?"W":"B"}:Confusion@${sqName(r,c)}`);
-  } else if (tm.kind === "ownPiece") {
-    const p = state.board[r][c];
-    if (!p || p.color !== state.turn) { render(); return; }
-    state.piratify.push({ r, c });
-    finishSpell(`${state.turn==="w"?"W":"B"}:Piratify@${sqName(r,c)}`);
-} else if (tm.kind === "piratify") {
+  } else if (tm.kind === "piratify") {
     const p = state.board[r][c];
     if (!p || p.color !== state.turn) { render(); return; }
     if (state.piratify.some(x => x.r===r && x.c===c) || state.thief.some(x => x.r===r && x.c===c)) { render(); return; }
@@ -3935,7 +4325,7 @@ function cancelPlacement() {
       state.fullmove = prev.fullmove;
       state.lastMove = prev.lastMove;
 state.moveLog = prev.moveLog;
-state.lastMoveText = prev.lastMoveText || "";
+state.turnActivity = [...(prev.turnActivity || [])];
 state.gameOver = prev.gameOver;
   state.money = prev.money;
   state.shop = prev.shop;
@@ -3986,7 +4376,7 @@ state.piratify = prev.piratify.map(b=>({...b}));
   state.fullmove = prev.fullmove;
   state.lastMove = prev.lastMove;
   state.moveLog = prev.moveLog;
-  state.lastMoveText = prev.lastMoveText || "";
+  state.turnActivity = [...(prev.turnActivity || [])];
   state.gameOver = prev.gameOver;
 state.money = prev.money;
   state.shop = prev.shop;
@@ -4062,6 +4452,7 @@ state = initialState();
   refillSpells();
   onTurnStart("w");
   viewStartLive();
+  reviewExit();
   render();
 }
 
@@ -4697,6 +5088,7 @@ document.getElementById("resetBtn").addEventListener("click", () => {
   // UI matches what was just reset.
   document.querySelectorAll(".sizebtn").forEach(b => b.classList.toggle("active", +b.dataset.size === SIZE));
   document.getElementById("randBtn").classList.toggle("active", RANDOM960);
+  reviewExit();
   render();
 });
 function closeSizeMenu() {
@@ -4738,7 +5130,7 @@ function reviewExit() {
 function reviewShow() {
   const cur = reviewFrames[reviewPos];
   const msgs = {
-    enemyPawn: "click an enemy pawn to snipe",
+    enemyPawn: "click any pawn to snipe (either side)",
     enemyPiece: "click an enemy piece to put to sleep",
     confuse: "click an enemy piece to confuse (cannot re-target a confused piece)",
     piratify: "click one of your pieces to piratify it (cannot re-target a piratified piece)",
@@ -4747,7 +5139,6 @@ function reviewShow() {
     anyEmpty: "click any empty square to block",
     dispelable: "click a wall / sleeping / confused / bountied / piratified / thief / cursed / shielded piece to dispel",
     pushable: "click a piece to push it back 3 squares",
-    ownPiece: "click one of your pieces to piratify it",
   };
   const whoTxt = cur && cur.turn ? (cur.turn === "w" ? "White" : "Black") : "";
   let extra = " to move";
@@ -4798,9 +5189,25 @@ function updateHistoryButtons() {
   back.disabled = reviewFrames.length <= 1 || reviewPos === 0;
   fwd.disabled = reviewPos === -1 || reviewPos >= reviewFrames.length - 1;
   live.disabled = reviewPos === -1;
+  // Keep the dropdown highlight in step with arrow-key / button stepping.
+  if (HISTORY_SEL.options.length) {
+    const last = HISTORY_SEL.options.length - 1;
+    const idx = (reviewPos < 0) ? last
+      : Math.min(last, Math.max(0, Math.floor((reviewPos - 1) / 2)));
+    HISTORY_SEL.selectedIndex = idx;
+  }
 }
 document.getElementById("historyBack").addEventListener("click", reviewBack);
 document.getElementById("historyForward").addEventListener("click", reviewForward);
+// Selecting an entry in the move dropdown rewinds the board to that move (each
+// option is one full move, so show the latest ply it contains). Selecting the
+// newest entry returns to the live board.
+HISTORY_SEL.addEventListener("change", () => {
+  if (netMode || reviewFrames.length <= 1) return;
+  const ply = Math.min((HISTORY_SEL.selectedIndex + 1) * 2, state.moveLog.length);
+  if (ply >= reviewFrames.length - 1) reviewExit();
+  else { reviewPos = ply; updateHistoryButtons(); reviewShow(); }
+});
 // Left/right arrow keys also step through the move review (unless typing).
 document.addEventListener("keydown", (e) => {
   const t = e.target;
@@ -4818,11 +5225,12 @@ document.getElementById("reviewResume").addEventListener("click", () => {
 });
 // While reviewing a past position, block all gameplay clicks (board squares,
 // shop/spell cards, action buttons) so the live game can't be disturbed from
-// the review view. Only the ←/→ buttons, the middle "live" button and the
-// banner's Resume stay live.
+// the review view. The ←/→ buttons, the middle "live" button, the banner's
+// Resume, the move dropdown, the reference catalogs and the settings/reset
+// chrome stay live (they don't touch the game state).
 document.addEventListener("click", (e) => {
   if (reviewPos < 0) return;
-  const allow = e.target.closest("#historyBack, #historyForward, #historyLive, #reviewResume, #reviewBanner");
+  const allow = e.target.closest("#historyBack, #historyForward, #historyLive, #history, #reviewResume, #reviewBanner, #pieceCatalogBtn, #spellCatalogBtn, #resetBtn, #topSettingsBtn, #catalogOverlay, #gameSettings, #godOverlay");
   if (!allow) {
     e.stopPropagation();
     e.preventDefault();
@@ -4975,6 +5383,7 @@ document.getElementById("gameSettings").addEventListener("click", (e) => {
 });
 document.getElementById("quitToMenuBtn").addEventListener("click", () => {
   closeGameSettings();
+  reviewExit();
   sandboxMode = false;
   document.getElementById("menuOverlay").style.display = "flex";
   menuShow("menuMain");
@@ -5171,8 +5580,8 @@ function buildPieceCatalog(body) {
 const SPELL_DEMOS = {
   moneySkip(b) { b.std(); b.badge("+3$"); },
   killRandom(b) { b.std(); b.mark(0, 1, "lightning"); },
-  killPawnCast(b) { b.std(); for (let c = 0; c < 8; c++) b.mark(1, c, "targetable"); },
-  killPawnDone(b) { b.std(); b.sq(1, 4).innerHTML = ""; },
+  killPawnCast(b) { b.std(); for (let c = 0; c < 8; c++) { b.mark(1, c, "targetable"); b.mark(6, c, "targetable"); } },
+  killPawnDone(b) { b.std(); b.sq(1, 4).innerHTML = ""; b.sq(6, 3).innerHTML = ""; },
   blockCast(b) { b.std(); for (let r = 0; r < 8; r++) for (let c = 0; c < 8; c++) if (!b.sq(r, c).querySelector(".piece")) b.mark(r, c, "targetable"); },
   blockDone(b) { b.std(); b.mark(3, 4, "blocked-sq"); },
   sleepCast(b) { b.std(); for (let r = 0; r < 2; r++) for (let c = 0; c < 8; c++) b.mark(r, c, "targetable"); },
@@ -5417,11 +5826,22 @@ function godPlacePiece(r, c) {
 // logs, reshuffle) runs unchanged; godFreeSpell only waives the cost/limits.
 function godCastSpell(id) {
   closeGod();
+  // Remember the real pre-cast offer: castSpell snapshots the board *after* we
+  // stage the chosen spell into slot 0, so that snapshot would otherwise
+  // restore the staged spell on cancel instead of the original random shop.
+  const prevSpells = [...state.spells];
+  const prevMods = [...state.spellMods];
+  const histBefore = state.history.length;
   state.spells[0] = id;
   state.spellMods[0] = godSpellMod;
   state.godFreeSpell = id;
   castSpell(0);
   state.godFreeSpell = null;
+  if (state.history.length > histBefore) {
+    const snap = state.history[state.history.length - 1];
+    snap.spells = [...prevSpells];
+    snap.spellMods = [...prevMods];
+  }
 }
 
 document.getElementById("menuStartBtn").addEventListener("click", () => {

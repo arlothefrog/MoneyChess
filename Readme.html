@@ -137,9 +137,9 @@
     <tr><td><span class="mono">Cancel Placement</span></td><td>Abort an unplaced shop purchase or a targeting spell (restores the pre-action state).</td></tr>
     <tr><td><span class="mono">Skip Turn</span></td><td>Only appears for the Tax GainÃ—2 / RND forced decision; passes the turn (declining the offered free spell).</td></tr>
     <tr><td><span class="mono">Skip Spell</span></td><td>Decline a free follow-up spell granted by a "2x"/"RND" modifier.</td></tr>
-    <tr><td>Move history dropdown</td><td>Display-only SAN-ish log. Selecting an entry does not rewind the board (see Known Issues).</td></tr>
-    <tr><td>Last-move line / board coordinates</td><td>A line under the board names the last action in plain language (e.g. "White played g5", "Black cast Confusion on b1", "White bought R on e4", "Black skipped (+$3)"). While reviewing, it shows the frame's action (e.g. "Reviewing - White played g5"; "Reviewing the starting position" for move 0). File letters run along the bottom edge of the board and rank numbers along the left edge; they follow the board flip so each side sees its own coordinates, and the bottom-left corner square shows the combined label (e.g. "a1").</td></tr>
-    <tr><td><span class="mono">â†</span> <span class="mono">current move</span> <span class="mono">â†’</span> review buttons</td><td>Step the board back/forward through the played moves â€” it really rewinds the position (board, money, shop and spells are shown as they were, with a "Reviewing move N" banner). The middle <span class="mono">current move</span> button jumps straight back to the current move. While reviewing, the board is display-only: every gameplay click is ignored (click <span class="mono">Resume live â–º</span>, the middle <span class="mono">current move</span> button, or <span class="mono">â†’</span> to the end to play again). If a new move is recorded while reviewing (e.g. the AI opponent replies), the game auto-returns to the live board so you always land on the current position. Extra-turn "free" spell placements are not separate review steps (only moves/buys/skips advance the move log). The left/right arrow keys step back/forward the same way (ignored while typing in a text field). Disabled in online play.</td></tr>
+    <tr><td>Move history dropdown</td><td>SAN-ish log of the moves. Selecting an entry rewinds the board to that move (each option is a full move, so it shows the latest ply it contains; picking the newest entry returns to the live board). The &#8592;/&#8594; review buttons still step ply-by-ply. Disabled in online play.</td></tr>
+    <tr><td>Last-move line / board coordinates</td><td>A line under the board names the last action in plain language, prefixed by the owner (e.g. "White: played g5", "Black: cast Confusion on b1", "White: cast Push on e4 moving it to e6, played Bg5", "White: placed R on e4", "Black: played tax gain (+$3)"). All phrases from the current turn are joined with commas. While reviewing, it shows the frame's action (e.g. "Reviewing - White: played g5"; "Reviewing the starting position" for move 0). The board sits in a coordinate frame: file letters under the bottom row and rank numbers beside the left column. The labels follow the board flip so each side sees its own coordinates (White: a1 at bottom-left, rank 8 at top; flipped: h8 at bottom-left).</td></tr>
+    <tr><td><span class="mono">â†</span> <span class="mono">current move</span> <span class="mono">â†’</span> review buttons</td><td>Step the board back/forward through the played moves â€” it really rewinds the position (board, money, shop and spells are shown as they were, with a "Reviewing move N" banner). The middle <span class="mono">current move</span> button jumps straight back to the current move. While reviewing, the board is display-only: every gameplay click is ignored (click <span class="mono">Resume live â–º</span>, the middle <span class="mono">current move</span> button, or <span class="mono">â†’</span> to the end to play again). If a new move is recorded while reviewing (e.g. the AI opponent replies), the game auto-returns to the live board so you always land on the current position. Extra-turn "free" spell placements are not separate review steps (only moves/buys/skips advance the move log). The left/right arrow keys step back/forward the same way (ignored while typing in a text field). The move-history dropdown, the piece/spell catalogs, Reset and Settings stay clickable while reviewing (Reset or Quit to menu exits review). Disabled in online play.</td></tr>
   </table>
 
   <h2>3. Objective &amp; endings</h2>
@@ -157,15 +157,15 @@
   <p>Each turn you get, in any order: <strong>one piece action</strong> plus <strong>one optional free spell</strong>.</p>
   <ol>
     <li><strong>Move a piece</strong> (a normal chess move) â€” you may still cast a spell afterwards.</li>
-    <li><strong>Buy &amp; place from the shop</strong> â€” this <em>ends your turn</em> (it is intended to be "your move";
-      see Known Issues #8 for the move-then-buy double action).</li>
+    <li><strong>Buy &amp; place from the shop</strong> â€” this <em>ends your turn</em> (it is intended to be "your move").</li>
     <li><strong>Cast one spell</strong> â€” a free action (per turn), no matter when; after casting you may still move.</li>
   </ol>
   <p>Notes:</p>
   <ul>
     <li>Casting a spell sets "spell used this turn"; a second spell is only possible via the <strong>Freecast</strong> spell
       or a "2x"/"RND" free follow-up.</li>
-    <li><strong>Buying is blocked after casting</strong> a spell in the same turn, but <strong>buying after moving is currently possible</strong> (Design flaw, see #8).</li>
+    <li><strong>Buying is blocked after casting</strong> a spell in the same turn; a <strong>move also ends the turn</strong>
+      outright, so move-then-buy is not possible.</li>
     <li>The <strong>Echo</strong> spell grants an extra turn (no captures during it).</li>
     <li><strong>Tax Gain</strong> grants +$3 and skips your move. With "2x" it forces a decision: take a second free Tax or press Skip Turn. With "RND" it banks the +$3 and offers one random spell immediately: cast it free (your turn then ends) or press Skip Turn â€” except <strong>Echo</strong> (its own extra turn keeps the turn with you) and <strong>Freecast</strong> (its granted free spell keeps the turn with you so it can actually be used).</li>
   </ol>
@@ -223,11 +223,11 @@
     <tr><td colspan="4" style="background:rgba(255,255,255,0.03)"><strong>Instant</strong></td></tr>
     <tr><td class="mono">moneySkip</td><td>Tax Gain</td><td>$0</td><td>+$3 and end your turn (skip your move). With "2x": you get +$3 and must either cast the free second Tax or press Skip Turn (<span class="mono">taxSkipPending = "double"</span> locks the board). With "RND": +$3 is banked and the rolled spell is offered immediately â€” cast it free (resolving it ends your turn, <span class="mono">taxSkipPending = "random"</span>) or press Skip Turn. Either choice ends the turn, EXCEPT a rolled <strong>Echo</strong> or <strong>Freecast</strong>: Echo resolves with the keep-Turn flag (its own extra turn) and Freecast clears the decision and keeps the turn so its granted free spell can be cast (both call away from the end-turn path).</td></tr>
     <tr><td class="mono">killRandom</td><td>Lightning</td><td>$1</td><td>âš¡ Strikes a random non-king piece: 75% enemy, 25% yours. Refunds if no valid target exists.</td></tr>
-    <tr><td class="mono">bounty</td><td>Bounty</td><td>$0</td><td>â˜… Marks 1 of your pieces + 2 enemy pieces; you earn +$1 whenever any marked piece is captured.</td></tr>
+    <tr><td class="mono">bounty</td><td>Bounty</td><td>$0</td><td>â˜… Marks 1 of your pieces + 2 enemy pieces; you earn +$1 whenever any marked piece is captured. Target selection prefers pieces that carry no bounty yet (so a cast on a heavily-bountied board still adds fresh bounties), and only tops up from already-bountied pieces if there are not enough fresh ones.</td></tr>
     <tr><td class="mono">echo</td><td>Echo</td><td>$5</td><td>â†» Take an extra turn. No captures during the current and extra turn(s). Doubled: two extra turns.</td></tr>
     <tr><td class="mono">precast</td><td>Freecast</td><td>$3</td><td>â™» Refresh the spell slots, then you can cast one of the spells for free.</td></tr>
     <tr><td colspan="4" style="background:rgba(255,255,255,0.03)"><strong>Targeting (click a square; Cancel to abort)</strong></td></tr>
-    <tr><td class="mono">killPawn</td><td>Snipe Pawn</td><td>$2</td><td>Ã—P Destroy an enemy pawn (works on P, D-Pawn, Soldier).</td></tr>
+    <tr><td class="mono">killPawn</td><td>Snipe Pawn</td><td>$2</td><td>Ã—P Destroy any pawn, yours or the enemy's (works on P, D-Pawn, Soldier).</td></tr>
     <tr><td class="mono">block</td><td>Wall</td><td>$1</td><td>â–£ Block an empty square for this and the next turn (pieces cannot move into or through it).</td></tr>
     <tr><td class="mono">sleep</td><td>Sleep</td><td>$4</td><td>Zz Enemy piece cannot move next turn.</td></tr>
     <tr><td class="mono">dispel</td><td>Dispel</td><td>$3</td><td>âœ¦ Remove a wall / wake a sleeper / clear confusion / clear piratify or thief / clear a curse / remove a bounty / drop a shield.</td></tr>
@@ -272,10 +272,10 @@
       centre, only certain sizes place a Rook on an edge file. <span class="mono">pseudoMoves</span> requires an edge Rook to
       castle, so in practice <strong>castling works fully on the 8x8 board only</strong> (15x15 can in principle castle
       queen-side, since its file-0 square is a Rook; 5x5 / 10x10 / 12x12 have no edge Rooks at all).
-      Known Issues #3.</li>
+      See Known Issues #1.</li>
     <li><strong>Chess 960</strong> (<span class="mono">RANDOM960</span>): the king is placed on a random file and every other file gets a
       random piece from the roster (mirrored for both sides). <strong>Castling is disabled in 960 mode.</strong> The 960 back rank may
-      include duplicate pieces and even pawns on the back rank (see Known Issues #4).</li>
+      include duplicate pieces and even pawns on the back rank (see Known Issues #2).</li>
   </ul>
 
   <h2>10. Online multiplayer (PeerJS)</h2>
@@ -306,6 +306,23 @@
     <li>Search depth depends on board size: depth 3 on 8x8, 2 on 10x10, 1 on 12x12+.</li>
     <li>It also decides to buy pieces from the shop (<span class="mono">aiConsiderBuy</span>) and place them well â€” unless it is in check,
       a strong own piece is hanging, or a clearly winning capture is available. It declines shop buys on unsafe squares.</li>
+    <li>Placement is chosen by search: the heuristic (<span class="mono">aiPlacementScore</span> — danger weighted by piece
+      value, pawn-chain bonus, anti-doubling) shortlists the best squares, then each is actually placed on a snapshot and
+      evaluated by <span class="mono">minimax</span> (<span class="mono">aiBestPlacement</span>, shortlist 10 on small boards /
+      6 on 12x12+, depth 2 / 1).</li>
+    <li>It casts one free spell per turn when worthwhile. Supported spells (<span class="mono">aiSpellTarget</span>):
+      <strong>Sleep</strong>, <strong>Confusion</strong>, <strong>Curse</strong>, <strong>Shield</strong>,
+      <strong>Dispel</strong>, <strong>Push</strong>, <strong>Sacrifice</strong> (only a piece that is attacked, undefended
+      and has no safe escape), <strong>Snipe Pawn</strong> (enemy pawns), and the untargeted <strong>Lightning</strong>,
+      <strong>Bounty</strong> and <strong>Echo</strong> (scored by expectation). Each candidate must clear its threshold in
+      <span class="mono">AI_SPELL_THRESHOLD</span>. A spell is a free action so the AI still moves afterwards, but casting
+      blocks buying, so the best spell is weighed against a shop buy (<span class="mono">aiConsiderSpell</span>, a spell
+      worth <span class="mono">AI_SPELL_OVERRIDE</span> beats a buy).</li>
+    <li>2x/RND free follow-ups are taken when useful and otherwise declined (<span class="mono">aiTryFreeFollowUp</span>).
+      Echo's extra turn is honored: the AI re-renders so it takes the extra move (and the search models the no-capture
+      window so it won't plan an illegal capture).</li>
+    <li>Snapshots carry every square-keyed effect plus the no-capture counters (<span class="mono">snapEffects</span>), and
+      <span class="mono">evaluate</span> penalises the AI's own confused/cursed pieces.</li>
     <li>Safety nets: if its planned move can't be applied (e.g. a piece became curse-frozen), it plays any legal move
       (<span class="mono">aiFallbackMove</span>); if it has no moves at all it ends the game as a stalemate draw.</li>
   </ul>
@@ -340,13 +357,13 @@
     <li><span class="mono">handleTargetClick(r,c)</span> â€” resolves targeting spells (snipe/wall/sleep/dispel/push/confuse/piratify/thief/curse, plus shield, the two-phase swap, and sacrifice).</li>
     <li><span class="mono">spellKillRandom / spellBounty / spellEcho / spellPrecast</span> â€” instant spell bodies.</li>
     <li><span class="mono">tickShopRefresh()</span> â€” shop &amp; spell refresh cadence (every 4 turns).</li>
-    <li><span class="mono">render() / renderShop() / renderSpells() / updateMoney() / updateStatus()</span> â€” UI building. <span class="mono">render()</span> caps the board square size so the whole grid (any board size) fits the viewport width on phones; a <span class="mono">resize</span> listener (debounced 120 ms, money-chess.html) re-draws so rotation/orientation changes re-fit, and a <span class="mono">@media</span> (max-width: 760px) block compacts the header, wraps the controls/shop/spells, and shrinks the cards. <span class="mono">render()</span> also stamps file/rank coordinates onto the board squares (rank numbers down the left edge, file letters along the bottom edge, combined "a1"-style label on the bottom-left corner; the labels follow the flipped view) and updates the last-move line.</li>
-    <li><span class="mono">state.lastMoveText / friendlySpellText() / updateLastMoveLine()</span> â€” the "last move" line under the board. <span class="mono">state.lastMoveText</span> is set wherever an action is recorded (moves via <span class="mono">makeMove()</span>, shop placements in <span class="mono">placePiece()</span>, skips, and everything that passes through <span class="mono">pushSpellLog()</span>), is copied by <span class="mono">cloneStateForHistory()</span> (so review frames and undo restore it), and lives on the state so no extra data must cross online snapshots. <span class="mono">friendlySpellText()</span> turns a log string like <span class="mono">"B:Piratify@c5"</span> into "Black cast Piratify on c5".</li>
+    <li><span class="mono">render() / renderShop() / renderSpells() / updateMoney() / updateStatus()</span> â€” UI building. <span class="mono">render()</span> caps the board square size so the whole grid (any board size) fits the viewport width on phones; a <span class="mono">resize</span> listener (debounced 120 ms, money-chess.html) re-draws so rotation/orientation changes re-fit, and a <span class="mono">@media</span> (max-width: 760px) block compacts the header, wraps the controls/shop/spells, and shrinks the cards. <span class="mono">render()</span> also draws a file/rank coordinate frame around the board (rank numbers beside the left column, file letters under the bottom row, following the flipped view) and updates the last-move line.</li>
+    <li><span class="mono">state.turnActivity / logTurnAction() / spellActionPhrase() / turnActivityText() / updateLastMoveLine()</span> â€” the "last move" line under the board. <span class="mono">state.turnActivity</span> collects one phrase per action taken this turn ("played e4", "cast Confusion on b1", "placed R on e4", "played tax gain (+$3)"); <span class="mono">logTurnAction()</span> starts a fresh list when the owner changes and takes the acting color explicitly (moves via <span class="mono">makeMove()</span> pass <span class="mono">p.color</span>, shop placements in <span class="mono">placePiece()</span> pass the placed piece's color, skips and everything that passes through <span class="mono">pushSpellLog()</span>). The list is copied by <span class="mono">cloneStateForHistory()</span> (so review frames and undo restore it) and lives on the state so no extra data must cross online snapshots. <span class="mono">spellActionPhrase()</span> turns a log string like <span class="mono">"B:Piratify@c5"</span> into "cast Piratify on c5" (Push reads "cast Push on e4 moving it to e6"), and <span class="mono">turnActivityText()</span> prefixes the owner, giving e.g. "White: played e4, cast Confusion on b1".</li>
     <li><span class="mono">playDing() / SOUND_VOLUME / DING_ON / MUSIC_ON</span> â€” the Web-Audio turn chime, its 0&ndash;100% volume, and the on/off switches for the chime and music (all saved under <span class="mono">moneyChessSettings</span>). The calm synthesized piano (<span class="mono">startMenuMusic() / stopMenuMusic() / updateMenuMusic() / spawnMenuNote()</span>) plays the whole time the game is open (menu and play), follows the volume slider, and starts after the browser's first user gesture.</li>
     <li><span class="mono">openCatalog("pieces"|"spells") / buildPieceCatalog() / buildSpellCatalog() / makeCatBoard() / catPieceSpan() / catMoves()</span> â€” the Piece &amp; Spell Catalog popups (mini 8x8 demo boards reuse the game's square/piece/effect CSS).</li>
     <li><span class="mono">reviewBack() / reviewForward() / reviewShow() / reviewExit() / viewStartLive() / cloneStateForReview() / updateHistoryButtons()</span> â€” move review (the <span class="mono">â†</span> <span class="mono">current move</span> <span class="mono">â†’</span> buttons; <span class="mono">updateHistoryButtons()</span> also toggles the middle <span class="mono">current move</span> button, which calls <span class="mono">reviewExit()</span> + <span class="mono">render()</span> to jump straight to the current move). <span class="mono">reviewFrames[i]</span> holds a snapshot of the position after move i (index 0 = starting position, kept in step by <span class="mono">rebuildHistorySel()</span>); if a new move is recorded while <span class="mono">reviewPos &gt;= 0</span>, the review snaps back to the live board so the current position always shows; <span class="mono">render()</span> swaps the live <span class="mono">state</span> for a frame only for the duration of the draw (try/finally), and a document-level capture click handler ignores gameplay clicks while <span class="mono">reviewPos &gt;= 0</span>.</li>
     <li><span class="mono">openGod() / closeGod() / buildGodPanel() / godSpawnPiece(type) / godCastSpell(id) / godSnipePiece(r,c)</span> &mdash; the Sandbox God Mode panel. <span class="mono">godSpawnPiece</span> works like <span class="mono">buyPiece()</span> without cost/shop consumption; its placement (<span class="mono">state.placementGod</span>) accepts any empty square and any color (<span class="mono">godPieceColor</span>), and <span class="mono">godPlacePiece()</span> completes it without ending the turn or touching the move log. <span class="mono">godCastSpell</span> stages the chosen spell into slot 0 and waives cost/limits via a transient <span class="mono">state.godFreeSpell</span> flag honoured by canCast/castSpell; <span class="mono">godSnipePiece</span> destroys a piece with no capture money, driven by the <span class="mono">godSnipeMode</span> flag consulted in onSquareClick, and stays active until Cancel (any number of pieces).</li>
-    <li><span class="mono">enableAI() / aiMove() / aiConsiderBuy() / aiBestPlacement()</span> â€” AI behaviours.</li>
+    <li><span class="mono">enableAI() / aiMove() / aiConsiderBuy() / aiConsiderSpell() / aiSpellTarget() / aiTryFreeFollowUp() / aiBestPlacement() / aiPlacementScore() / applyPlacement() / snapEffects()</span> â€” AI behaviours.</li>
     <li><span class="mono">netStartHost() / netJoin() / netOnData() / netAdopt()</span> â€” online multiplayer.</li>
     <li><span class="mono">gRng() / newSeed()</span> â€” seeded RNG.</li>
   </ul>
@@ -354,11 +371,7 @@
   <h2>15. Known issues, bugs &amp; inconsistencies (to fix later)</h2>
   <div class="alert">
     <ol>
-<li><strong>Turn structure is easy to mis-describe:</strong> a turn allows <em>one move or one buy</em>
-        <em>plus</em> one optional spell (spells don't consume the move). The removed in-game tutorial used to say
-        "pick one", which was inaccurate; keep the summary in Â§4 authoritative. Moving automatically ends the turn,
-        so a move and a buy can never both happen in the same turn.</li>
-      <li><strong>Castling is effectively 8x8-only.</strong> <span class="mono">makeBackRank()</span> places a Rook on an edge
+<li><strong>Castling is effectively 8x8-only.</strong> <span class="mono">makeBackRank()</span> places a Rook on an edge
         file only for sides of the board where the generated rank puts one there (king-side on 8x8 &amp; 15x15-left
         (queen-side), nothing elsewhere), and castle detection requires the edge square to be a Rook. In practice full,
         both-sides castling only exists on the 8x8 board; the other sizes silently never offer it.</li>
@@ -366,28 +379,9 @@
         shuffled into different positions", but <span class="mono">makeRandomBackRank()</span> draws each non-king file
         independently from the full roster (duplicates possible, pieces can appear 0 times, and pawns can be placed on the
         back rank). Clarify intent or change to a true permutation.</li>
-      <li><strong>Dead code â€” <span class="mono">PIECE_GLYPH</span>:</strong> defined and never referenced, and its glyph values
-        are wrong/borrowed (e.g. <code>wB</code> is literally the queen glyph â™•). Delete it or use it.</li>
-      <li><strong>Dead / uninitialized state fields:</strong> <span class="mono">didSkip</span> (assigned in
-        <span class="mono">placePiece</span>, copied in clone, never read, never initialized) and
-        <span class="mono">stashSpells</span>/<span class="mono">stashSpellMods</span> (set/read by follow-up logic but never
-        initialized in <span class="mono">initialState()</span>; works only because JS falsy-undefined is checked).</li>
       <li><strong>Forced self-stalemate under Echo:</strong> Echo's no-capture filter (<span class="mono">noCapture</span>) can
         leave a player with zero legal moves; <span class="mono">endTurnChecks()</span> then records an instant
         "Stalemate â€” Draw". A player could be forced into a draw purely by having only capturing moves. Reconsider.</li>
-      <li><strong>Legacy target-mode string "ownPiece":</strong> <span class="mono">updateStatus()</span> still maps a
-        <code>targetMode.kind</code> of <code>"ownPiece"</code>, but <span class="mono">castSpell</span> only ever sets
-        <code>"piratify"</code>. Leftover from an earlier implementation.</li>
-      <li><strong>Duplicate assignment:</strong> <span class="mono">placePiece()</span> assigns <span class="mono">state.lastMove</span>
-        twice (before and after the turn switch) with the same value.</li>
-      <li><strong>Move-history dropdown stays display-only.</strong> Selecting an entry still doesn't rewind the board; the
-        review buttons (â†/â†’) above it do separate the board stepping (each recorded move/buy/skip, not free spell placements).</li>
-      <li><strong>Minor comment inaccuracies:</strong> 960 promo claim vs implementation (see #3); the Fake Knight comment says it
-        "presses forward toward the enemy" while it is direction-symmetric; the pin-ray comment mentions "Aezons" (Amazon).</li>
-      <li><strong>God-cast cancel leaves the staged spell in slot 0:</strong> godCastSpell overwrites the current slot-0
-        offer before castSpell pushes its history snapshot, so cancelling a god-cast targeting spell restores the
-        <em>staged</em> spell (still free-looking offer), not the original random offer. Harmless in Sandbox but a small
-        deviation from normal shop behaviour.</li>
     </ol>
   </div>
 
