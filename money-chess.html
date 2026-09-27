@@ -2413,23 +2413,34 @@ const table = PST[type];
   return table[row][c];
 }
 
-function evaluate(s, aiColor) {
-  // King present = win/loss; if a king is missing, return huge score.
-  let wKing = false, bKing = false;
-  for (let r=0;r<SIZE;r++) for (let c=0;c<SIZE;c++) {
-    const p = s.board[r][c];
-    if (p && p.type==="K") { if (p.color==="w") wKing=true; else bKing=true; }
+// Reward a king that still has friendly pieces (ideally pawns) shielding it and
+// penalise an exposed king. Cheap: just the three squares in front of the king.
+function kingShield(s, color) {
+  const k = findKing(s.board, color);
+  if (!k) return 0;
+  const fdir = color === "w" ? -1 : 1;   // toward the enemy
+  let shield = 0, count = 0;
+  for (let dc = -1; dc <= 1; dc++) {
+    const rr = k.r + fdir, cc = k.c + dc;
+    if (rr < 0 || rr >= SIZE || cc < 0 || cc >= SIZE) continue;
+    const q = s.board[rr][cc];
+    if (q && q.color === color) { shield += (q.type === "P" ? 12 : 6); count++; }
   }
-  if (!wKing) return aiColor === "b" ? 100000 : -100000;
-  if (!bKing) return aiColor === "w" ? 100000 : -100000;
+  return shield - (count === 0 ? 20 : 0);
+}
+
+function evaluate(s, aiColor) {
+  let wKing = false, bKing = false;
+  const pawnFiles = { w: new Array(SIZE).fill(0), b: new Array(SIZE).fill(0) };
+  const bishops = { w: 0, b: 0 };
 
   let score = 0;
   for (let r=0;r<SIZE;r++) for (let c=0;c<SIZE;c++) {
     const p = s.board[r][c];
     if (!p) continue;
+    if (p.type==="K") { if (p.color==="w") wKing=true; else bKing=true; }
     const sign = p.color === aiColor ? 1 : -1;
     let v = (PIECE_SCORE[p.type] || 100) + pstValue(p.type, p.color, r, c);
-    // bonus: mobility (cheap approximation) — count attackers to this square is expensive; skip
     // bounty bonus: a bountied enemy piece is worth more to capture
     if (p.bounty && p.color !== aiColor) v += 30;
     if (p.bounty && p.color === aiColor) v -= 15; // my bountied piece is a liability
@@ -2441,9 +2452,40 @@ function evaluate(s, aiColor) {
     if (s.cursed && s.cursed.some(x => x.r===r && x.c===c)) v -= 0.12 * epv;
     if (isShielded(s, r, c)) v += 0.10 * epv;
     score += sign * v;
+    if (p.type === "P") pawnFiles[p.color][c]++;
+    if (p.type === "B") bishops[p.color]++;
   }
+  // Second pass: rooks/queens like open files (no friendly pawn on that file),
+  // now that every pawn has been counted.
+  for (let r=0;r<SIZE;r++) for (let c=0;c<SIZE;c++) {
+    const p = s.board[r][c];
+    if (!p || (p.type !== "R" && p.type !== "Q")) continue;
+    if (pawnFiles[p.color][c] === 0) {
+      score += (p.color === aiColor ? 1 : -1) * (p.type === "R" ? 8 : 4);
+    }
+  }
+  if (!wKing) return aiColor === "b" ? 100000 : -100000;
+  if (!bKing) return aiColor === "w" ? 100000 : -100000;
+
+  const me = aiColor, foe = opp(aiColor);
+  // Bishop pair
+  score += (bishops[me] >= 2 ? 30 : 0) - (bishops[foe] >= 2 ? 30 : 0);
+  // Pawn structure: doubled and isolated pawns are weaker.
+  for (const col of ["w", "b"]) {
+    const sgn = col === me ? 1 : -1;
+    for (let c = 0; c < SIZE; c++) {
+      const n = pawnFiles[col][c];
+      if (n > 1) score += sgn * (-14) * (n - 1);
+      if (n > 0) {
+        const adj = (c > 0 ? pawnFiles[col][c-1] : 0) + (c < SIZE-1 ? pawnFiles[col][c+1] : 0);
+        if (adj === 0) score += sgn * (-10);
+      }
+    }
+  }
+  // King safety
+  score += kingShield(s, me) - kingShield(s, foe);
   // Money advantage
-  score += (s.money[aiColor] - s.money[opp(aiColor)]) * 8;
+  score += (s.money[me] - s.money[foe]) * 8;
   return score;
 }
 

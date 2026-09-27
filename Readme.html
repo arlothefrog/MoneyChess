@@ -326,7 +326,8 @@
       move (and the search models the no-capture window so it won't plan an illegal capture).</li>
     <li>Snapshots carry every square-keyed effect plus the no-capture counters (<span class="mono">snapEffects</span>), and
       <span class="mono">evaluate</span> values control effects (a slept piece is worth ~30% less to its owner, confused
-      ~22%, cursed ~12%, and a shield adds ~10%) so spell turns are judged against moves fairly.</li>
+      ~22%, cursed ~12%, and a shield adds ~10%) so spell turns are judged against moves fairly. It also scores king safety
+      (<span class="mono">kingShield</span>), doubled/isolated pawns, the bishop pair, and rooks/queens on open files.</li>
     <li>Safety nets: if its planned move can't be applied (e.g. a piece became curse-frozen), it plays any legal move
       (<span class="mono">aiFallbackMove</span>); if it has no moves at all it ends the game as a stalemate draw.</li>
   </ul>
