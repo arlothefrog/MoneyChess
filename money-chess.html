@@ -2429,8 +2429,17 @@ function kingShield(s, color) {
   return shield - (count === 0 ? 20 : 0);
 }
 
+// In the endgame the king is a fighting piece: reward centralisation.
+function kingActivity(s, color) {
+  const k = findKing(s.board, color);
+  if (!k) return 0;
+  const mid = (SIZE - 1) / 2;
+  const dist = Math.abs(k.r - mid) + Math.abs(k.c - mid);
+  return Math.max(0, SIZE - dist) * 2;
+}
+
 function evaluate(s, aiColor) {
-  let wKing = false, bKing = false;
+  let wKing = false, bKing = false, totalMat = 0;
   const pawnFiles = { w: new Array(SIZE).fill(0), b: new Array(SIZE).fill(0) };
   const bishops = { w: 0, b: 0 };
 
@@ -2439,6 +2448,7 @@ function evaluate(s, aiColor) {
     const p = s.board[r][c];
     if (!p) continue;
     if (p.type==="K") { if (p.color==="w") wKing=true; else bKing=true; }
+    else totalMat += PIECE_SCORE[p.type] || 100;
     const sign = p.color === aiColor ? 1 : -1;
     let v = (PIECE_SCORE[p.type] || 100) + pstValue(p.type, p.color, r, c);
     // bounty bonus: a bountied enemy piece is worth more to capture
@@ -2484,6 +2494,8 @@ function evaluate(s, aiColor) {
   }
   // King safety
   score += kingShield(s, me) - kingShield(s, foe);
+  // Endgame: with little material left the king should head for the centre.
+  if (totalMat < 3000) score += kingActivity(s, me) - kingActivity(s, foe);
   // Money advantage
   score += (s.money[me] - s.money[foe]) * 8;
   return score;
