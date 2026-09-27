@@ -2779,7 +2779,7 @@ function minimax(snap, depth, alpha, beta, aiColor, ply) {
   if (snap.turn === aiColor) {
     let best = -Infinity;
     for (const mv of moves) {
-      const promo = mv.move.promotion ? "Q" : null;
+      const promo = mv.move.promotion ? (mv.move.promoteTo || "Q") : null;
       const child = applyMove(snap, mv.fr, mv.fc, mv.move, promo);
       const v = minimax(child, depth - 1, alpha, beta, aiColor, ply + 1);
       if (v > best) best = v;
@@ -2799,7 +2799,7 @@ function minimax(snap, depth, alpha, beta, aiColor, ply) {
   } else {
     let best = Infinity;
     for (const mv of moves) {
-      const promo = mv.move.promotion ? "Q" : null;
+      const promo = mv.move.promotion ? (mv.move.promoteTo || "Q") : null;
       const child = applyMove(snap, mv.fr, mv.fc, mv.move, promo);
       const v = minimax(child, depth - 1, alpha, beta, aiColor, ply + 1);
       if (v < best) best = v;
@@ -2831,7 +2831,7 @@ function quiesce(snap, alpha, beta, aiColor, qdepth) {
   if (!caps.length) return stand;
   const ordered = orderMoves(snap, caps, 0);
   for (const mv of ordered) {
-    const promo = mv.move.promotion ? "Q" : null;
+    const promo = mv.move.promotion ? (mv.move.promoteTo || "Q") : null;
     const child = applyMove(snap, mv.fr, mv.fc, mv.move, promo);
     const v = quiesce(child, alpha, beta, aiColor, qdepth - 1);
     if (mine) {
@@ -2933,7 +2933,7 @@ function aiMove() {
     // play any currently legal move so the AI never stalls on its turn.
     const srcBefore = state.board[best.fr][best.fc];
     if (best.move.promotion) {
-      makeMove(best.fr, best.fc, {...best.move, promoteTo: "Q"});
+      makeMove(best.fr, best.fc, {...best.move, promoteTo: (best.move.promoteTo || "Q")});
     } else {
       makeMove(best.fr, best.fc, best.move);
     }
@@ -2959,7 +2959,7 @@ function aiFallbackMove(me) {
       const lm = legalMoves(state, r, c);
       if (!lm.length) continue;
       const mv = lm[Math.floor(gRng() * lm.length)];
-      makeMove(r, c, mv.promotion ? {...mv, promoteTo: "Q"} : mv);
+      makeMove(r, c, mv.promotion ? {...mv, promoteTo: (mv.promoteTo || "Q")} : mv);
       return;
     }
   }
@@ -3338,7 +3338,7 @@ function aiSearchBestMoveOn(start, me) {
   if (!moves.length) return { best: null, value: -Infinity };
   let best = moves[0], bestVal = -Infinity, alpha = -Infinity, beta = Infinity;
   for (const mv of moves) {
-    const promo = mv.move.promotion ? "Q" : null;
+    const promo = mv.move.promotion ? (mv.move.promoteTo || "Q") : null;
     const child = applyMove(start, mv.fr, mv.fc, mv.move, promo);
     const v = minimax(child, depth - 1, alpha, beta, me, 1);
     if (v > bestVal) { bestVal = v; best = mv; }
