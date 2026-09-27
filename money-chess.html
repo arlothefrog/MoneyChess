@@ -3265,7 +3265,6 @@ function aiSpellThreshold(id) {
 // value of the plain best move, used as the baseline for instant spells.
 function aiBestSpell(me, planVal) {
   if (state.spellUsedThisTurn || state.placementMode || state.targetMode) return null;
-  if (inCheck(state.board, me)) return null;   // answer the check on the board first
   const cands = [];
   for (let i = 0; i < state.spells.length; i++) {
     const id = state.spells[i];
