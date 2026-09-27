@@ -3287,7 +3287,7 @@ function aiBestSpell(me, planVal) {
     let value;
     if (cand.instant) {
       value = planVal + cand.score;             // heuristic bonus over the plain move
-    } else if (targeted < 2) {
+    } else if (targeted < 3) {
       targeted++;
       const v = aiSpellValue(me, cand, spellEffCost(cand.id, cand.mod));
       value = (v === null) ? planVal + cand.score : v;   // fallback to heuristic
