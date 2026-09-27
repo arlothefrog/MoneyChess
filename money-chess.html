@@ -2433,11 +2433,13 @@ function evaluate(s, aiColor) {
     // bounty bonus: a bountied enemy piece is worth more to capture
     if (p.bounty && p.color !== aiColor) v += 30;
     if (p.bounty && p.color === aiColor) v -= 15; // my bountied piece is a liability
-    // sleeping piece is worth less
-    if (isSleeping(s, r, c)) v -= 20;
-    // confused piece is unreliable (must move randomly); a cursed piece bleeds money
-    if (s.confused && s.confused.some(x => x.r===r && x.c===c)) v -= 25;
-    if (s.cursed && s.cursed.some(x => x.r===r && x.c===c)) v -= 20;
+    // Control effects matter: a slept/confused/hexed piece is worth much less to
+    // its owner, so the search values spending a spell on it properly.
+    const epv = Math.min(PIECE_SCORE[p.type] || 100, 1000);
+    if (isSleeping(s, r, c)) v -= 0.30 * epv;
+    if (s.confused && s.confused.some(x => x.r===r && x.c===c)) v -= 0.22 * epv;
+    if (s.cursed && s.cursed.some(x => x.r===r && x.c===c)) v -= 0.12 * epv;
+    if (isShielded(s, r, c)) v += 0.10 * epv;
     score += sign * v;
   }
   // Money advantage
@@ -2777,14 +2779,27 @@ function aiMove() {
     aiTryFreeFollowUp(me);
   }
 
-  // Consider the shop and a free spell together. Buying ends the turn, and
-  // casting blocks buying, so pick the better of the two: a very valuable spell
-  // target wins, otherwise a sound buy is preferred (a spell is still cast when
-  // there's nothing worth buying). Either way the AI can still make a move.
-  const shopBuy = aiConsiderBuy(me);
-  const sp = (!state.spellUsedThisTurn && !state.placementMode && !state.targetMode)
-    ? aiConsiderSpell(me) : null;
-  if (sp && (shopBuy === null || sp.score >= AI_SPELL_OVERRIDE)) {
+  // Baseline: the best move on the current board.
+  let plan = aiSearchBestMove(me);
+  const planVal = (plan && isFinite(plan.value)) ? plan.value : -Infinity;
+
+  // Best free spell (value-checked) and the best shop buy.
+  const sp = aiBestSpell(me, isFinite(planVal) ? planVal : 0);
+  const spellVal = sp ? sp.value : planVal;
+
+  // Shop: a buy ends the turn, so it must beat the better of "best move" and
+  // "best spell + best move". This stops the AI from shopping away a winning
+  // capture or a strong spell turn.
+  const buy = aiBestBuy(me);
+  if (buy && buy.value > Math.max(planVal, spellVal) + AI_BUY_MARGIN) {
+    buyPiece(buy.slot);
+    setTimeout(aiFinishPlacement, 400);
+    return;
+  }
+
+  // Cast the best spell when it improves on the plain move (a free action, so
+  // the AI still moves afterwards).
+  if (sp && sp.value > planVal + AI_SPELL_MARGIN) {
     castSpell(sp.slot);
     if (state.targetMode) {
       if (isTargetable(sp.r, sp.c, state.targetMode.kind)) handleTargetClick(sp.r, sp.c);
@@ -2792,24 +2807,10 @@ function aiMove() {
     }
     // A 2x/RND modifier may have granted a free second cast — take it too.
     aiTryFreeFollowUp(me);
-  } else if (shopBuy !== null) {
-    buyPiece(shopBuy);
-    setTimeout(aiFinishPlacement, 400);
-    return;
+    plan = null;   // the spell may have changed the board
   }
-
-const start = snapshotFromState(state);
-  // Big boards branch enormously: shallow out the search so it stays snappy.
-  const depth = SIZE >= 12 ? 1 : SIZE === 10 ? 2 : 3;
-  let moves;
-  try {
-    moves = orderMoves(start, allMoves(start), 0);
-  } catch (e) {
-    // A snapshot/search hiccup (e.g. a piece frozen by a curse with $0) must
-    // never freeze the AI on its turn — fall back to the live board.
-    moves = [];
-  }
-  if (moves.length === 0) {
+  if (!plan) plan = aiSearchBestMove(me);
+  if (!plan || !plan.best) {
     // No legal moves: same as the stalemate check after a move, the game ends
     // instead of leaving the AI permanently stuck on its own turn.
     aiThinking = false;
@@ -2821,14 +2822,7 @@ const start = snapshotFromState(state);
     return;
   }
   try {
-    let best = moves[0], bestVal = -Infinity, alpha = -Infinity, beta = Infinity;
-    for (const mv of moves) {
-      const promo = mv.move.promotion ? "Q" : null;
-      const child = applyMove(start, mv.fr, mv.fc, mv.move, promo);
-      const v = minimax(child, depth - 1, alpha, beta, me, 1);
-      if (v > bestVal) { bestVal = v; best = mv; }
-      if (v > alpha) alpha = v;
-    }
+    let best = plan.best;
     // Confused AI piece: ignore the computed move and pick a random legal one instead.
     const cidx = state.confused.findIndex(x => x.r===best.fr && x.c===best.fc);
     if (cidx >= 0) {
@@ -2878,8 +2872,10 @@ function aiFallbackMove(me) {
 // Pick the best empty square on `me`'s half to place a held piece (a shop buy).
 // Heuristic-scored squares are shortlisted, then each is actually placed on a
 // snapshot and evaluated by the search — so the choice reflects the resulting
-// position (king safety, tactics) rather than the square's raw features.
-function aiBestPlacement(me, piece) {
+// position (king safety, tactics) rather than the square's raw features. When
+// `cost` is given it is charged against the snapshot's money so the returned
+// `value` is directly comparable to a move's value.
+function aiBestPlacement(me, piece, cost) {
   if (!piece) return null;
   const enemy = opp(me);
   const lo = me === "w" ? Math.ceil(SIZE / 2) : 0;
@@ -2902,12 +2898,13 @@ function aiBestPlacement(me, piece) {
     let v;
     try {
       const child = applyPlacement(snap0, piece, me, cd.r, cd.c);
+      if (cost) child.money = { ...child.money, [me]: child.money[me] - cost };
       v = minimax(child, depth, -Infinity, Infinity, me, 1);
     } catch (e) {
       v = cd.h;   // search hiccup: fall back to the heuristic square
     }
     const total = v + cd.h * 0.02;   // tie-break toward the safer square
-    if (total > bestVal) { bestVal = total; best = { r: cd.r, c: cd.c, score: cd.h }; }
+    if (total > bestVal) { bestVal = total; best = { r: cd.r, c: cd.c, score: cd.h, value: v }; }
   }
   return best;
 }
@@ -2967,9 +2964,11 @@ function aiPlacementScore(me, enemy, piece, r, c) {
 // ---- AI spell use ----
 // Spells are a free action, so the AI may cast one and still move. Each spell's
 // candidate target is scored on the same rough scale and must clear its
-// threshold; a good buy still beats a mediocre spell (AI_SPELL_OVERRIDE).
+// threshold; a buy must out-value "best move + free spell" by AI_BUY_MARGIN
+// before the AI gives up its move for the shop.
 const AI_SPELL_MIN = 180;      // generic fallback floor
-const AI_SPELL_OVERRIDE = 500; // a spell this valuable beats a shop buy
+const AI_BUY_MARGIN = 40;      // how much a buy must beat the best move by
+const AI_SPELL_MARGIN = 10;    // how much "spell + move" must beat a plain move
 const AI_SPELL_THRESHOLD = {
   sleep: 300, confuse: 300, curse: 400, shield: 300, dispel: 300,
   push: 400, sacrifice: 24, killPawn: 180, killRandom: 100, bounty: 90, echo: 350,
@@ -3165,11 +3164,13 @@ function aiSpellThreshold(id) {
   return AI_SPELL_THRESHOLD[id] != null ? AI_SPELL_THRESHOLD[id] : AI_SPELL_MIN;
 }
 
-// Pick a worthwhile free spell to cast (slot + target), or null.
-function aiConsiderSpell(me) {
+// Pick the best spell to cast this turn, judged by search value where possible
+// (targeted spells) and by heuristic score for untargeted ones. `planVal` is the
+// value of the plain best move, used as the baseline for instant spells.
+function aiBestSpell(me, planVal) {
   if (state.spellUsedThisTurn || state.placementMode || state.targetMode) return null;
   if (inCheck(state.board, me)) return null;   // answer the check on the board first
-  let best = null;
+  const cands = [];
   for (let i = 0; i < state.spells.length; i++) {
     const id = state.spells[i];
     if (!id) continue;
@@ -3177,13 +3178,29 @@ function aiConsiderSpell(me) {
     if (state.money[me] < spellEffCost(id, mod)) continue;
     const cand = aiSpellTarget(id, me);
     if (!cand || cand.score < aiSpellThreshold(id)) continue;
-    if (!best || cand.score > best.score)
-      best = { slot: i, id, r: cand.r, c: cand.c, instant: !!cand.instant, score: cand.score };
+    cands.push({ slot: i, id, mod, r: cand.r, c: cand.c, instant: !!cand.instant, score: cand.score });
+  }
+  if (!cands.length) return null;
+  cands.sort((a, b) => b.score - a.score);
+  let best = null, targeted = 0;
+  for (const cand of cands) {
+    let value;
+    if (cand.instant) {
+      value = planVal + cand.score;             // heuristic bonus over the plain move
+    } else if (targeted < 2) {
+      targeted++;
+      const v = aiSpellValue(me, cand, spellEffCost(cand.id, cand.mod));
+      value = (v === null) ? planVal + cand.score : v;   // fallback to heuristic
+    } else {
+      continue;                                  // cap the expensive evaluations
+    }
+    if (!best || value > best.value) best = { ...cand, value };
   }
   return best;
 }
 
-// Cast the free 2x/RND follow-up if it's worthwhile, else decline it.
+// Cast the free 2x/RND follow-up if it's worthwhile, else decline it. Targeted
+// spells are checked by value (it's free, so compare spell+move vs a plain move).
 function aiTryFreeFollowUp(me) {
   if (!state.freeSpellId || state.followUpOwner !== me) return false;
   const id = state.freeSpellId;
@@ -3191,61 +3208,139 @@ function aiTryFreeFollowUp(me) {
   if (slot < 0) { skipFollowUpSpell(); return false; }
   const cand = aiSpellTarget(id, me);
   if (cand && cand.score >= aiSpellThreshold(id)) {
-    castSpell(slot);
-    if (state.targetMode) {
-      if (isTargetable(cand.r, cand.c, state.targetMode.kind)) handleTargetClick(cand.r, cand.c);
-      else cancelPlacement();
+    let use = true;
+    if (!cand.instant) {
+      const base = aiSearchBestMove(me);
+      const baseVal = (base && isFinite(base.value)) ? base.value : 0;
+      const v = aiSpellValue(me, cand, 0);   // free
+      if (v !== null && v <= baseVal + AI_SPELL_MARGIN) use = false;
     }
-    return true;
+    if (use) {
+      castSpell(slot);
+      if (state.targetMode) {
+        if (isTargetable(cand.r, cand.c, state.targetMode.kind)) handleTargetClick(cand.r, cand.c);
+        else cancelPlacement();
+      }
+      return true;
+    }
   }
   skipFollowUpSpell();
   return false;
 }
 
-// Decide whether the AI buys from the shop this turn, and which slot. It skips
-// the shop when there's a sound capture (playing the tactic instead), deals
-// with threatened kings first, and only buys when the best square is safe.
-function aiConsiderBuy(me) {
-  if (state.spellUsedThisTurn || state.placementMode || state.gameOver) return null;
-  if (inCheck(state.board, me)) return null;   // must resolve the check on the board, not in a shop
-  // Don't spend the turn shopping while one of our own strong pieces is
-  // hanging (attacked and undefended) — use the move to save it instead.
-  for (let r = 0; r < SIZE; r++) {
-    for (let c = 0; c < SIZE; c++) {
-      const p = state.board[r][c];
-      if (!p || p.color !== me || p.type === "P" || p.type === "K") continue;
-      if (!squareAttacked(state.board, r, c, opp(me))) continue;
-      if (!squareAttacked(state.board, r, c, me)) return null;
+// Search the best legal move for `me` on the live board and return it with its
+// value (from me's perspective). Used to play the move and as the baseline that
+// a shop buy must beat.
+function aiSearchBestMove(me) {
+  return aiSearchBestMoveOn(snapshotFromState(state), me);
+}
+
+// Same search, on an arbitrary snapshot whose side to move is `me`.
+function aiSearchBestMoveOn(start, me) {
+  const depth = SIZE >= 12 ? 1 : SIZE === 10 ? 2 : 3;
+  let moves;
+  try { moves = orderMoves(start, allMoves(start), 0); } catch (e) { moves = []; }
+  if (!moves.length) return { best: null, value: -Infinity };
+  let best = moves[0], bestVal = -Infinity, alpha = -Infinity, beta = Infinity;
+  for (const mv of moves) {
+    const promo = mv.move.promotion ? "Q" : null;
+    const child = applyMove(start, mv.fr, mv.fc, mv.move, promo);
+    const v = minimax(child, depth - 1, alpha, beta, me, 1);
+    if (v > bestVal) { bestVal = v; best = mv; }
+    if (v > alpha) alpha = v;
+  }
+  return { best, value: bestVal };
+}
+
+// Apply a targeted spell's effect onto a snapshot for a 1-ply lookahead (the
+// caster is still to move afterwards, since a spell is a free action). Returns
+// the modified snapshot or null when the spell can't be modeled here.
+function applySpellToSnapshot(snap, id, r, c, me) {
+  const board = cloneBoard(snap.board);
+  const out = { ...snap, board, money: { ...snap.money } };
+  out.blocked = snap.blocked.map(b=>({...b}));
+  out.sleeping = (snap.sleeping||[]).map(b=>({...b}));
+  out.shielded = (snap.shielded||[]).map(b=>({...b}));
+  out.confused = (snap.confused||[]).map(b=>({...b}));
+  out.cursed = (snap.cursed||[]).map(b=>({...b}));
+  out.piratify = (snap.piratify||[]).map(b=>({...b}));
+  out.thief = (snap.thief||[]).map(b=>({...b}));
+  switch (id) {
+    case "sleep":   out.sleeping.push({ r, c, owner: me, rem: 2 }); return out;
+    case "confuse": out.confused.push({ r, c }); return out;
+    case "curse":   out.cursed.push({ r, c, owner: me }); return out;
+    case "shield":  out.shielded.push({ r, c, owner: me, rem: 2 }); return out;
+    case "push": {
+      const p = board[r][c];
+      if (!p) return null;
+      const dir = p.color === "w" ? 1 : -1;
+      let tr = r, moved = 0;
+      while (moved < 3) {
+        const nr = tr + dir;
+        if (nr < 0 || nr >= SIZE || out.blocked.some(b => b.r === nr && b.c === c) || board[nr][c]) break;
+        tr = nr; moved++;
+      }
+      if (!moved) return null;
+      for (const list of [out.sleeping, out.cursed, out.shielded]) {
+        for (const e of list) if (e.r === r && e.c === c) e.r = tr;
+      }
+      board[tr][c] = p; board[r][c] = null;
+      return out;
     }
+    case "sacrifice": {
+      const p = board[r][c];
+      if (!p || p.color !== me || p.type === "K") return null;
+      const gain = SHOP_PRICE[p.type] !== undefined ? SHOP_PRICE[p.type] : (PIECE_VALUE[p.type] || 0);
+      board[r][c] = null;
+      out.money[me] += gain;
+      return out;
+    }
+    case "killPawn": {
+      if (!board[r][c]) return null;
+      board[r][c] = null;
+      return out;
+    }
+    case "dispel": {
+      out.sleeping = out.sleeping.filter(e => !(e.r===r && e.c===c));
+      out.confused = out.confused.filter(e => !(e.r===r && e.c===c));
+      out.cursed = out.cursed.filter(e => !(e.r===r && e.c===c));
+      if (board[r][c] && board[r][c].bounty) board[r][c] = { ...board[r][c], bounty: null };
+      return out;
+    }
+    default: return null;
   }
-  const scoreT = t => PIECE_SCORE[t] || 100;
-  const snap = snapshotFromState(state);
-  for (const mv of allMoves(snap)) {
-    const t = snap.board[mv.move.r][mv.move.c];
-    // Only a materially-winning capture is worth skipping the shop for (e.g.
-    // grabbing a hanging queen); equal trades lose to buying a strong piece.
-    if (t && scoreT(t.type) - scoreT(snap.board[mv.fr][mv.fc].type) >= 150) return null;
-  }
-  let chosen = -1, chosenScore = -Infinity;
+}
+
+// Value of casting a targeted spell and then playing the best follow-up move.
+// null when the spell isn't modeled (e.g. instant spells) — caller falls back
+// to the heuristic decision.
+function aiSpellValue(me, cand, cost) {
+  try {
+    const applied = applySpellToSnapshot(snapshotFromState(state), cand.id, cand.r, cand.c, me);
+    if (!applied) return null;
+    applied.money = { ...applied.money, [me]: applied.money[me] - cost };
+    const res = aiSearchBestMoveOn(applied, me);
+    return res && isFinite(res.value) ? res.value : null;
+  } catch (e) { return null; }
+}
+
+// Pick the best affordable shop buy for `me` (slot + placement), valued by the
+// search on the resulting position with the price charged. Returns null when
+// shopping isn't allowed or nothing affordable is worth considering.
+function aiBestBuy(me) {
+  if (state.spellUsedThisTurn || state.placementMode || state.targetMode || state.gameOver) return null;
+  if (inCheck(state.board, me)) return null;   // must resolve the check on the board
+  let best = null;
   for (let i = 0; i < 3; i++) {
     const e = state.shop[i];
     if (!e) continue;
     const cost = shopPrice(e);
     if (state.money[me] < cost) continue;
-    const spot = aiBestPlacement(me, e.p);
+    const spot = aiBestPlacement(me, e.p, cost);
     if (!spot) continue;
-    const value = PIECE_VALUE[e.p] !== undefined ? PIECE_VALUE[e.p] : 0;
-    const sc = spot.score + value * 30;   // valuable pieces are worth spending the turn on
-    if (sc > chosenScore) { chosen = i; chosenScore = sc; }
+    if (!best || spot.value > best.value) best = { slot: i, value: spot.value, spot };
   }
-  if (chosen < 0) return null;
-  const cost = shopPrice(state.shop[chosen]);
-  const spotScore = chosenScore - (PIECE_VALUE[state.shop[chosen].p] || 0) * 30;
-  const safeSpot = spotScore > -120;
-  const rich = state.money[me] - cost >= 7;
-  if (safeSpot && (rich || gRng() < 0.6)) return chosen;
-  if (rich && gRng() < 0.5) return chosen;   // flush with cash: gamble on the risky square
-  return null;
+  return best;
 }
 
 function aiFinishPlacement() {
