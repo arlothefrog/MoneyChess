@@ -637,6 +637,50 @@
   }
   #catalogTitle { font-weight: 700; letter-spacing: 2px; color: #ffd24a; }
   #catalogClose { width: auto; padding: 4px 12px; }
+  /* ---- Game-log export popup ---- */
+  #logOverlay {
+    position: fixed;
+    inset: 0;
+    z-index: 620;
+    background: rgba(5, 10, 16, 0.75);
+    display: none;
+    align-items: center;
+    justify-content: center;
+  }
+  #logPanel {
+    width: min(920px, 95vw);
+    height: 84vh;
+    background: #0e1a28;
+    border: 1px solid #4d9fff;
+    border-radius: 12px;
+    display: flex;
+    flex-direction: column;
+    box-shadow: 0 10px 40px rgba(0, 0, 0, 0.6);
+  }
+  #logHead {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 10px;
+    padding: 10px 14px;
+    border-bottom: 1px solid #22364c;
+  }
+  #logTitle { font-weight: 700; letter-spacing: 2px; color: #ffd24a; }
+  #logHead .log-actions { display: flex; gap: 8px; }
+  #logText {
+    flex: 1;
+    margin: 0;
+    overflow: auto;
+    padding: 12px 14px;
+    font-family: "Consolas", "Courier New", monospace;
+    font-size: 0.78rem;
+    line-height: 1.55;
+    color: #dbe6f0;
+    white-space: pre;
+    background: #0a121c;
+    border-radius: 0 0 12px 12px;
+  }
+  #logStatus { color: #8ef58e; font-size: 0.8rem; min-height: 1em; }
   #catalogBody {
     overflow-y: auto;
     padding: 10px 14px;
@@ -978,6 +1022,7 @@
 <div id="controls">
     <button id="pieceCatalogBtn">Piece Catalog</button>
     <button id="spellCatalogBtn">Spell Catalog</button>
+    <button id="logBtn">Game Log</button>
     <button id="godBtn" style="display: none;">God Mode</button>
     <span id="sizePicker" style="display: inline-flex;">
       <button id="boardMenuBtn">Board settings</button>
@@ -1061,6 +1106,20 @@
         <button id="catalogClose">✕ Close</button>
       </div>
       <div id="catalogBody"></div>
+    </div>
+  </div>
+
+  <div id="logOverlay">
+    <div id="logPanel">
+      <div id="logHead">
+        <span id="logTitle">GAME LOG</span>
+        <span id="logStatus"></span>
+        <span class="log-actions">
+          <button id="logCopyBtn">Copy</button>
+          <button id="logClose">✕ Close</button>
+        </span>
+      </div>
+      <pre id="logText"></pre>
     </div>
   </div>
 
@@ -6036,6 +6095,130 @@ function rebuildHistorySel() {
   }
 }
 
+// ---- Game-log export --------------------------------------------------------
+// A plain-text transcript of the whole game: the parameters, whose turn it is,
+// both wallets, the current shop and spell store (with modifiers) at every ply,
+// every move/buy/skip line, and any persistent effects still in play. Meant to
+// be pasted into an AI chat to review the AI's choices.
+const LOG_FILES = "abcdefghijklmno";
+function plName(p) { return PIECE_NAME[p] || p; }
+function plModTag(mod) {
+  if (!mod || mod === "normal") return "";
+  const lbl = mod === "cheap" ? "-$1 cost" : mod === "pricier" ? "+$1 cost"
+    : mod === "discount" ? "-$1 price" : mod === "golden" ? "golden"
+    : mod === "platinum" ? "platinum" : mod;
+  return " (" + lbl + ")";
+}
+function logPieceToken(id, color) { return plName(id) + "/" + (color === "w" ? "W" : "B"); }
+
+// Render every occupied square as "<Piece>/<color>": colour-keyed packets that
+// spell out in plain text, so a chat model can read the board unambiguously.
+function renderLogBoard(board, flip) {
+  const out = [];
+  for (let i = 0; i < SIZE; i++) {
+    const r = flip ? SIZE - 1 - i : i;
+    let line = String(SIZE - r).padStart(2, " ") + " |";
+    for (let j = 0; j < SIZE; j++) {
+      const c = flip ? SIZE - 1 - j : j;
+      const p = board[r][c];
+      line += " " + (p ? logPieceToken(p.type, p.color) : "\u00b7\u00b7\u00b7\u00b7");
+      line += (j < SIZE - 1) ? " " : "";
+    }
+    out.push(line);
+  }
+  let bottom = "    ";
+  for (let j = 0; j < SIZE; j++) {
+    const c = flip ? SIZE - 1 - j : j;
+    if (j) bottom += " ";
+    bottom += " " + LOG_FILES[c] + "  ";
+  }
+  out.push(bottom);
+  return out;
+}
+
+function effectLine(label, list) {
+  if (!list || !list.length) return null;
+  const shown = list.slice(0, 12).map(e => sqName(e.r, e.c)).join(", ");
+  return "  " + label + ": " + shown + (list.length > 12 ? " …" : "");
+}
+
+function exportGameLog() {
+  const L = [];
+  const rules = "King-capture variant (no checkmate): capture the enemy king to win; the king may move into check; "
+    + "a side with no legal moves is a stalemate draw. Each turn = one piece action plus one optional free spell; "
+    + "shop buys and Tax Gain end the turn.";
+  L.push("MONEY CHESS \u2014 GAME LOG");
+  L.push("Generated " + new Date().toLocaleString());
+  L.push("Board: " + SIZE + "x" + SIZE + (RANDOM960 ? " (Chess 960)" : "") + "  \u00b7  Seed: " + SEED + "  \u00b7  RNG draws: " + RNG_COUNTER);
+  L.push("Mode: " + (netMode ? "online" : state.aiOpponent ? "vs AI" : "local") + "  \u00b7  AI: " + (state.aiOpponent ? ("Black, level " + AI_LEVEL) : "off"));
+  L.push("Status: " + (state.gameOver ? "GAME OVER" : (state.turn === "w" ? "White" : "Black") + " to move"));
+  L.push("Rules: " + rules);
+  L.push("");
+  L.push("LEGEND  pieces: P=Pawn N=Knight B=Bishop R=Rook Q=Queen K=King C=Camel G=Cricket D=D-Pawn "
+    + "A=Amazon S=Soldier H=Centaur M=Rat T=Cat X=Shooter F=Fake Knight.  Each square shows Piece/colour "
+    + "(W=White, B=Black); \u00b7 = empty.  Spells show as Name[mod] $cost.");
+  L.push("");
+
+  const frames = (reviewFrames && reviewFrames.length) ? reviewFrames : [state];
+  const finalPos = frames.length - 1;
+  const startAction = (state.turnActivity && state.turnActivity.length)
+    ? turnActivityText()
+    : "White to move";
+  L.push("START \u2014 board");
+  for (const line of renderLogBoard(frames[0].board, false)) L.push(line);
+  L.push("");
+
+  for (let pos = 0; pos < frames.length; pos++) {
+    const f = frames[pos];
+    const fullmove = Math.floor(pos / 2) + 1;
+    const whiteToMove = (pos % 2 === 0);
+    const actionText = (pos === finalPos && startAction) ? " \u2014 turn so far: " + startAction : "";
+    L.push("[ply " + pos + "]  Move " + fullmove + (whiteToMove ? " (White to move)" : " (Black to move)") + actionText);
+    L.push("  money: White $" + f.money.w + "  \u00b7  Black $" + f.money.b);
+    const shopStr = f.shop.map(e => e ? logPieceToken(e.p, f.turn) + " $" + shopPrice(e) + plModTag(e.mod) : "\u2014").join(" | ");
+    L.push("  shop: " + shopStr);
+    const spellStr = f.spells.map((id, i) => {
+      if (!id) return "\u2014";
+      const mod = f.spellMods[i] || "normal";
+      return SPELLS[id].name + plModTag(mod) + " $" + spellEffCost(id, mod);
+    }).join(" | ");
+    L.push("  spells: " + spellStr);
+    const effParts = [];
+    for (const [label, list] of [
+      ["walls", f.blocked], ["sleeping", f.sleeping], ["confused", f.confused],
+      ["shielded", f.shielded], ["cursed", f.cursed], ["piratified", f.piratify], ["thieves", f.thief],
+    ]) { const s = effectLine(label, list); if (s) effParts.push(s); }
+    if (f.noCapture && (f.noCapture.w > 0 || f.noCapture.b > 0)) effParts.push("  no-capture: W " + f.noCapture.w + ", B " + f.noCapture.b);
+    if (f.extraTurns && (f.extraTurns.w > 0 || f.extraTurns.b > 0)) effParts.push("  extra turns: W " + f.extraTurns.w + ", B " + f.extraTurns.b);
+    if (effParts.length) { L.push("  effects:"); for (const s of effParts) L.push(s); }
+    if (pos < finalPos) L.push("  \u2192 " + (state.moveLog[pos] || "(?)"));
+    L.push("");
+  }
+
+  L.push("MOVES (SAN-ish, ply order)");
+  for (let i = 0; i < state.moveLog.length; i++) {
+    const who = (i % 2 === 0) ? "White" : "Black";
+    L.push("  " + (Math.floor(i / 2) + 1) + (i % 2 ? "..." : ".") + " " + who + ": " + state.moveLog[i]);
+  }
+  if (!state.moveLog.length) L.push("  (none)");
+  return L.join("\n");
+}
+
+function openGameLog() {
+  const el = document.getElementById("logText");
+  el.textContent = exportGameLog();
+  const st = document.getElementById("logStatus");
+  st.textContent = "";
+  document.getElementById("logOverlay").style.display = "flex";
+}
+function closeGameLog() { document.getElementById("logOverlay").style.display = "none"; }
+function copyGameLog() {
+  const txt = document.getElementById("logText").textContent;
+  const st = document.getElementById("logStatus");
+  const mark = () => { st.textContent = "Copied to clipboard"; setTimeout(() => { st.textContent = ""; }, 1800); };
+  try { navigator.clipboard.writeText(txt).then(mark, () => {}); } catch (e) {}
+}
+
 function showPromotion() {
   PROMO_CHOICES.innerHTML = "";
   const color = state.turn;
@@ -6842,7 +7025,7 @@ document.getElementById("reviewResume").addEventListener("click", () => {
 // chrome stay live (they don't touch the game state).
 document.addEventListener("click", (e) => {
   if (reviewPos < 0) return;
-  const allow = e.target.closest("#historyBack, #historyForward, #historyLive, #history, #reviewResume, #reviewBanner, #pieceCatalogBtn, #spellCatalogBtn, #resetBtn, #topSettingsBtn, #catalogOverlay, #gameSettings, #godOverlay");
+  const allow = e.target.closest("#historyBack, #historyForward, #historyLive, #history, #reviewResume, #reviewBanner, #pieceCatalogBtn, #spellCatalogBtn, #logBtn, #logOverlay, #resetBtn, #topSettingsBtn, #catalogOverlay, #gameSettings, #godOverlay");
   if (!allow) {
     e.stopPropagation();
     e.preventDefault();
@@ -7313,6 +7496,12 @@ document.getElementById("spellCatalogBtn").addEventListener("click", () => openC
 document.getElementById("catalogClose").addEventListener("click", closeCatalog);
 document.getElementById("catalogOverlay").addEventListener("click", (e) => {
   if (e.target === e.currentTarget) closeCatalog();
+});
+document.getElementById("logBtn").addEventListener("click", openGameLog);
+document.getElementById("logClose").addEventListener("click", closeGameLog);
+document.getElementById("logCopyBtn").addEventListener("click", copyGameLog);
+document.getElementById("logOverlay").addEventListener("click", (e) => {
+  if (e.target === e.currentTarget) closeGameLog();
 });
 
 // ---- God Mode (sandbox) ----
