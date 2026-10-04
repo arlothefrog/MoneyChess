@@ -911,6 +911,13 @@
           <span>Turn notifier</span>
           <button id="dingToggle" class="menu-btn small-btn">On</button>
         </div>
+        <div class="setting-row">
+          <span>AI difficulty</span>
+          <div class="setting-control">
+            <input type="range" id="aiLevelSlider" min="1" max="11" step="1" value="6" aria-label="AI difficulty">
+            <span id="aiLevelPct">6</span>
+          </div>
+        </div>
         <button class="menu-btn back-btn" data-back="menuMain">Back</button>
       </div>
     </div>
@@ -933,6 +940,13 @@
       <div class="setting-row">
         <span>Turn notifier</span>
         <button id="gameDingToggle" class="menu-btn small-btn">On</button>
+      </div>
+      <div class="setting-row">
+        <span>AI difficulty</span>
+        <div class="setting-control">
+          <input type="range" id="gameAiLevelSlider" min="1" max="11" step="1" value="6" aria-label="AI difficulty">
+          <span id="gameAiLevelPct">6</span>
+        </div>
       </div>
       <button class="menu-btn" id="quitToMenuBtn">Quit to menu</button>
       <button class="menu-btn" id="gameSettingsClose">Resume</button>
@@ -1057,7 +1071,2436 @@
     </div>
   </div>
 
-<script>
+<script id="aiEngine">
+"use strict";
+// ==== AI engine ====
+// Everything the computer opponent needs to search and decide lives in this
+// block. It must not touch the DOM at load time: aiWorkerSource() feeds this
+// text (plus the rule functions/constants of the main script) to a Web Worker,
+// so a long search never freezes the page. Functions here may read the main
+// script's globals (state, SIZE, pseudoMoves, ...) when they are called.
+
+let aiThinking = false;
+
+// ---- AI opponent: minimax with alpha-beta pruning ----
+// Material values (centipawns). The custom pieces are set between their shop
+// price ($1 ~ 100) and their measured reach on an empty 8x8 board (average
+// moves / capture squares: Camel 4.8 colour-bound, Cricket 2.5 attacks, Centaur
+// 13.2, Rat 12.9, Fake Knight 12.8, Cat 7.3 moves but 18.8 capture squares,
+// Shooter 11.6 shots that never expose it, Amazon 29.3).
+const PIECE_SCORE = { P:100, N:320, B:330, R:500, Q:900, C:230, G:140, D:100, A:1300, S:100, H:650, K:20000, F:420, X:650, M:450, T:600 };
+// Piece-square tables (from white's perspective; mirrored for black)
+const PST = {
+  P: [[0,0,0,0,0,0,0,0],[50,50,50,50,50,50,50,50],[10,10,20,30,30,20,10,10],
+      [5,5,10,25,25,10,5,5],[0,0,0,20,20,0,0,0],[5,-5,-10,0,0,-10,-5,5],
+      [5,10,10,-20,-20,10,10,5],[0,0,0,0,0,0,0,0]],
+  N: [[-50,-40,-30,-30,-30,-30,-40,-50],[-40,-30,0,0,0,0,-30,-40],
+      [-30,0,10,15,15,10,0,-30],[-30,5,15,20,20,15,5,-30],
+      [-30,0,15,20,20,15,0,-30],[-30,5,10,15,15,10,5,-30],
+      [-40,-30,0,5,5,0,-30,-40],[-50,-40,-30,-30,-30,-30,-40,-50]],
+  B: [[-20,-10,-10,-10,-10,-10,-10,-20],[-10,0,0,0,0,0,0,-10],
+      [-10,0,5,10,10,5,0,-10],[-10,5,5,10,10,5,5,-10],
+      [-10,0,10,10,10,10,0,-10],[-10,10,10,10,10,10,10,-10],
+      [-10,5,0,0,0,0,5,-10],[-20,-10,-10,-10,-10,-10,-10,-20]],
+  R: [[0,0,0,0,0,0,0,0],[5,10,10,10,10,10,10,5],[-5,0,0,0,0,0,0,-5],
+      [-5,0,0,0,0,0,0,-5],[-5,0,0,0,0,0,0,-5],[-5,0,0,0,0,0,0,-5],
+      [-5,0,0,0,0,0,0,-5],[0,0,0,5,5,0,0,0]],
+  Q: [[-20,-10,-10,-5,-5,-10,-10,-20],[-10,0,0,0,0,0,0,-10],
+      [-10,0,5,5,5,5,0,-10],[-5,0,5,5,5,5,0,-5],
+      [0,0,5,5,5,5,0,-5],[-10,5,5,5,5,5,0,-10],
+      [-10,0,5,0,0,0,0,-10],[-20,-10,-10,-5,-5,-10,-10,-20]],
+  K: [[-30,-40,-40,-50,-50,-40,-40,-30],[-40,-40,-40,-40,-40,-40,-40,-40],
+      [-40,-40,-40,-40,-40,-40,-40,-40],[-50,-50,-50,-50,-50,-50,-50,-50],
+      [-50,-50,-50,-50,-50,-50,-50,-50],[-40,-40,-40,-40,-40,-40,-40,-40],
+      [-40,-40,-40,-40,-40,-40,-40,-40],[-30,-40,-40,-50,-50,-40,-40,-30]],
+};
+
+// Generic piece-square values for any board size (and for the custom pieces on
+// 8x8, which have no hand-tuned table): short-range pieces want the centre,
+// long-range pieces a little, pawns want to advance and the king stays home.
+// Built once per board size; indexed from White's side (row 0 = far rank).
+const PST_SHORT = new Set(["N","C","G","H","M","T","X","F"]);
+let PST_GEN = null, PST_GEN_SIZE = 0;
+function buildGenericPst() {
+  PST_GEN = {};
+  PST_GEN_SIZE = SIZE;
+  const mid = (SIZE - 1) / 2, maxd = 2 * mid || 1;
+  for (const t of Object.keys(PIECE_SCORE)) {
+    const tbl = new Int16Array(SIZE * SIZE);
+    for (let row = 0; row < SIZE; row++) for (let c = 0; c < SIZE; c++) {
+      const cent = 1 - (Math.abs(row - mid) + Math.abs(c - mid)) / maxd;   // 1 = centre, 0 = corner
+      const adv = SIZE - 2 - row;                                         // pawn steps from its start rank
+      let v = 0;
+      if (t === "P" || t === "D" || t === "S") v = Math.max(0, adv) * 5 + Math.round(cent * 10);
+      else if (t === "K") v = -Math.min(60, (SIZE - 1 - row) * 15);
+      else if (PST_SHORT.has(t)) v = Math.round(cent * 40 - 20);
+      else if (t === "B" || t === "A") v = Math.round(cent * 20 - 10);
+      else if (t === "Q") v = Math.round(cent * 10 - 5);
+      tbl[row * SIZE + c] = v;
+    }
+    PST_GEN[t] = tbl;
+  }
+}
+function pstValue(type, color, r, c) {
+  // mirror vertically for black so good placement is always + regardless of color
+  const row = color === "w" ? r : SIZE - 1 - r;
+  const table = PST[type];
+  if (table && SIZE === 8) return table[row][c];   // hand-tuned 8x8 tables
+  if (PST_GEN_SIZE !== SIZE) buildGenericPst();
+  const g = PST_GEN[type];
+  return g ? g[row * SIZE + c] : 0;
+}
+
+// Reward a king that still has friendly pieces (ideally pawns) shielding it and
+// penalise an exposed king. Cheap: just the three squares in front of the king.
+function kingShield(s, color, k) {
+  k = k || findKing(s.board, color);
+  if (!k) return 0;
+  const fdir = color === "w" ? -1 : 1;   // toward the enemy
+  let shield = 0, count = 0;
+  for (let dc = -1; dc <= 1; dc++) {
+    const rr = k.r + fdir, cc = k.c + dc;
+    if (rr < 0 || rr >= SIZE || cc < 0 || cc >= SIZE) continue;
+    const q = s.board[rr][cc];
+    if (q && q.color === color) { shield += (q.type === "P" ? 12 : 6); count++; }
+  }
+  return shield - (count === 0 ? 20 : 0);
+}
+
+// In the endgame the king is a fighting piece: reward centralisation.
+function kingActivity(s, color, k) {
+  k = k || findKing(s.board, color);
+  if (!k) return 0;
+  const mid = (SIZE - 1) / 2;
+  const dist = Math.abs(k.r - mid) + Math.abs(k.c - mid);
+  return Math.max(0, SIZE - dist) * 2;
+}
+
+// Fast, allocation-free mobility estimate for the standard pieces (used in the
+// evaluation; custom pieces fall back to material-only).
+const MOB_N = [[1,2],[2,1],[2,-1],[1,-2],[-1,-2],[-2,-1],[-2,1],[-1,2]];
+const MOB_K = [[1,0],[-1,0],[0,1],[0,-1],[1,1],[1,-1],[-1,1],[-1,-1]];
+const MOB_R = [[1,0],[-1,0],[0,1],[0,-1]];
+const MOB_B = [[1,1],[1,-1],[-1,1],[-1,-1]];
+const MOB_Q = MOB_R.concat(MOB_B);
+const CUSTOM_MOB = new Set(["C","G","D","S","H","M","T","X","F"]);   // fastMobility can't score these
+// fastMobility also counts how many of the reached squares lie in the enemy
+// king's zone (the king's square and its 8 neighbours) into MOB_ZONE, so the
+// evaluation gets king-attack pressure from the same pass.
+let MOB_ZONE = 0;
+function fastMobility(s, r, c, blk, kz) {
+  const p = s.board[r][c];
+  const t = p.type, own = p.color;
+  let n = 0;
+  MOB_ZONE = 0;
+  const visit = (rr, cc) => {
+    if (rr < 0 || rr >= SIZE || cc < 0 || cc >= SIZE) return false;
+    if (blk.has(rr * SIZE + cc)) return false;
+    const q = s.board[rr][cc];
+    if (q && q.color === own) return false;
+    n++;
+    if (kz && Math.abs(rr - kz.r) <= 1 && Math.abs(cc - kz.c) <= 1) MOB_ZONE++;
+    return !q;   // a capture ends the ray
+  };
+  if (t === "N") { for (const d of MOB_N) visit(r+d[0], c+d[1]); }
+  else if (t === "K") { for (const d of MOB_K) visit(r+d[0], c+d[1]); }
+  else if (t === "A") { for (const d of MOB_N) visit(r+d[0], c+d[1]); for (const d of MOB_Q) { let rr=r, cc=c; while (visit(rr+d[0], cc+d[1])) { rr+=d[0]; cc+=d[1]; } } }
+  else if (t === "R" || t === "B" || t === "Q") {
+    const dirs = t === "R" ? MOB_R : t === "B" ? MOB_B : MOB_Q;
+    for (const d of dirs) { let rr=r, cc=c; while (visit(rr+d[0], cc+d[1])) { rr+=d[0]; cc+=d[1]; } }
+  }
+  return n;
+}
+
+// Reused evaluation buffers (evaluate runs at every quiescence leaf, so it must
+// not allocate). Single-threaded, non-reentrant: safe to share.
+const EVAL_MAXSQ = 15 * 15;
+const EVAL_EFF = new Int16Array(EVAL_MAXSQ);
+const EVAL_PFW = new Int16Array(15), EVAL_PFB = new Int16Array(15);
+const EVAL_MOB_BLK = new Set();
+const EG_SLEEP = 1, EG_CONF = 2, EG_CURSE = 4, EG_SHIELD = 8, EG_PIR = 16, EG_THIEF = 32;
+
+function evaluate(s, aiColor) {
+  let wKing = false, bKing = false, totalMat = 0, pieces = 0, wKingPos = null, bKingPos = null;
+  let bishopsW = 0, bishopsB = 0;
+  let matMe = 0, matFoe = 0;   // non-king material per side (aiColor vs opponent)
+  const pfW = EVAL_PFW, pfB = EVAL_PFB;
+  for (let i = 0; i < SIZE; i++) { pfW[i] = 0; pfB[i] = 0; }
+
+  // One square-keyed bit grid for all effects, so the per-piece checks below are
+  // O(1) with no per-call allocation.
+  const eg = EVAL_EFF;
+  const sl = s.sleeping || [], co = s.confused || [], cu = s.cursed || [];
+  const sh = s.shielded || [], pi = s.piratify || [], th = s.thief || [];
+  for (let i = 0; i < sl.length; i++) eg[sl[i].r * SIZE + sl[i].c] |= EG_SLEEP;
+  for (let i = 0; i < co.length; i++) eg[co[i].r * SIZE + co[i].c] |= EG_CONF;
+  for (let i = 0; i < cu.length; i++) eg[cu[i].r * SIZE + cu[i].c] |= EG_CURSE;
+  for (let i = 0; i < sh.length; i++) eg[sh[i].r * SIZE + sh[i].c] |= EG_SHIELD;
+  for (let i = 0; i < pi.length; i++) eg[pi[i].r * SIZE + pi[i].c] |= EG_PIR;
+  for (let i = 0; i < th.length; i++) eg[th[i].r * SIZE + th[i].c] |= EG_THIEF;
+
+  let score = 0;
+  for (let r=0;r<SIZE;r++) for (let c=0;c<SIZE;c++) {
+    const p = s.board[r][c];
+    if (!p) continue;
+    if (p.type==="K") {
+      if (p.color==="w") { wKing=true; wKingPos={r,c}; } else { bKing=true; bKingPos={r,c}; }
+    }
+    else {
+      const mv0 = PIECE_SCORE[p.type] || 100;
+      totalMat += mv0; pieces++;
+      if (p.color === aiColor) matMe += mv0; else matFoe += mv0;
+    }
+    const sq = r * SIZE + c;
+    const sign = p.color === aiColor ? 1 : -1;
+    let v = (PIECE_SCORE[p.type] || 100) + pstValue(p.type, p.color, r, c);
+    // bounty bonus: a bountied enemy piece is worth more to capture
+    if (p.bounty && p.color !== aiColor) v += 30;
+    if (p.bounty && p.color === aiColor) v -= 15; // my bountied piece is a liability
+    // Control effects matter: a slept/confused/hexed piece is worth much less to
+    // its owner, so the search values spending a spell on it properly.
+    const epv = Math.min(PIECE_SCORE[p.type] || 100, 1000);
+    const bits = eg[sq];
+    if (bits & EG_SLEEP) v -= 0.30 * epv;
+    if (bits & EG_CONF) v -= 0.22 * epv;
+    if (bits & EG_CURSE) v -= 0.12 * epv;
+    if (bits & EG_SHIELD) v += 0.10 * epv;
+    // Plunder (Piratify, +$2 a capture) and Thief (+$1 a capture, +$1 stolen)
+    // are income streams, so a marked piece is worth a little over its face value.
+    if (bits & EG_PIR) v += 14;
+    if (bits & EG_THIEF) v += 10;
+    score += sign * v;
+    if (p.type === "P") { if (p.color === "w") pfW[c]++; else pfB[c]++; }
+    if (p.type === "B") { if (p.color === "w") bishopsW++; else bishopsB++; }
+  }
+  // Clear the reused effect grid (only the touched squares are non-zero).
+  for (let i = 0; i < sl.length; i++) eg[sl[i].r * SIZE + sl[i].c] = 0;
+  for (let i = 0; i < co.length; i++) eg[co[i].r * SIZE + co[i].c] = 0;
+  for (let i = 0; i < cu.length; i++) eg[cu[i].r * SIZE + cu[i].c] = 0;
+  for (let i = 0; i < sh.length; i++) eg[sh[i].r * SIZE + sh[i].c] = 0;
+  for (let i = 0; i < pi.length; i++) eg[pi[i].r * SIZE + pi[i].c] = 0;
+  for (let i = 0; i < th.length; i++) eg[th[i].r * SIZE + th[i].c] = 0;
+  // Second pass: rooks/queens like open files (no friendly pawn on that file),
+  // now that every pawn has been counted.
+  for (let r=0;r<SIZE;r++) for (let c=0;c<SIZE;c++) {
+    const p = s.board[r][c];
+    if (!p || (p.type !== "R" && p.type !== "Q")) continue;
+    const filePawns = p.color === "w" ? pfW[c] : pfB[c];
+    if (filePawns === 0) {
+      score += (p.color === aiColor ? 1 : -1) * (p.type === "R" ? 8 : 4);
+    }
+  }
+  if (!wKing) return aiColor === "b" ? 100000 : -100000;
+  if (!bKing) return aiColor === "w" ? 100000 : -100000;
+
+  const me = aiColor, foe = opp(aiColor);
+  // Mobility: approximate a piece's activity by its reachable-square count.
+  const mobBlk = EVAL_MOB_BLK; mobBlk.clear();
+  for (const b of s.blocked) mobBlk.add(b.r * SIZE + b.c);
+  for (let i = 0; i < sh.length; i++) mobBlk.add(sh[i].r * SIZE + sh[i].c);
+  // The same pass counts king-zone pressure: how many squares around each king
+  // the other side reaches, and with how many pieces. In a king-capture game
+  // that pressure is what wins, so it is scored separately below.
+  let strBlk = null, mobMe = 0, mobFoe = 0;
+  let zoneHitsMe = 0, zoneAttMe = 0, zoneHitsFoe = 0, zoneAttFoe = 0;   // pressure on my king / on theirs
+  for (let r=0;r<SIZE;r++) for (let c=0;c<SIZE;c++) {
+    const p = s.board[r][c];
+    if (!p) continue;
+    const ek = p.color === "w" ? bKingPos : wKingPos;   // the king this piece attacks
+    let m = fastMobility(s, r, c, mobBlk, p.type === "K" ? null : ek);
+    let zone = MOB_ZONE;
+    if (m === 0 && CUSTOM_MOB.has(p.type)) {
+      if (!strBlk) strBlk = blockedSet(s);
+      let pm;
+      try { pm = pseudoMoves(s.board, r, c, s.castling, s.epTarget, strBlk); } catch (e) { pm = EMPTY_LIST; }
+      m = pm.length;
+      zone = 0;
+      for (let i = 0; i < pm.length; i++) {
+        if (Math.abs(pm[i].r - ek.r) <= 1 && Math.abs(pm[i].c - ek.c) <= 1) zone++;
+      }
+    } else if (p.type === "P") {
+      const pr = r + (p.color === "w" ? -1 : 1);
+      zone = 0;
+      if (Math.abs(pr - ek.r) <= 1) {
+        if (Math.abs(c - 1 - ek.c) <= 1) zone++;
+        if (Math.abs(c + 1 - ek.c) <= 1) zone++;
+      }
+    }
+    if (zone > 0) {
+      if (p.color === aiColor) { zoneHitsFoe += zone; zoneAttFoe++; }
+      else { zoneHitsMe += zone; zoneAttMe++; }
+    }
+    if (m > 16) m = 16;
+    if (p.color === aiColor) mobMe += m; else mobFoe += m;
+  }
+  score += (mobMe - mobFoe);
+  score += kingDanger(zoneHitsFoe, zoneAttFoe) - kingDanger(zoneHitsMe, zoneAttMe);
+  // Bishop pair
+  const meBishops = me === "w" ? bishopsW : bishopsB;
+  const foeBishops = foe === "w" ? bishopsW : bishopsB;
+  score += (meBishops >= 2 ? 30 : 0) - (foeBishops >= 2 ? 30 : 0);
+  // Pawn structure: doubled and isolated pawns are weaker.
+  for (const col of ["w", "b"]) {
+    const sgn = col === me ? 1 : -1;
+    const pf = col === "w" ? pfW : pfB;
+    for (let c = 0; c < SIZE; c++) {
+      const n = pf[c];
+      if (n > 1) score += sgn * (-14) * (n - 1);
+      if (n > 0) {
+        const adj = (c > 0 ? pf[c-1] : 0) + (c < SIZE-1 ? pf[c+1] : 0);
+        if (adj === 0) score += sgn * (-10);
+      }
+    }
+  }
+  // King safety (reuse the king positions found above)
+  const meKing = me === "w" ? wKingPos : bKingPos;
+  const foeKing = foe === "w" ? wKingPos : bKingPos;
+  score += kingShield(s, me, meKing) - kingShield(s, foe, foeKing);
+  // Endgame: with little material left the king should head for the centre.
+  // Gate on piece count as well so it also triggers on the larger boards (where
+  // absolute material is much higher).
+  if (totalMat < 3000 || pieces <= 12) score += kingActivity(s, me, meKing) - kingActivity(s, foe, foeKing);
+  // Passed pawns: no enemy pawn on the file or either adjacent file ahead of it.
+  // D/S promote straight to an Amazon, so a runner is worth a lot. Allocation
+  // free (this runs at every quiescence leaf).
+  for (let r = 0; r < SIZE; r++) for (let c = 0; c < SIZE; c++) {
+    const p = s.board[r][c];
+    if (!p || (p.type !== "P" && p.type !== "D" && p.type !== "S")) continue;
+    const fdir = p.color === "w" ? -1 : 1;
+    let passed = true;
+    for (let dc = -1; dc <= 1 && passed; dc++) {
+      const cc = c + dc;
+      if (cc < 0 || cc >= SIZE) continue;
+      for (let rr = r + fdir; rr >= 0 && rr < SIZE; rr += fdir) {
+        const q = s.board[rr][cc];
+        if (q && q.color !== p.color && (q.type === "P" || q.type === "D" || q.type === "S")) { passed = false; break; }
+      }
+    }
+    if (passed) {
+      const adv = p.color === "w" ? (SIZE - 1 - r) : r;   // 0 at home .. toward promotion
+      score += (p.color === aiColor ? 1 : -1) * adv * adv * 3;
+    }
+  }
+  // Winning endgame: corner the enemy king and walk our own king in to capture
+  // it (this game is won by capturing the king, not by mate).
+  if ((totalMat < 3000 || pieces <= 12) && meKing && foeKing
+      && matMe > matFoe + 200) {
+    const edge = Math.min(foeKing.r, SIZE - 1 - foeKing.r, foeKing.c, SIZE - 1 - foeKing.c);
+    const dist = Math.max(Math.abs(meKing.r - foeKing.r), Math.abs(meKing.c - foeKing.c));
+    score -= edge * 10;
+    score -= dist * 8;
+  }
+  // Money: what it can buy (a $1 pawn is 100), minus the tempo spending costs.
+  score += moneyValue(s.money[me]) - moneyValue(s.money[foe]);
+  return score;
+}
+
+// King-zone pressure: the squares hit near a king, weighted up sharply as more
+// separate pieces join the attack (one piece alone is rarely dangerous).
+const KING_ATTACK_SCALE = [0, 0.3, 1.0, 1.6, 2.1, 2.5, 2.8];
+function kingDanger(hits, attackers) {
+  return hits * AI_PARAMS.kingAttack * KING_ATTACK_SCALE[attackers > 6 ? 6 : attackers];
+}
+
+// Value of a bank balance in centipawns. Money buys material (shop price is
+// roughly $1 per 100) but only by spending a turn on it, so each dollar is worth
+// AI_PARAMS.money; beyond moneyCap (enough for the priciest buy) the extra has
+// no immediate use and counts half.
+function moneyValue(m) {
+  const v = AI_PARAMS.money, cap = AI_PARAMS.moneyCap;
+  if (m <= 0) return 0;
+  return m <= cap ? m * v : cap * v + (m - cap) * v * 0.5;
+}
+
+// Shallow-copy a square-keyed effect list so snapshots are self-contained.
+// Empty lists are shared (callers only ever reassign/read them, never push), so
+// the common no-effect position allocates nothing here.
+const EMPTY_LIST = [];
+function cloneEffectList(list) {
+  if (!list) return EMPTY_LIST;
+  const n = list.length;
+  if (n === 0) return list;
+  const out = new Array(n);
+  for (let i = 0; i < n; i++) out[i] = { ...list[i] };
+  return out;
+}
+function snapEffects(s) {
+  return {
+    blocked: cloneEffectList(s.blocked),
+    sleeping: cloneEffectList(s.sleeping),
+    shielded: cloneEffectList(s.shielded),
+    confused: cloneEffectList(s.confused),
+    piratify: cloneEffectList(s.piratify),
+    thief: cloneEffectList(s.thief),
+    cursed: cloneEffectList(s.cursed),
+    swapLocked: cloneEffectList(s.swapLocked),
+    noCapture: { w: (s.noCapture && s.noCapture.w) || 0, b: (s.noCapture && s.noCapture.b) || 0 },
+    extraTurns: { w: (s.extraTurns && s.extraTurns.w) || 0, b: (s.extraTurns && s.extraTurns.b) || 0 },
+  };
+}
+
+// Build a lightweight search snapshot from the live state
+function snapshotFromState(s) {
+  return {
+    board: cloneBoard(s.board),
+    castling: {...s.castling},
+    epTarget: s.epTarget ? {...s.epTarget} : null,
+    turn: s.turn,
+    ...snapEffects(s),
+    money: { w: s.money.w, b: s.money.b },
+  };
+}
+
+// Capture income mirrored from makeMove: half the victim's value, the bounty
+// payout, Plunder (Piratify) +$2, Thief steals $1, golden +$1, platinum +$3, and
+// the $1 toll a cursed mover pays. Without this the search would treat every
+// money-generating capture and spell (Bounty/Piratify/Thief, golden pieces) as
+// free, so it could never see their value.
+function applyMoveIncome(snap, money, mover, fr, fc, captured, move) {
+  if (captured) {
+    const dropV = SHOP_PRICE[captured.type] !== undefined ? SHOP_PRICE[captured.type] : (PIECE_VALUE[captured.type] || 0);   // a king has no price
+    money[mover.color] += Math.floor(dropV / 2);
+    if (captured.bounty) money[captured.bounty] = (money[captured.bounty] || 0) + 1;
+    if (snap.piratify && snap.piratify.some(x => x.r===fr && x.c===fc)) money[mover.color] += 2;
+    if (snap.thief && snap.thief.some(x => x.r===fr && x.c===fc)) {
+      const oc = opp(mover.color);
+      const gain = Math.min(1, money[oc] || 0);
+      money[oc] = (money[oc] || 0) - gain;
+      money[mover.color] += gain;
+    }
+    if (mover.golden) money[mover.color] += 1;
+    if (mover.platinum) money[mover.color] += 3;
+  }
+  if (!move.shoot && snap.cursed && snap.cursed.some(x => x.r===fr && x.c===fc)) {
+    money[mover.color] -= Math.min(1, money[mover.color] || 0);
+  }
+}
+
+// End-of-turn bookkeeping on a snapshot's (already copied) effect lists, the
+// same as expireEffectsAtTurnEnd(): walls, sleeps, shields and swap locks count
+// down and vanish at 0. Without this the search treated a one-turn Sleep or
+// Shield as permanent.
+const TIMED_EFFECTS = ["blocked", "sleeping", "shielded", "swapLocked"];
+function expireSnapEffects(eff) {
+  for (let k = 0; k < TIMED_EFFECTS.length; k++) {
+    const key = TIMED_EFFECTS[k];
+    const list = eff[key];
+    if (!list || !list.length) continue;
+    const out = [];
+    for (let i = 0; i < list.length; i++) {
+      const e = list[i];
+      if (e.rem == null) { out.push(e); continue; }
+      const rem = e.rem - 1;
+      if (rem > 0) out.push(e.rem === rem ? e : { ...e, rem });
+    }
+    eff[key] = out.length ? out : EMPTY_LIST;
+  }
+}
+
+// Apply a move onto a snapshot, returning a new snapshot
+function applyMove(snap, fr, fc, move, promoteTo) {
+  const board = cloneBoardRows(snap.board, [fr, move.r]);
+  const p = board[fr][fc];
+  const castling = {...snap.castling};
+  const money = { w: snap.money.w, b: snap.money.b };
+  const eff = snapEffects(snap);
+  // Turn bookkeeping, mirroring makeMove: the mover's no-capture counter ticks
+  // down, and Echo's pending extra turn keeps the turn with the mover.
+  const mover = p.color;
+  const extra = eff.extraTurns;
+  let turnAfter;
+  if (extra[mover] > 0) { extra[mover] -= 1; turnAfter = mover; }
+  else turnAfter = opp(mover);
+  eff.noCapture[mover] = Math.max(0, eff.noCapture[mover] - 1);
+  let epTarget = null;
+  // The captured piece (en passant victims sit beside the mover, not on the target).
+  const captured = move.enpassant ? board[fr][move.c] : board[move.r][move.c];
+  const vr = move.enpassant ? fr : move.r, vc = move.c;
+  if (move.enpassant) board[fr][move.c] = null;
+  // A captured piece takes its square-keyed markers with it.
+  if (captured) {
+    for (const key of ["blocked","sleeping","shielded","confused","piratify","thief","cursed","swapLocked"]) {
+      if (eff[key]) eff[key] = eff[key].filter(e => !(e.r === vr && e.c === vc));
+    }
+  }
+  // Shooter firing: target is destroyed, shooter stays put.
+  if (move.shoot) {
+    board[move.r][move.c] = null;
+    applyMoveIncome(snap, money, p, fr, fc, captured, move);
+    expireSnapEffects(eff);
+    return { board, castling, epTarget, turn: turnAfter, ...eff, money };
+  }
+  board[fr][fc] = null;
+  board[move.r][move.c] = move.promotion && promoteTo
+    ? {type: promoteTo, color: p.color, bounty: p.bounty||null, golden: p.golden||false, platinum: p.platinum||false}
+    : {type: p.type, color: p.color, bounty: p.bounty||null, golden: p.golden||false, platinum: p.platinum||false};
+const kingCol = SIZE >> 1;
+  if (move.castle === "K") { board[move.r][kingCol+1] = board[move.r][SIZE-1]; board[move.r][SIZE-1] = null; }
+  else if (move.castle === "Q") { board[move.r][kingCol-1] = board[move.r][0]; board[move.r][0] = null; }
+  if (p.type === "K") { if (p.color === "w") {castling.wK=false; castling.wQ=false;} else {castling.bK=false; castling.bQ=false;} }
+  if (p.type === "R") {
+    if (p.color==="w") { if (fr===SIZE-1&&fc===0) castling.wQ=false; if (fr===SIZE-1&&fc===SIZE-1) castling.wK=false; }
+    else { if (fr===0&&fc===0) castling.bQ=false; if (fr===0&&fc===SIZE-1) castling.bK=false; }
+  }
+  const tr=move.r, tc=move.c;
+  if (tr===SIZE-1&&tc===0) castling.wQ=false; if (tr===SIZE-1&&tc===SIZE-1) castling.wK=false;
+  if (tr===0&&tc===0) castling.bQ=false; if (tr===0&&tc===SIZE-1) castling.bK=false;
+  // Plunder/Thief/Curse/Shield markers travel with the mover; confusion is spent.
+  if (eff.confused) eff.confused = eff.confused.filter(e => !(e.r === fr && e.c === fc));
+  for (const key of ["piratify","thief","cursed","shielded"]) {
+    if (eff[key]) for (const e of eff[key]) if (e.r === fr && e.c === fc) { e.r = move.r; e.c = move.c; }
+  }
+  if (move.doubleStep) epTarget = {r:(fr+move.r)/2, c:fc};
+  applyMoveIncome(snap, money, p, fr, fc, captured, move);
+  expireSnapEffects(eff);
+  return { board, castling, epTarget, turn: turnAfter, ...eff, money };
+}
+
+// Apply a shop placement onto a snapshot: put `piece` (type, with its golden /
+// platinum shop modifier) on (r,c) for `color`. A buy ends the turn exactly like
+// placePiece(): effects tick down, en passant lapses, and a pending Echo extra
+// turn keeps the move with `color`. `cost` (optional) is taken from the wallet.
+function applyPlacement(snap, piece, color, r, c, mod, cost) {
+  const board = cloneBoardRows(snap.board, [r]);
+  board[r][c] = { type: piece, color, bounty: null, golden: mod === "golden", platinum: mod === "platinum" };
+  const eff = snapEffects(snap);
+  expireSnapEffects(eff);
+  let turn = opp(color);
+  if (eff.extraTurns[color] > 0) { eff.extraTurns[color] -= 1; turn = color; }
+  eff.noCapture[color] = Math.max(0, eff.noCapture[color] - 1);
+  const money = { w: snap.money.w, b: snap.money.b };
+  if (cost) money[color] -= cost;
+  return { board, castling: {...snap.castling}, epTarget: null, turn, ...eff, money };
+}
+
+// `blk`, `inCheckNow` and `king` are optional cached values supplied by allMoves
+// (they are identical for every piece of the side to move, so recomputing them
+// per piece was a large waste).
+function snapLegal(snap, r, c, blk, inCheckNow, king) {
+  if (!snap.board[r][c] || snap.board[r][c].color !== snap.turn) return [];
+  if (isSleeping(snap, r, c)) return [];
+  if (snap.swapLocked && snap.swapLocked.some(x => x.r === r && x.c === c)) return []; // swapped this turn
+  const color = snap.turn;
+  const p = snap.board[r][c];
+  if (!blk) blk = blockedSet(snap);
+  let pm = pseudoMoves(snap.board, r, c, snap.castling, snap.epTarget, blk);
+  // A cursed piece whose owner has $0 is frozen: no moving, only standing shots.
+  if (cursedFrozen(snap, r, c)) pm = pm.filter(m => m.shoot);
+  // Echo's no-capture window: keep the search honest about legal captures.
+  if (snap.noCapture && snap.noCapture[color] > 0) {
+    pm = pm.filter(m => { const t = snap.board[m.r][m.c]; return !t && !m.enpassant; });
+  }
+  if (inCheckNow === undefined) inCheckNow = snapInCheck(snap, color);
+  const out = [];
+  for (const m of pm) {
+    if (p.type === "K") {
+      // The king may not land on a square the enemy attacks (that just loses
+      // it). Test with the king lifted off its square, or it would shield the
+      // squares behind it on the checking line and step back along the ray.
+      const row = snap.board[r];
+      row[c] = null;
+      let attacked;
+      try { attacked = squareAttacked(snap.board, m.r, m.c, opp(color)); }
+      finally { row[c] = p; }
+      if (attacked) continue;
+      out.push(m); // castle intermediate squares were already vetted in pseudoMoves
+      continue;
+    }
+    if (inCheckNow) {
+      // Rare: while in check, simulate the move and re-test the king.
+      if (snapInCheck(applyMove(snap, r, c, m, null), color)) continue;
+      out.push(m);
+      continue;
+    }
+    const pin = snapPinRay(snap, color, r, c, king);
+    if (!pin || snapMoveOnPin(pin, m)) out.push(m);
+  }
+  return out;
+}
+
+// Is this snapshot's king of `color` attacked?
+function snapInCheck(snap, color) {
+  const k = findKing(snap.board, color);
+  if (!k) return true;   // king removed; treat as lost
+  return squareAttacked(snap.board, k.r, k.c, opp(color));
+}
+
+// If (r,c) sits directly between `color`'s king and an enemy slider on a
+// straight ray, return the pin geometry {kingR,kingC,dr,dc,dist}; else null.
+// (Bishops pin diagonally, rooks/queens/Amazons straight.)
+function snapPinRay(snap, color, r, c, king) {
+  const k = king || findKing(snap.board, color);
+  if (!k) return null;
+  const drR = r - k.r, dcC = c - k.c;
+  const g = Math.max(Math.abs(drR), Math.abs(dcC));
+  if (g === 0) return null;                      // mover is the king
+  if (drR % g !== 0 || dcC % g !== 0) return null; // not on a straight ray
+  const dr = drR / g, dc = dcC / g;
+  for (let kk = 1; kk < g; kk++) {
+    if (snap.board[k.r + dr * kk][k.c + dc * kk]) return null; // piece closer to king shields it
+  }
+  let rr = r + dr, cc = c + dc;
+  while (inBounds(rr, cc)) {
+    const t = snap.board[rr][cc];
+    if (t) {
+      if (t.color !== color) {
+        const orth = dr === 0 || dc === 0;
+        const diag = Math.abs(dr) === 1 && Math.abs(dc) === 1;
+        if ((t.type === "R" || t.type === "Q" || t.type === "A") && orth) {
+          return { kingR: k.r, kingC: k.c, dr, dc, dist: Math.max(Math.abs(rr - k.r), Math.abs(cc - k.c)) };
+        }
+        if ((t.type === "B" || t.type === "Q" || t.type === "A") && diag) {
+          return { kingR: k.r, kingC: k.c, dr, dc, dist: Math.max(Math.abs(rr - k.r), Math.abs(cc - k.c)) };
+        }
+      }
+      return null;
+    }
+    rr += dr; cc += dc;
+  }
+  return null;
+}
+
+// A pinned piece may only stay on the king<->attacker line (up to and including
+// a capture of the attacker). Moving off the ray is illegal.
+function snapMoveOnPin(pin, m) {
+  const relR = m.r - pin.kingR, relC = m.c - pin.kingC;
+  const g = Math.max(Math.abs(relR), Math.abs(relC));
+  if (g === 0) return false;
+  if (relR % g !== 0 || relC % g !== 0) return false;
+  if (relR / g !== pin.dr || relC / g !== pin.dc) return false;
+  return g <= pin.dist;
+}
+
+function allMoves(snap) {
+  const out = [];
+  // Compute the side-to-move invariants once instead of per piece.
+  const blk = blockedSet(snap);
+  const king = findKing(snap.board, snap.turn);
+  const inCheckNow = snapInCheck(snap, snap.turn);
+  for (let r=0;r<SIZE;r++) for (let c=0;c<SIZE;c++) {
+    const p = snap.board[r][c];
+    if (p && p.color === snap.turn && !isSleeping(snap, r, c)) {
+      for (const m of snapLegal(snap, r, c, blk, inCheckNow, king)) out.push({fr:r, fc:c, move:m});
+    }
+  }
+  return out;
+}
+
+// Search effort tables: per-ply killers (two per ply) and a global history
+// heuristic, both fed by the current game only.
+const KILLERS_TBL = [];
+const HISTORY_TBL = {};
+const QDEPTH = 8;   // max capture-search plies after the horizon
+
+function moveKey(fr, fc, r, c) { return fr + "," + fc + "," + r + "," + c; }
+
+function addKiller(ply, mv) {
+  const e = { fr: mv.fr, fc: mv.fc, r: mv.move.r, c: mv.move.c };
+  if (!KILLERS_TBL[ply]) { KILLERS_TBL[ply] = [e, null]; return; }
+  const k = KILLERS_TBL[ply];
+  if (k[0] && k[0].fr === e.fr && k[0].fc === e.fc && k[0].r === e.r && k[0].c === e.c) return;
+  if (k[1] && k[1].fr === e.fr && k[1].fc === e.fc && k[1].r === e.r && k[1].c === e.c) return;
+  k[1] = k[0]; k[0] = e;
+}
+
+function historyUpdate(mv, depth) {
+  const key = moveKey(mv.fr, mv.fc, mv.move.r, mv.move.c);
+  HISTORY_TBL[key] = (HISTORY_TBL[key] || 0) + depth * depth;
+  if (HISTORY_TBL[key] > 20000) for (const k2 in HISTORY_TBL) HISTORY_TBL[k2] >>= 1;
+}
+
+// ---- Transposition table (Zobrist-ish) ----
+// positionHash hashes everything the search result can depend on: the board
+// (with per-piece flags), the side to move, castling rights, en-passant, every
+// square-keyed effect, the no-capture counters and both wallets. Two independent
+// 32-bit accumulators are produced; entries are keyed by h1 and verified with h2
+// so a 32-bit collision cannot return a wrong result.
+const Z_TYPE = { P:1,N:2,B:3,R:4,Q:5,C:6,G:7,D:8,A:9,S:10,H:11,K:12,F:13,X:14,M:15,T:16 };
+const Z_EFF = { blocked:1, sleeping:2, shielded:3, confused:4, piratify:5, thief:6, cursed:7, swapLocked:8 };
+function positionHash(snap) {
+  let h1 = 0x811c9dc5 | 0, h2 = 0x9e3779b9 | 0;
+  const mix = (x) => {
+    x |= 0;
+    h1 = Math.imul(h1 ^ x, 0x01000193);
+    h2 = Math.imul(h2 ^ x, 0x85ebca6b);
+  };
+  for (let r = 0; r < SIZE; r++) {
+    const row = snap.board[r];
+    for (let c = 0; c < SIZE; c++) {
+      const p = row[c];
+      if (!p) continue;
+      const sq = r * SIZE + c;
+      mix(0x10000000 ^ ((sq * 24) | ((p.color === "w" ? 1 : 2) << 4) | (Z_TYPE[p.type] || 0)));
+      if (p.bounty) mix(0x20000000 ^ (sq << 3) ^ (p.bounty === "w" ? 1 : 2));
+      if (p.golden) mix(0x30000000 ^ sq);
+      if (p.platinum) mix(0x40000000 ^ sq);
+    }
+  }
+  for (const key in Z_EFF) {
+    const list = snap[key];
+    if (!list) continue;
+    for (let i = 0; i < list.length; i++) {
+      const rem = list[i].rem == null ? 0 : (list[i].rem & 15) + 1;   // timed effects differ by turns left
+      mix((Z_EFF[key] * 0x01000000) ^ (rem << 16) ^ (list[i].r * SIZE + list[i].c));
+    }
+  }
+  if (snap.oppSpellUsed) mix(0x57000000);
+  if (snap.turn === "b") mix(0x50000000);
+  if (snap.castling.wK) mix(0x51000001);
+  if (snap.castling.wQ) mix(0x51000002);
+  if (snap.castling.bK) mix(0x51000003);
+  if (snap.castling.bQ) mix(0x51000004);
+  if (snap.epTarget) mix(0x52000000 ^ (snap.epTarget.r * SIZE + snap.epTarget.c));
+  if (snap.noCapture) {
+    if (snap.noCapture.w > 0) mix(0x53000000 ^ snap.noCapture.w);
+    if (snap.noCapture.b > 0) mix(0x53000000 ^ (snap.noCapture.b << 3));
+  }
+  if (snap.extraTurns) {
+    if (snap.extraTurns.w > 0) mix(0x56000000 ^ snap.extraTurns.w);
+    if (snap.extraTurns.b > 0) mix(0x56000000 ^ (snap.extraTurns.b << 3));
+  }
+  mix(0x54000000 ^ (snap.money.w & 0xffff));
+  mix(0x55000000 ^ (snap.money.b & 0xffff));
+  return { h1: h1 >>> 0, h2: h2 >>> 0 };
+}
+
+const TT = new Map();
+const TT_MAX = 60000;
+const TT_EXACT = 0, TT_LOWER = 1, TT_UPPER = 2;
+let AI_USE_TT = true;        // transposition table on/off
+let AI_ITER_DEEPEN = true;   // iterative deepening on/off
+let AI_USE_LMR = true;       // late-move reductions on/off
+const LMR_MIN_DEPTH = 3;     // only reduce once this much depth remains
+const LMR_MIN_MOVES = 4;     // never reduce the first few ordered moves
+
+function ttStore(h1, h2, depth, score, flag, move) {
+  if (TT.size > TT_MAX) TT.clear();
+  const prev = TT.get(h1);
+  if (prev && prev.h2 === h2 && prev.depth > depth) return;
+  TT.set(h1, {
+    h2, depth, score, flag,
+    move: move ? { fr: move.fr, fc: move.fc, r: move.move.r, c: move.move.c } : null,
+  });
+}
+
+// Order moves: TT best move first, then MVV-LVA captures, promotions, killer
+// moves and history-found good moves — all so alpha-beta prunes much harder.
+function orderMoves(snap, moves, ply, ttMove) {
+  const killers = KILLERS_TBL[ply] || [];
+  const scored = moves.map(mv => {
+    const t = snap.board[mv.move.r][mv.move.c];
+    let s = 0;
+    if (ttMove && mv.fr === ttMove.fr && mv.fc === ttMove.fc && mv.move.r === ttMove.r && mv.move.c === ttMove.c) s += 20000;
+    if (mv.move.shoot) s += 15000;
+    if (t) s += 10000 + (PIECE_SCORE[t.type] || 100) * 10 - (PIECE_SCORE[snap.board[mv.fr][mv.fc].type] || 100); // MVV-LVA
+    else if (mv.move.enpassant) s += 9000;
+    if (mv.move.promotion) s += 8000 + (PIECE_SCORE.A || 1400);
+    if (killers[0] && killers[0].fr === mv.fr && killers[0].fc === mv.fc && killers[0].r === mv.move.r && killers[0].c === mv.move.c) s += 5000;
+    else if (killers[1] && killers[1].fr === mv.fr && killers[1].fc === mv.fc && killers[1].r === mv.move.r && killers[1].c === mv.move.c) s += 4500;
+    s += HISTORY_TBL[moveKey(mv.fr, mv.fc, mv.move.r, mv.move.c)] || 0;
+    mv._s = s;
+    return mv;
+  });
+  return scored.sort((a, b) => b._s - a._s);
+}
+
+// ---- Search limits and per-decision context ----
+// Every minimax/quiesce call counts one node. The difficulty level is a node
+// budget per decision, so the same position always gets the same move at a
+// given level whatever the machine. A search that runs past SEARCH_LIMIT is
+// abandoned by throwing SEARCH_ABORT; the root keeps its last finished depth.
+let SEARCH_NODES = 0;
+let SEARCH_LIMIT = Infinity;
+const SEARCH_ABORT = { searchAbort: true };
+const MATE = 100000;
+
+// Set up by aiSetupContext() for one decision:
+//   oppModel   search the opponent's shop buys and spells on its first reply
+//   oppShop    [{type, cost, mod}] what it could buy then
+//   oppSpells  [{id, cost}] what it could cast then (modelled spells only)
+//   repSet     Map(position hash -> times seen) of positions after our moves
+//   noise      blur (centipawns) added to root scores on the easiest levels
+let AI_CTX = { oppModel: false, oppShop: [], oppSpells: [], oppSpellsNow: [], oppSpellsAfterCast: [], repSet: null, noise: 0 };
+
+// Which kings are still on the board: bit 1 = White, bit 2 = Black.
+function kingsPresent(board) {
+  let k = 0;
+  for (let r = 0; r < SIZE; r++) {
+    const row = board[r];
+    for (let c = 0; c < SIZE; c++) {
+      const p = row[c];
+      if (p && p.type === "K") { k |= p.color === "w" ? 1 : 2; if (k === 3) return 3; }
+    }
+  }
+  return k;
+}
+function kingMissing(snap, color) {
+  return !(kingsPresent(snap.board) & (color === "w" ? 1 : 2));
+}
+
+// Does the side to move have any move the live rules allow? legalMoves() has
+// no check filter (a king may walk into check and be captured), so a side the
+// search sees as "mated" or "stalemated" must still move and lose its king; the
+// game is only drawn when nothing at all can move.
+function snapHasLiveMove(snap) {
+  return allMovesLive(snap).length > 0;   // rare (only at nodes with no search move)
+}
+
+// Every move the live rules allow the side to move, including ones that leave
+// its king attacked (used when the search's own move list is empty).
+function allMovesLive(snap) {
+  const blk = blockedSet(snap);
+  const color = snap.turn;
+  const out = [];
+  for (let r = 0; r < SIZE; r++) for (let c = 0; c < SIZE; c++) {
+    const p = snap.board[r][c];
+    if (!p || p.color !== color) continue;
+    if (isSleeping(snap, r, c)) continue;
+    if (snap.swapLocked && snap.swapLocked.some(x => x.r === r && x.c === c)) continue;
+    let pm = pseudoMoves(snap.board, r, c, snap.castling, snap.epTarget, blk);
+    if (cursedFrozen(snap, r, c)) pm = pm.filter(m => m.shoot);
+    if (isShielded(snap, r, c) || (snap.noCapture && snap.noCapture[color] > 0)) {
+      pm = pm.filter(m => !snap.board[m.r][m.c] && !m.enpassant && !m.shoot);
+    }
+    for (const m of pm) out.push({ fr: r, fc: c, move: m });
+  }
+  return out;
+}
+
+// Value of a node where the side to move has no move the search allows: it
+// loses its king next ply, unless it truly cannot move (a draw).
+function noMoveScore(snap, aiColor, depth) {
+  if (!snapHasLiveMove(snap)) return 0;
+  const v = MATE + Math.max(0, depth - 1);
+  return snap.turn === aiColor ? -v : v;
+}
+
+function isConfusedSq(snap, r, c) {
+  const l = snap.confused;
+  if (!l || !l.length) return false;
+  for (let i = 0; i < l.length; i++) if (l[i].r === r && l[i].c === c) return true;
+  return false;
+}
+
+// A confused piece moves at random, so its moves are not a choice: split them
+// out of `moves` into one group per confused piece (each scored as an average).
+function splitConfused(snap, moves) {
+  if (!snap.confused || !snap.confused.length) return { moves, chance: null };
+  let groups = null;
+  const normal = [];
+  for (const mv of moves) {
+    if (isConfusedSq(snap, mv.fr, mv.fc)) {
+      if (!groups) groups = new Map();
+      const k = mv.fr * SIZE + mv.fc;
+      if (!groups.has(k)) groups.set(k, []);
+      groups.get(k).push(mv);
+    } else normal.push(mv);
+  }
+  return groups ? { moves: normal, chance: [...groups.values()] } : { moves, chance: null };
+}
+
+// Expected value of moving a confused piece: the average over its moves,
+// each searched two plies shallower (it needs a full window, so it is costly).
+function chanceValue(snap, group, depth, aiColor, ply) {
+  const d = Math.max(0, depth - 2);
+  let sum = 0;
+  for (const mv of group) {
+    const promo = mv.move.promotion ? (mv.move.promoteTo || "Q") : null;
+    sum += minimax(applyMove(snap, mv.fr, mv.fc, mv.move, promo), d, -Infinity, Infinity, aiColor, ply + 1);
+  }
+  return sum / group.length;
+}
+
+function minimax(snap, depth, alpha, beta, aiColor, ply) {
+  if (++SEARCH_NODES > SEARCH_LIMIT) throw SEARCH_ABORT;
+  // Terminal: a king has been captured
+  const kings = kingsPresent(snap.board);
+  const foeBit = aiColor === "w" ? 2 : 1;
+  if (!(kings & foeBit)) return MATE + depth;
+  if (!(kings & (3 ^ foeBit))) return -MATE - depth;
+  if (depth <= 0) return quiesce(snap, alpha, beta, aiColor, QDEPTH);
+
+  const isMax = snap.turn === aiColor;
+  // The opponent's first reply may also be a shop buy or a spell. That is only
+  // modelled there (deeper it would cost too much), so such a node is keyed
+  // apart in the transposition table: its value includes those options.
+  const oppNode = !isMax && ply === 1 && AI_CTX.oppModel && !snap.oppSpellUsed;
+
+  // Transposition table: reuse a stored result (and its best move for ordering).
+  let ttMove = null, hash = null;
+  if (AI_USE_TT) {
+    hash = positionHash(snap);
+    if (oppNode) { hash.h1 = (hash.h1 ^ 0x5bd1e995) >>> 0; hash.h2 = (hash.h2 ^ 0x27d4eb2f) >>> 0; }
+    const ent = TT.get(hash.h1);
+    if (ent && ent.h2 === hash.h2) {
+      ttMove = ent.move;
+      if (ent.depth >= depth) {
+        if (ent.flag === TT_EXACT) return ent.score;
+        if (ent.flag === TT_LOWER && ent.score >= beta) return ent.score;
+        if (ent.flag === TT_UPPER && ent.score <= alpha) return ent.score;
+      }
+    }
+  }
+
+  const alphaOrig = alpha, betaOrig = beta;
+  const split = splitConfused(snap, orderMoves(snap, allMoves(snap), ply, ttMove));
+  const moves = split.moves, chance = split.chance;
+  const extras = oppNode ? aiOppExtras(snap, aiColor) : null;
+  // No move the search allows: a "mated" or "stalemated" side must still make a
+  // (losing) move in this king-capture game; only a side that cannot move at
+  // all is a draw.
+  if (!moves.length && !chance && !(extras && extras.length)) return noMoveScore(snap, aiColor, depth);
+
+  let best = isMax ? -Infinity : Infinity, bestMove = null;
+  const take = (v, mv) => {
+    if (isMax) {
+      if (v > best) { best = v; bestMove = mv; }
+      if (v > alpha) alpha = v;
+    } else {
+      if (v < best) { best = v; bestMove = mv; }
+      if (v < beta) beta = v;
+    }
+  };
+  for (let i = 0; i < moves.length; i++) {
+    const mv = moves[i];
+    const promo = mv.move.promotion ? (mv.move.promoteTo || "Q") : null;
+    const child = applyMove(snap, mv.fr, mv.fc, mv.move, promo);
+    const quiet = !(snap.board[mv.move.r][mv.move.c] || mv.move.enpassant || mv.move.promotion || mv.move.shoot);
+    let v;
+    if (AI_USE_LMR && depth >= LMR_MIN_DEPTH && i >= LMR_MIN_MOVES && quiet) {
+      // Late quiet move: try it one ply shallower; re-search only if it looks good.
+      v = minimax(child, depth - 2, alpha, beta, aiColor, ply + 1);
+      if (isMax ? v > alpha : v < beta) v = minimax(child, depth - 1, alpha, beta, aiColor, ply + 1);
+    } else {
+      v = minimax(child, depth - 1, alpha, beta, aiColor, ply + 1);
+    }
+    take(v, mv);
+    if (alpha >= beta) {
+      // A quiet move that refutes the branch is a killer + history candidate.
+      if (quiet) { addKiller(ply, mv); historyUpdate(mv, depth); }
+      break;
+    }
+  }
+  if (alpha < beta && chance) {
+    for (const group of chance) {
+      take(chanceValue(snap, group, depth, aiColor, ply), null);
+      if (alpha >= beta) break;
+    }
+  }
+  if (alpha < beta && extras) {
+    for (const ex of extras) {
+      // A spell is a free action (same side still to move, same depth); a buy
+      // ends the turn like a move.
+      const v = ex.sameTurn
+        ? minimax(ex.child, depth, alpha, beta, aiColor, ply)
+        : minimax(ex.child, depth - 1, alpha, beta, aiColor, ply + 1);
+      take(v, null);
+      if (alpha >= beta) break;
+    }
+  }
+  if (AI_USE_TT) ttStore(hash.h1, hash.h2, depth, best,
+    best <= alphaOrig ? TT_UPPER : best >= betaOrig ? TT_LOWER : TT_EXACT, bestMove);
+  return best;
+}
+
+// Quiescence search: after the horizon, keep resolving captures so the AI
+// doesn't blunder hanging pieces. When the side to move is in check it cannot
+// "stand pat", so every legal evasion is tried instead (otherwise a check at the
+// horizon would look harmless). Stand-pat + captures otherwise. A confused
+// piece's capture is not a choice (it moves at random), so it is skipped.
+function quiesce(snap, alpha, beta, aiColor, qdepth) {
+  if (++SEARCH_NODES > SEARCH_LIMIT) throw SEARCH_ABORT;
+  const mine = snap.turn === aiColor;
+  const inChk = snapInCheck(snap, snap.turn);
+  let best, stand = 0;
+  if (inChk) {
+    best = mine ? -Infinity : Infinity;
+  } else {
+    stand = evaluate(snap, aiColor);
+    best = stand;
+    // Stand-pat fail-hard
+    if (mine) {
+      if (stand >= beta) return stand;
+      if (stand > alpha) alpha = stand;
+    } else {
+      if (stand <= alpha) return stand;
+      if (stand < beta) beta = stand;
+    }
+  }
+  if (qdepth <= 0) return inChk ? evaluate(snap, aiColor) : best;
+  let cands;
+  if (inChk) {
+    cands = allMoves(snap);                       // all legal evasions
+    if (!cands.length) return noMoveScore(snap, aiColor, 0);   // forced to lose the king
+  } else {
+    cands = [];
+    for (const mv of allMoves(snap)) {
+      if (!(mv.move.shoot || snap.board[mv.move.r][mv.move.c] || mv.move.enpassant || mv.move.promotion)) continue;
+      if (isConfusedSq(snap, mv.fr, mv.fc)) continue;
+      cands.push(mv);
+    }
+    if (!cands.length) return best;
+  }
+  const ordered = orderMoves(snap, cands, 0);
+  for (const mv of ordered) {
+    // Delta pruning: if even winning the victim (plus any promotion) could not
+    // raise/lower the static score past alpha/beta, the capture is hopeless.
+    if (!inChk) {
+      const victim = mv.move.enpassant ? snap.board[mv.fr][mv.move.c] : snap.board[mv.move.r][mv.move.c];
+      let gain = victim ? (PIECE_SCORE[victim.type] || 100) : 0;
+      if (mv.move.promotion) {
+        const fromType = snap.board[mv.fr][mv.fc] ? snap.board[mv.fr][mv.fc].type : "P";
+        gain += Math.max(0, (PIECE_SCORE[mv.move.promoteTo || "Q"] || 900) - (PIECE_SCORE[fromType] || 100));
+      }
+      const slack = gain + 120;   // 120 = safety margin for positional swings
+      if (mine ? stand + slack <= alpha : stand - slack >= beta) continue;
+    }
+    const promo = mv.move.promotion ? (mv.move.promoteTo || "Q") : null;
+    const child = applyMove(snap, mv.fr, mv.fc, mv.move, promo);
+    const v = quiesce(child, alpha, beta, aiColor, qdepth - 1);
+    if (mine) {
+      if (v > best) best = v;
+      if (v > alpha) alpha = v;
+    } else {
+      if (v < best) best = v;
+      if (v < beta) beta = v;
+    }
+    if (alpha >= beta) break;
+  }
+  return best;
+}
+
+// ---- The opponent's shop buys and spells (first reply only) ----
+const OPP_SPELLS = new Set(["sleep", "confuse", "push", "killPawn", "shield", "block", "dispel"]);
+
+// `attacker`'s pieces ranked by the most valuable thing each can capture now
+// (capturing the king tops everything). Sleeping pieces are skipped.
+function aiThreatList(snap, attacker) {
+  const blk = blockedSet(snap);
+  const out = [];
+  for (let r = 0; r < SIZE; r++) for (let c = 0; c < SIZE; c++) {
+    const p = snap.board[r][c];
+    if (!p || p.color !== attacker || isSleeping(snap, r, c)) continue;
+    let threat = 0;
+    for (const m of pseudoMoves(snap.board, r, c, snap.castling, snap.epTarget, blk)) {
+      const t = snap.board[m.r][m.c];
+      if (t && t.color !== attacker) threat = Math.max(threat, t.type === "K" ? 5000 : (PIECE_SCORE[t.type] || 100));
+    }
+    if (threat > 0) out.push({ r, c, threat, type: p.type });
+  }
+  out.sort((a, b) => b.threat - a.threat || (PIECE_SCORE[b.type] || 0) - (PIECE_SCORE[a.type] || 0));
+  return out;
+}
+
+// Squares (r*SIZE+c) where a piece or wall would block a check on `king` from
+// `attacker`'s sliders (and a Rat two squares away). null when none.
+function checkBlockSquares(board, king, attacker) {
+  let out = null;
+  for (const [dr, dc] of MOB_Q) {
+    const path = [];
+    let rr = king.r + dr, cc = king.c + dc, dist = 1;
+    while (rr >= 0 && rr < SIZE && cc >= 0 && cc < SIZE) {
+      const t = board[rr][cc];
+      if (t) {
+        if (t.color === attacker && path.length) {
+          const orth = dr === 0 || dc === 0;
+          if (((t.type === "R" || t.type === "Q" || t.type === "A") && orth) ||
+              ((t.type === "B" || t.type === "Q" || t.type === "A") && !orth) ||
+              (t.type === "M" && dist === 2)) {
+            if (!out) out = new Set();
+            for (const sq of path) out.add(sq);
+          }
+        }
+        break;
+      }
+      path.push(rr * SIZE + cc);
+      rr += dr; cc += dc; dist++;
+    }
+  }
+  return out;
+}
+
+// Candidate targets for a spell the opponent (`foe`) might cast against us.
+function aiOppSpellTargets(id, snap, foe, aiColor, threats, checkLine) {
+  const out = [];
+  if (id === "sleep" || id === "confuse" || id === "push") {
+    for (const t of threats) {
+      if (out.length >= (id === "sleep" ? 2 : 1)) break;
+      if (id === "confuse" && isConfusedSq(snap, t.r, t.c)) continue;
+      if (id === "push") {
+        const nr = t.r + (aiColor === "w" ? 1 : -1);
+        if (nr < 0 || nr >= SIZE || snap.board[nr][t.c] || snap.blocked.some(b => b.r === nr && b.c === t.c)) continue;
+      }
+      out.push({ r: t.r, c: t.c });
+    }
+  } else if (id === "killPawn") {
+    const t = threats.find(x => x.type === "P" || x.type === "D" || x.type === "S");
+    if (t) out.push({ r: t.r, c: t.c });
+  } else if (id === "block") {
+    if (checkLine) { const sq = checkLine.values().next().value; out.push({ r: Math.floor(sq / SIZE), c: sq % SIZE }); }
+  } else if (id === "shield" || id === "dispel") {
+    let best = null;
+    for (let r = 0; r < SIZE; r++) for (let c = 0; c < SIZE; c++) {
+      const p = snap.board[r][c];
+      if (!p || p.color !== foe || p.type === "K") continue;
+      if (id === "shield" && (isShielded(snap, r, c) || !squareAttacked(snap.board, r, c, aiColor))) continue;
+      if (id === "dispel" && !isSleeping(snap, r, c) && !isConfusedSq(snap, r, c)) continue;
+      const v = PIECE_SCORE[p.type] || 100;
+      if (!best || v > best.v) best = { r, c, v };
+    }
+    if (best) out.push({ r: best.r, c: best.c });
+  }
+  return out;
+}
+
+// The opponent's extra options at its first reply: a few shop drops onto its
+// half (blocking a check, or hitting our pieces) and the spells on the bar
+// aimed at the pieces that do it the most damage. Each entry is
+// {child, sameTurn}: a spell leaves it to move (sameTurn), a buy ends its turn.
+function aiOppExtras(snap, aiColor) {
+  const foe = snap.turn;
+  const money = snap.money[foe] || 0;
+  const out = [];
+  const king = findKing(snap.board, foe);
+  const checkLine = (king && squareAttacked(snap.board, king.r, king.c, aiColor))
+    ? checkBlockSquares(snap.board, king, aiColor) : null;
+  const threats = aiThreatList(snap, aiColor);
+  if (AI_CTX.oppShop && AI_CTX.oppShop.length) {
+    const seen = new Set(), offers = [];
+    for (const o of AI_CTX.oppShop) {
+      if (!o || o.cost > money || seen.has(o.type)) continue;
+      seen.add(o.type);
+      offers.push(o);
+    }
+    offers.sort((a, b) => (PIECE_SCORE[b.type] || 0) - (PIECE_SCORE[a.type] || 0));
+    const blk = blockedSet(snap);
+    const lo = foe === "w" ? Math.ceil(SIZE / 2) : 0;
+    const hi = foe === "w" ? SIZE - 1 : Math.floor(SIZE / 2) - 1;
+    for (const o of offers.slice(0, 2)) {
+      const cands = [];
+      for (let r = lo; r <= hi; r++) for (let c = 0; c < SIZE; c++) {
+        if (snap.board[r][c] || blk.has(r + "," + c)) continue;
+        let sc = checkLine && checkLine.has(r * SIZE + c) ? 5000 : 0;
+        const b = cloneBoardRows(snap.board, [r]);
+        b[r][c] = { type: o.type, color: foe };
+        for (const m of pseudoMoves(b, r, c, snap.castling, null, blk)) {
+          const t = b[m.r][m.c];
+          if (t && t.color === aiColor) sc += t.type === "K" ? 3000 : (PIECE_SCORE[t.type] || 100) * 0.5;
+        }
+        if (sc > 0 && squareAttacked(b, r, c, aiColor)) sc -= (PIECE_SCORE[o.type] || 100) * 0.6;
+        if (sc > 0) cands.push({ r, c, sc });
+      }
+      cands.sort((a, b) => b.sc - a.sc);
+      for (const cd of cands.slice(0, 2)) {
+        out.push({ child: applyPlacement(snap, o.type, foe, cd.r, cd.c, o.mod, o.cost), sameTurn: false });
+      }
+    }
+  }
+  if (AI_CTX.oppSpells && AI_CTX.oppSpells.length) {
+    const seen = new Set();
+    for (const sp of AI_CTX.oppSpells) {
+      if (sp.cost > money || seen.has(sp.id)) continue;
+      seen.add(sp.id);
+      for (const t of aiOppSpellTargets(sp.id, snap, foe, aiColor, threats, checkLine)) {
+        const child = applySpellToSnapshot(snap, sp.id, t.r, t.c, foe);
+        if (!child) continue;
+        child.money[foe] -= sp.cost;
+        child.oppSpellUsed = true;   // casting blocks buying, and one spell per turn
+        out.push({ child, sameTurn: true });
+      }
+    }
+  }
+  return out;
+}
+
+// ======== Decision layer ========
+
+// ---- Difficulty and tunable weights ----
+// AI_LEVEL (1..11, Settings slider) sets a node budget per decision rather
+// than a time limit, so a level always plays the same way on any machine.
+// Level 11 takes about 5 s on the reference machine (measured in the worker on
+// eight 8x8 middlegames: 2-11 s, depth 6-9; level 6 about 0.2 s); each level
+// below needs roughly half the effort. The easiest levels also cap the depth and blur the
+// root scores so they make human-sized mistakes.
+const AI_LEVEL_MIN = 1, AI_LEVEL_MAX = 11, AI_LEVEL_DEFAULT = 6;
+let AI_LEVEL = AI_LEVEL_DEFAULT;
+const AI_LEVEL_NODES    = [0, 1000, 2000, 3800, 7000, 13000, 24000, 44000, 82000, 160000, 320000, 600000];
+const AI_LEVEL_NOISE    = [0, 150, 90, 45, 20, 0, 0, 0, 0, 0, 0, 0];
+const AI_LEVEL_MAXDEPTH = [0, 1, 2, 3, 30, 30, 30, 30, 30, 30, 30, 30];
+function aiLevelBudget(level) {
+  // A node on a bigger board costs more (bigger evaluation, more moves), so the
+  // budget shrinks with the board area to keep the time per level similar.
+  return Math.max(100, Math.round(AI_LEVEL_NODES[level] * Math.min(1, 64 / (SIZE * SIZE))));
+}
+
+// Evaluation/decision weights (aiSelfPlay can pit two sets against each other).
+//   money        centipawns per $ of bank balance (up to moneyCap $). Self-play
+//                at level 3: 50 beat 8 (the old value) 16-8 and beat 25 15-9.
+//   kingAttack   centipawns per square hit around a king (scaled by attackers).
+//                Off: in self-play it did not help (8 or 4 vs 0: 23-31 overall).
+//   oppModel     search the opponent's buys/spells on its first reply (level 3+)
+//   *Margin      how much a buy / Tax / spell must beat the alternative by
+//   repPenalty   cost of steering back into a position we already had
+const AI_DEFAULT_PARAMS = { money: 50, moneyCap: 12, kingAttack: 0, oppModel: true, buyMargin: 15, taxMargin: 15, spellMargin: 10, repPenalty: 25 };
+let AI_PARAMS = { ...AI_DEFAULT_PARAMS };
+const AI_PROBE_MARGIN = 150;   // how far below the bar a shallow probe may score and still get a full search
+let AI_HEADLESS = false;   // aiSelfPlay: no rendering, sounds or timers
+let aiLastStats = null;    // {level, budget, nodes, depth, ms} of the last decision (debugging)
+
+// ---- Per-decision context ----
+function aiShopOffers(shop) {
+  const out = [];
+  for (const e of shop || []) if (e && e.p) out.push({ type: e.p, cost: shopPrice(e), mod: e.mod || "normal" });
+  return out;
+}
+function aiSpellOffers(ids, mods) {
+  const out = [];
+  for (let i = 0; i < (ids || []).length; i++) {
+    const id = ids[i];
+    if (id && OPP_SPELLS.has(id)) out.push({ id, cost: spellEffCost(id, (mods && mods[i]) || "normal") });
+  }
+  return out;
+}
+// Hashes of the earlier positions in which `me` had just moved, for the
+// repetition penalty (there is no repetition draw, so a shuffling AI would
+// otherwise never make progress).
+function aiRepetitionHashes(me) {
+  const out = [];
+  for (const h of state.history || []) {
+    if (!h || !h.board || h.turn === me) continue;
+    try { out.push(positionHash(snapshotFromState(h)).h1); } catch (e) {}
+  }
+  return out;
+}
+function aiSetupContext(me, level, opts) {
+  AI_CTX.oppModel = level >= 3 && AI_PARAMS.oppModel !== false;
+  AI_CTX.noise = AI_LEVEL_NOISE[level] || 0;
+  AI_CTX.oppShop = aiShopOffers(state.shop);
+  // The bar the opponent will see: the current one (or the one stashed behind a
+  // free follow-up card) — or, once we cast, the refilled one from the queue.
+  AI_CTX.oppSpellsNow = (state.freeSpellId && state.stashSpells)
+    ? aiSpellOffers(state.stashSpells, state.stashSpellMods)
+    : aiSpellOffers(state.spells, state.spellMods);
+  const nx = (state.nextSpells || []).slice(0, 3);
+  AI_CTX.oppSpellsAfterCast = nx.length === 3 ? aiSpellOffers(nx.map(x => x.id), nx.map(x => x.mod)) : AI_CTX.oppSpellsNow;
+  AI_CTX.oppSpells = AI_CTX.oppSpellsNow;
+  const rep = new Map();
+  for (const h of (opts && opts.repHashes) || aiRepetitionHashes(me)) rep.set(h, (rep.get(h) || 0) + 1);
+  AI_CTX.repSet = rep.size ? rep : null;
+}
+
+// Deterministic score blur for the easiest levels (no RNG draws, so it never
+// disturbs the seeded game stream). Won/lost scores are never blurred, or a
+// winning AI would keep picking among equally won moves and never take the king.
+function aiNoise(h, mv, v) {
+  if (Math.abs(v) >= MATE / 2) return 0;
+  const x = mix32((h ^ Math.imul(mv.fr * 31 + mv.fc + 1, 0x9E3779B1) ^ Math.imul(mv.move.r * 37 + mv.move.c + 1, 0x85EBCA77)) >>> 0);
+  return (x / 4294967296 * 2 - 1) * AI_CTX.noise;
+}
+
+// ---- Root search ----
+// Search the best move for `me` (to move on `start`) by iterative deepening.
+// opt: { depth (max), fixedDepth (search only that depth), alphaFloor (only
+// values above it matter), soft (don't start an iteration predicted to pass
+// this many nodes), hard (abandon an iteration past this many nodes) }.
+// Returns { best: {fr, fc, move, confused?}, value, depth } from the deepest
+// finished iteration, or null if none finished (out of budget / no moves).
+// A confused piece's moves count as one option worth their average.
+function aiRootSearch(start, me, opt) {
+  const rootMoves = opt.live ? allMovesLive(start) : allMoves(start);
+  if (!rootMoves.length) return null;
+  const split = splitConfused(start, rootMoves);
+  const chanceGroups = split.chance || [];
+  const maxDepth = Math.max(1, opt.depth || 1);
+  const floor = opt.alphaFloor != null ? opt.alphaFloor : -Infinity;
+  const startNodes = SEARCH_NODES, outerLimit = SEARCH_LIMIT;
+  const rootHash = AI_CTX.noise ? (positionHash(start).h1 ^ SEED) >>> 0 : 0;
+  let result = null, prevKey = null, lastIter = 0;
+  for (let d = opt.fixedDepth ? maxDepth : 1; d <= maxDepth; d++) {
+    // Each iteration costs about twice the previous one: don't start one that
+    // would blow the budget.
+    if (result && opt.soft != null && (SEARCH_NODES - startNodes) + lastIter * 2 > opt.soft) break;
+    // The first iteration is only bounded by an outer limit, so a plain move
+    // search always produces a move.
+    SEARCH_LIMIT = (result && opt.hard != null) ? Math.min(outerLimit, startNodes + opt.hard) : outerLimit;
+    const iterStart = SEARCH_NODES;
+    let localBest = null, localVal = -Infinity, done = 0;
+    try {
+      let alpha = floor;
+      for (const mv of orderMoves(start, split.moves, 0, prevKey)) {
+        const promo = mv.move.promotion ? (mv.move.promoteTo || "Q") : null;
+        const child = applyMove(start, mv.fr, mv.fc, mv.move, promo);
+        let v = minimax(child, d - 1, alpha, Infinity, me, 1);
+        if (AI_CTX.repSet && child.turn !== me) {
+          const seen = AI_CTX.repSet.get(positionHash(child).h1);
+          if (seen) v -= AI_PARAMS.repPenalty * seen;
+        }
+        if (AI_CTX.noise) v += aiNoise(rootHash, mv, v);
+        if (v > localVal) { localVal = v; localBest = { fr: mv.fr, fc: mv.fc, move: mv.move }; }
+        if (v > alpha) alpha = v;
+        done++;
+      }
+      for (const group of chanceGroups) {
+        const g = group[0];
+        let v = chanceValue(start, group, d, me, 0);
+        if (AI_CTX.noise) v += aiNoise(rootHash, g, v);
+        if (v > localVal) { localVal = v; localBest = { fr: g.fr, fc: g.fc, move: g.move, confused: true }; }
+      }
+    } catch (e) {
+      SEARCH_LIMIT = outerLimit;
+      if (e !== SEARCH_ABORT) throw e;
+      // Out of budget: keep the last finished depth. The previous best move was
+      // searched first, so a different move that already beat it at this depth
+      // is the better choice (its value stays the finished depth's, so it
+      // compares with the other options at that depth).
+      if (result && done > 1 && localBest && !(localBest.fr === result.best.fr && localBest.fc === result.best.fc
+          && localBest.move.r === result.best.move.r && localBest.move.c === result.best.move.c)) {
+        result = { ...result, best: localBest };
+      }
+      break;
+    }
+    SEARCH_LIMIT = outerLimit;
+    if (localBest) {
+      result = { best: localBest, value: localVal, depth: d };
+      prevKey = localBest.confused ? null : { fr: localBest.fr, fc: localBest.fc, r: localBest.move.r, c: localBest.move.c };
+    }
+    lastIter = SEARCH_NODES - iterStart;
+  }
+  SEARCH_LIMIT = outerLimit;
+  return result;
+}
+
+// Best move and its value for `me` on the live board (default level budget).
+function aiSearchBestMove(me) {
+  const level = Math.max(AI_LEVEL_MIN, Math.min(AI_LEVEL_MAX, AI_LEVEL));
+  const budget = aiLevelBudget(level);
+  return aiRootSearch(snapshotFromState(state), me, { depth: AI_LEVEL_MAXDEPTH[level], soft: budget, hard: budget * 2 });
+}
+
+// ---- The decision ----
+// Decide the AI's next action on the live `state`, without changing it:
+//   {kind:"move", fr, fc, move, confused?}
+//   {kind:"spell", slot, cand, then}     cast, then (usually) play `then`
+//   {kind:"followup", use, slot, cand, then}   a free 2x/RND spell is offered
+//   {kind:"buy", slot, r, c}             buy and place on (r,c)
+//   {kind:"tax", slot}                   Tax Gain (+$3, the turn passes)
+//   {kind:"none"}                        no move at all
+// Every option is searched to the depth the plain move search reached, so the
+// values are comparable: buys and Tax (turn-ending) are judged on the same
+// footing as moves, and a spell as "spell, then the best move".
+// opts.repHashes: earlier position hashes (the worker gets no history).
+function aiDecide(me, opts) {
+  const level = Math.max(AI_LEVEL_MIN, Math.min(AI_LEVEL_MAX, Math.round(AI_LEVEL) || AI_LEVEL_DEFAULT));
+  const budget = aiLevelBudget(level);
+  TT.clear();   // one position set per decision (aiColor is constant within it)
+  SEARCH_NODES = 0;
+  SEARCH_LIMIT = Infinity;
+  aiSetupContext(me, level, opts);
+  const stats = (extra) => ({ level, budget, nodes: SEARCH_NODES, ...extra });
+  try {
+    const root = snapshotFromState(state);
+    let plan = aiRootSearch(root, me, { depth: AI_LEVEL_MAXDEPTH[level], soft: budget, hard: budget * 2 });
+    if (!plan) {
+      // Every move loses the king ("mated"): it must still move under the live
+      // rules (a spell or buy below may yet save it), so search the moves the
+      // rules allow, in case the opponent fails to take the king. Nothing to
+      // move at all = draw.
+      if (!snapHasLiveMove(root)) return { kind: "none", stats: stats({}) };
+      plan = aiRootSearch(root, me, { live: true, depth: 2 }) || { best: null, value: -MATE, depth: 1 };
+    }
+    const D = plan.depth, planVal = plan.value;
+    // Past this whole-decision cap the remaining options are skipped.
+    SEARCH_LIMIT = Math.round(budget * 2.5);
+    if (state.freeSpellId && state.followUpOwner === me && !state.taxSkipPending) {
+      return { ...aiFreeFollowUp(me, plan, D), stats: stats({ depth: D, plan: planVal }) };
+    }
+    // No safe move: any legal move (aiFallbackMove) unless something beats it.
+    let choice = plan.best ? { kind: "move", ...plan.best, value: planVal } : { kind: "fallback", value: planVal };
+    const sp = aiBestSpell(me, planVal, D, level);
+    const spVal = sp ? sp.value : -Infinity;
+    if (sp && sp.value > planVal + AI_PARAMS.spellMargin) {
+      choice = { kind: "spell", slot: sp.slot, cand: sp, then: sp.then || null, value: sp.value };
+    }
+    // A buy or Tax ends the turn, so it must beat both playing on and the best
+    // spell turn (this stops it shopping away a winning capture).
+    const turnVal = Math.max(planVal, spVal);
+    const buy = aiBestBuy(me, D, turnVal + AI_PARAMS.buyMargin, level);
+    if (buy && buy.value > turnVal + AI_PARAMS.buyMargin) {
+      choice = { kind: "buy", slot: buy.slot, r: buy.spot.r, c: buy.spot.c, value: buy.value };
+    }
+    const taxFloor = Math.max(turnVal + AI_PARAMS.taxMargin, choice.kind === "buy" ? choice.value : -Infinity);
+    const tax = aiTaxGainValue(me, D, taxFloor);
+    if (tax && tax.value > taxFloor) choice = { kind: "tax", slot: tax.slot, value: tax.value };
+    choice.stats = stats({ depth: D, plan: planVal });
+    return choice;
+  } finally {
+    SEARCH_LIMIT = Infinity;
+  }
+}
+
+// A free 2x/RND follow-up is on offer: cast it if spell-then-move beats the
+// plain move, else decline it and play the plain move.
+function aiFreeFollowUp(me, plan, D) {
+  const id = state.freeSpellId;
+  const slot = state.spells.indexOf(id);
+  const decline = { kind: "followup", use: false, then: plan.best };   // then=null: decide again
+  if (slot < 0) return decline;
+  let pick = null;
+  for (const cand of aiSpellTargets(id, me)) {
+    if (cand.score < aiSpellThreshold(id)) continue;
+    const c = { ...cand, id, slot, cost: 0 };
+    let value, then = null;
+    if (cand.instant) value = plan.value + cand.score;
+    else {
+      const res = aiSpellValue(me, c, 0, D, Math.max(plan.value + AI_PARAMS.spellMargin, pick ? pick.value : -Infinity));
+      if (!res) continue;
+      value = res.value; then = res.then;
+    }
+    if (value > plan.value + AI_PARAMS.spellMargin && (!pick || value > pick.value)) pick = { cand: c, value, then };
+  }
+  return pick ? { kind: "followup", use: true, slot, cand: pick.cand, then: pick.then } : decline;
+}
+
+// ---- Shop buys ----
+// Pick the best affordable shop buy for `me`: each piece's shortlisted squares
+// are placed on a snapshot (price charged) and searched like a move. Only
+// values above `floor` matter. Returns {slot, value, spot} or null.
+function aiBestBuy(me, D, floor, level) {
+  if (state.spellUsedThisTurn || state.placementMode || state.targetMode || state.gameOver || state.taxSkipPending) return null;
+  const saved = AI_CTX.oppShop;
+  let best = null;
+  try {
+    for (let i = 0; i < 3; i++) {
+      const e = state.shop[i];
+      if (!e) continue;
+      const cost = shopPrice(e);
+      if (state.money[me] < cost) continue;
+      // Once bought, this slot shows the next queued offer to the opponent.
+      AI_CTX.oppShop = aiShopOffers(state.shop.map((x, j) => j === i ? (state.nextShop && state.nextShop[0]) : x));
+      const spot = aiBestPlacement(me, e.p, e.mod, cost, D, Math.max(floor, best ? best.value : -Infinity), level);
+      if (spot && (!best || spot.value > best.value)) best = { slot: i, value: spot.value, spot };
+    }
+  } catch (err) {
+    if (err !== SEARCH_ABORT) throw err;   // out of budget: keep what was found
+  } finally {
+    AI_CTX.oppShop = saved;
+  }
+  return best;
+}
+
+// Empty, unwalled squares on `me`'s half, best placement heuristic first.
+function aiPlacementSquares(me, piece) {
+  const enemy = opp(me);
+  const lo = me === "w" ? Math.ceil(SIZE / 2) : 0;
+  const hi = me === "w" ? SIZE - 1 : Math.floor(SIZE / 2) - 1;
+  const cands = [];
+  for (let r = lo; r <= hi; r++) {
+    for (let c = 0; c < SIZE; c++) {
+      if (state.board[r][c]) continue;
+      if (state.blocked.some(b => b.r === r && b.c === c)) continue;
+      cands.push({ r, c, h: aiPlacementScore(me, enemy, piece, r, c) });
+    }
+  }
+  cands.sort((a, b) => b.h - a.h);
+  return cands;
+}
+
+// Search the heuristic shortlist of squares for placing `piece` (bought for
+// `cost`) and return the best {r, c, score, value}, or null.
+function aiBestPlacement(me, piece, mod, cost, D, floor, level) {
+  const cands = aiPlacementSquares(me, piece);
+  if (!cands.length) return null;
+  const n = level <= 3 ? 3 : level <= 6 ? 6 : 10;
+  const shortlist = cands.slice(0, SIZE >= 12 ? Math.min(n, 6) : n);
+  const snap0 = snapshotFromState(state);
+  let best = null, alpha = floor;
+  for (const cd of shortlist) {
+    const child = applyPlacement(snap0, piece, me, cd.r, cd.c, mod, cost);
+    // Cheap probe first (two plies shallower, same parity): a square clearly
+    // below the bar there is not worth the full search.
+    if (D >= 4 && minimax(child, D - 3, alpha - AI_PROBE_MARGIN, Infinity, me, 1) <= alpha - AI_PROBE_MARGIN) continue;
+    const v = minimax(child, D - 1, alpha, Infinity, me, 1);
+    if (!best || v > best.value) best = { r: cd.r, c: cd.c, score: cd.h, value: v };
+    if (v > alpha) alpha = v;
+  }
+  return best;
+}
+
+// Is there a friendly pawn within one square (for pawn-chain support)?
+function friendlyPawnNear(r, c, color) {
+  for (let dr = -1; dr <= 1; dr++) for (let dc = -1; dc <= 1; dc++) {
+    if (!dr && !dc) continue;
+    const rr = r + dr, cc = c + dc;
+    if (rr < 0 || rr >= SIZE || cc < 0 || cc >= SIZE) continue;
+    const q = state.board[rr][cc];
+    if (q && q.color === color && q.type === "P") return true;
+  }
+  return false;
+}
+function friendlyPawnOnFile(c, color) {
+  for (let r = 0; r < SIZE; r++) {
+    const q = state.board[r][c];
+    if (q && q.color === color && q.type === "P") return true;
+  }
+  return false;
+}
+
+// Score an empty square (r,c) in the AI's own half for placing `piece`.
+function aiPlacementScore(me, enemy, piece, r, c) {
+  const mid = (SIZE - 1) / 2;
+  const depth = me === "w" ? SIZE - 1 - r : r;        // 0 = own back rank
+  const isPawnLike = piece === "P" || piece === "D" || piece === "S" || piece === "G" || piece === "F";
+  const isSlider = piece === "Q" || piece === "B" || piece === "R" || piece === "X";
+  const pv = PIECE_SCORE[piece] || 300;
+
+  let score = 0;
+  score += (mid - Math.abs(c - mid)) * 12;            // central files first
+
+  if (isPawnLike) score += 110 - Math.abs(depth - 1) * 18;   // right where pawns belong
+  else if (isSlider) score += 90 - depth * 22;               // keep sliders sheltered
+  else score += 70 - Math.abs(depth - 2) * 12;               // minor-ish: two rows out
+
+  // Danger: weight the penalty by the piece's value, so a hanging queen is
+  // avoided far more strongly than a hanging pawn.
+  const attacked = squareAttacked(state.board, r, c, enemy);
+  const defended = squareAttacked(state.board, r, c, me);
+  if (attacked) score -= (defended ? 0.55 : 1.25) * pv;
+  else score += 70;
+  if (defended) score += Math.min(60, pv * 0.15);
+
+  // Pawn structure: reward chaining with a neighbour, avoid doubling on a file.
+  if (piece === "P") {
+    if (friendlyPawnNear(r, c, me)) score += 35;
+    if (friendlyPawnOnFile(c, me)) score -= 25;
+  }
+
+  // Threat potential: a piece that lands attacking enemy material is more
+  // active (this only shapes the shortlist — the search confirms the value).
+  try {
+    const b = cloneBoard(state.board);
+    b[r][c] = { type: piece, color: me, bounty: null, golden: false, platinum: false };
+    const ms = pseudoMoves(b, r, c, state.castling, state.epTarget, blockedSet(state));
+    let threat = 0;
+    for (const m of ms) {
+      const t = b[m.r][m.c];
+      if (t && t.color === enemy) threat += Math.min(90, (PIECE_SCORE[t.type] || 100) * 0.18);
+    }
+    score += threat;
+  } catch (e) {}
+  return score;
+}
+
+// Value of casting Tax Gain (+$3 and the turn passes, as spellEndTurnSkip()
+// does), searched like a move. Only values above `floor` matter.
+function aiTaxGainValue(me, D, floor) {
+  if (state.taxSkipPending || state.spellUsedThisTurn || state.placementMode || state.targetMode || state.gameOver) return null;
+  const slot = state.spells.indexOf("moneySkip");
+  if (slot < 0) return null;
+  const cost = spellEffCost("moneySkip", state.spellMods[slot] || "normal");
+  if (state.money[me] < cost) return null;
+  const snap = snapshotFromState(state);
+  expireSnapEffects(snap);
+  snap.money = { ...snap.money, [me]: snap.money[me] + 3 - cost };
+  if (snap.extraTurns[me] > 0) snap.extraTurns[me] -= 1;
+  snap.noCapture[me] = Math.max(0, snap.noCapture[me] - 1);
+  snap.epTarget = null;
+  snap.turn = opp(me);
+  const saved = AI_CTX.oppSpells;
+  AI_CTX.oppSpells = AI_CTX.oppSpellsAfterCast;   // casting refills the spell bar
+  try {
+    return { slot, value: minimax(snap, D - 1, floor, Infinity, me, 1) };
+  } catch (err) {
+    if (err !== SEARCH_ABORT) throw err;
+    return null;
+  } finally {
+    AI_CTX.oppSpells = saved;
+  }
+}
+
+// ---- AI spell use ----
+// Spells are a free action, so the AI may cast one and still move. Each spell
+// offers a few heuristic targets; those that clear the spell's threshold are
+// searched ("spell, then best move") in heuristic order, as many as the level
+// allows. Lightning and Bounty (random effects) are scored by expectation.
+const AI_SPELL_MIN = 180;      // generic fallback floor
+const AI_SPELL_TARGETS = 3;    // heuristic candidates per spell
+const AI_SPELL_THRESHOLD = {
+  sleep: 300, confuse: 300, curse: 400, shield: 300, dispel: 300,
+  push: 400, sacrifice: 24, killPawn: 180, killRandom: 100, bounty: 90, echo: 100,
+  block: 120, piratify: 100, thief: 70, swap: 30,
+};
+
+// Keep the k best-scoring candidates.
+function aiTop(list, k) {
+  list.sort((a, b) => b.score - a.score);
+  return list.slice(0, k || AI_SPELL_TARGETS);
+}
+
+// Does the enemy piece at (r,c) attack any of `me`'s non-king pieces?
+function aiPieceThreatensUs(r, c, me) {
+  const p = state.board[r][c];
+  if (!p || p.color === me) return false;
+  let ms;
+  try { ms = pseudoMoves(state.board, r, c, state.castling, state.epTarget, blockedSet(state)); }
+  catch (e) { return false; }
+  for (const m of ms) {
+    const t = state.board[m.r][m.c];
+    if (t && t.color === me && t.type !== "K") return true;
+  }
+  return false;
+}
+
+// Put one of the enemy's most valuable active pieces to sleep.
+function aiSleepTargets(me) {
+  const out = [];
+  for (let r = 0; r < SIZE; r++) for (let c = 0; c < SIZE; c++) {
+    const p = state.board[r][c];
+    if (!p || p.color === me || p.type === "K") continue;
+    if (isSleeping(state, r, c)) continue;
+    let v = PIECE_SCORE[p.type] || 300;
+    if (aiPieceThreatensUs(r, c, me)) v += 60;
+    out.push({ r, c, score: v });
+  }
+  return aiTop(out);
+}
+
+// Shield one of our valuable pieces that is currently under attack.
+function aiShieldTargets(me) {
+  const out = [];
+  for (let r = 0; r < SIZE; r++) for (let c = 0; c < SIZE; c++) {
+    const p = state.board[r][c];
+    if (!p || p.color !== me || p.type === "K") continue;
+    if (isShielded(state, r, c)) continue;
+    if (!squareAttacked(state.board, r, c, opp(me))) continue;   // only shield if in danger
+    const defended = squareAttacked(state.board, r, c, me);
+    out.push({ r, c, score: (PIECE_SCORE[p.type] || 300) * (defended ? 0.6 : 1.0) });
+  }
+  return aiTop(out);
+}
+
+// Dispel a harmful enemy effect on our own pieces (sleep/confusion/curse or an
+// enemy bounty), highest-value piece first.
+function aiDispelTargets(me) {
+  const out = [];
+  for (let r = 0; r < SIZE; r++) for (let c = 0; c < SIZE; c++) {
+    const p = state.board[r][c];
+    if (!p || p.color !== me) continue;
+    const sleeping = isSleeping(state, r, c);
+    const confused = state.confused.some(x => x.r === r && x.c === c);
+    const cursed   = state.cursed.some(x => x.r === r && x.c === c && x.owner !== me);
+    const foeBounty = p.bounty && p.bounty !== me;
+    if (!sleeping && !confused && !cursed && !foeBounty) continue;
+    let v = PIECE_SCORE[p.type] || 300;
+    if (sleeping) v += 40;
+    out.push({ r, c, score: v });
+  }
+  return aiTop(out, 2);
+}
+
+// Confuse one of the enemy's most valuable active pieces.
+function aiConfuseTargets(me) {
+  const out = [];
+  for (let r = 0; r < SIZE; r++) for (let c = 0; c < SIZE; c++) {
+    const p = state.board[r][c];
+    if (!p || p.color === me || p.type === "K") continue;
+    if (state.confused.some(x => x.r === r && x.c === c)) continue;
+    let v = (PIECE_SCORE[p.type] || 300) * 0.9;
+    if (aiPieceThreatensUs(r, c, me)) v += 60;
+    out.push({ r, c, score: v });
+  }
+  return aiTop(out);
+}
+
+// Curse one of the enemy's most valuable pieces (its owner bleeds $1 per move).
+function aiCurseTargets(me) {
+  const out = [];
+  for (let r = 0; r < SIZE; r++) for (let c = 0; c < SIZE; c++) {
+    const p = state.board[r][c];
+    if (!p || p.color === me || p.type === "K") continue;
+    if (state.cursed.some(x => x.r === r && x.c === c)) continue;
+    let v = (PIECE_SCORE[p.type] || 300) * 0.6;
+    if (aiPieceThreatensUs(r, c, me)) v += 40;
+    out.push({ r, c, score: v });
+  }
+  return aiTop(out, 2);
+}
+
+// Push an enemy piece back toward its own side, ideally one that threatens us.
+function aiPushTargets(me) {
+  const out = [];
+  for (let r = 0; r < SIZE; r++) for (let c = 0; c < SIZE; c++) {
+    const p = state.board[r][c];
+    if (!p || p.color === me) continue;
+    if (!isTargetable(r, c, "pushable")) continue;
+    let v = PIECE_SCORE[p.type] || 300;
+    if (aiPieceThreatensUs(r, c, me)) v += 100;
+    out.push({ r, c, score: v });
+  }
+  return aiTop(out);
+}
+
+// Sacrifice a genuinely lost piece (attacked and undefended) to salvage cash.
+function aiSacrificeTargets(me) {
+  const out = [];
+  for (let r = 0; r < SIZE; r++) for (let c = 0; c < SIZE; c++) {
+    const p = state.board[r][c];
+    if (!p || p.color !== me || p.type === "K") continue;
+    if (!squareAttacked(state.board, r, c, opp(me))) continue;
+    if (squareAttacked(state.board, r, c, me)) continue;
+    // Only salvage a piece that has no safe square to escape to.
+    const lm = legalMoves(state, r, c);
+    if (lm.some(m => !squareAttacked(state.board, m.r, m.c, opp(me)))) continue;
+    const gain = SHOP_PRICE[p.type] !== undefined ? SHOP_PRICE[p.type] : (PIECE_VALUE[p.type] || 0);
+    out.push({ r, c, score: gain * 12 });
+  }
+  return aiTop(out, 2);
+}
+
+// Snipe an enemy pawn, preferring one that threatens us or is near our side.
+function aiSnipeTargets(me) {
+  const out = [];
+  for (let r = 0; r < SIZE; r++) for (let c = 0; c < SIZE; c++) {
+    const p = state.board[r][c];
+    if (!p || p.color === me) continue;
+    if (p.type !== "P" && p.type !== "D" && p.type !== "S") continue;
+    let v = 100;
+    if (aiPieceThreatensUs(r, c, me)) v += 120;
+    const depth = me === "w" ? (SIZE - 1 - r) : r;   // rows into our own half
+    if (depth <= 1) v += 60;
+    out.push({ r, c, score: v });
+  }
+  return aiTop(out);
+}
+
+// Is (r,c) on an open ray between `me`'s king and an enemy slider? A wall
+// dropped there would break the line (a defensive use of Wall).
+function aiBlocksKingLine(r, c, me, k) {
+  const dr0 = r - k.r, dc0 = c - k.c;
+  const g = Math.max(Math.abs(dr0), Math.abs(dc0));
+  if (g === 0) return false;
+  if (dr0 % g !== 0 || dc0 % g !== 0) return false;
+  const dr = dr0 / g, dc = dc0 / g;
+  for (let i = 1; i < g; i++) if (state.board[k.r + dr*i][k.c + dc*i]) return false;
+  let rr = r + dr, cc = c + dc;
+  while (inBounds(rr, cc)) {
+    const t = state.board[rr][cc];
+    if (t) {
+      if (t.color !== me) {
+        const orth = dr === 0 || dc === 0;
+        const diag = Math.abs(dr) === 1 && Math.abs(dc) === 1;
+        if (((t.type === "R" || t.type === "Q" || t.type === "A") && orth) ||
+            ((t.type === "B" || t.type === "Q" || t.type === "A") && diag)) return true;
+      }
+      return false;
+    }
+    rr += dr; cc += dc;
+  }
+  return false;
+}
+
+// Best empty squares for a Wall: break a slider's line to our king, stall an
+// enemy pawn nearing promotion, shelter the king, or cramp the enemy.
+function aiBlockTargets(me) {
+  const enemy = opp(me);
+  const k = findKing(state.board, me);
+  const mid = (SIZE - 1) / 2;
+  const out = [];
+  for (let r = 0; r < SIZE; r++) for (let c = 0; c < SIZE; c++) {
+    if (state.board[r][c]) continue;
+    if (state.blocked.some(b => b.r === r && b.c === c)) continue;
+    let v = 0;
+    if (k && aiBlocksKingLine(r, c, me, k)) v += 220;
+    // One square ahead of an enemy pawn that is nearly promoting.
+    const fdir = enemy === "w" ? -1 : 1;
+    const pr = r - fdir;
+    if (inBounds(pr, c)) {
+      const p = state.board[pr][c];
+      if (p && p.color === enemy && (p.type === "P" || p.type === "D" || p.type === "S")) {
+        const promoRow = enemy === "w" ? 0 : SIZE - 1;
+        const dist = Math.abs(promoRow - pr);
+        if (dist <= 2) v += 40 + (3 - dist) * 40;
+      }
+    }
+    if (k && Math.max(Math.abs(r - k.r), Math.abs(c - k.c)) === 1) v += 25;
+    // Offensive use: cramping the enemy on their own half — wall a square next
+    // to their pieces (and in front of their pawns) to cut their mobility.
+    if (me === "w" ? r < SIZE / 2 : r >= SIZE / 2) {
+      let adj = 0;
+      for (const [dr, dc] of [[1,0],[-1,0],[0,1],[0,-1],[1,1],[1,-1],[-1,1],[-1,-1]]) {
+        const nr = r + dr, nc = c + dc;
+        if (!inBounds(nr, nc)) continue;
+        const q = state.board[nr][nc];
+        if (q && q.color === enemy) adj++;
+      }
+      v += adj * 18;
+    }
+    v += (mid - Math.abs(c - mid)) * 2;
+    out.push({ r, c, score: v });
+  }
+  return aiTop(out);
+}
+
+// Rough positional fitness of putting `type` on (r,c) — enough to rank Swap
+// pairs; the search confirms the real value.
+function aiSquareFit(type, r, c, me) {
+  const mid = (SIZE - 1) / 2;
+  const fwd = me === "w" ? (SIZE - 1 - r) : r;
+  return pstValue(type, me, r, c) + (mid - Math.abs(c - mid)) * 5 + fwd * 2;
+}
+
+// Best Swaps: exchange two of our non-king pieces so each lands on the better
+// square. Returns [{r,c,r2,c2,score}].
+function aiSwapTargets(me) {
+  const mine = [];
+  for (let r = 0; r < SIZE; r++) for (let c = 0; c < SIZE; c++) {
+    const p = state.board[r][c];
+    if (p && p.color === me && p.type !== "K") mine.push({ r, c, type: p.type });
+  }
+  const out = [];
+  for (let i = 0; i < mine.length; i++) for (let j = i + 1; j < mine.length; j++) {
+    const a = mine[i], b = mine[j];
+    if (state.blocked.some(x => (x.r === a.r && x.c === a.c) || (x.r === b.r && x.c === b.c))) continue;
+    const before = aiSquareFit(a.type, a.r, a.c, me) + aiSquareFit(b.type, b.r, b.c, me);
+    const after  = aiSquareFit(a.type, b.r, b.c, me) + aiSquareFit(b.type, a.r, a.c, me);
+    const score = after - before;
+    if (score > 0) out.push({ r: a.r, c: a.c, r2: b.r, c2: b.c, score });
+  }
+  return aiTop(out);
+}
+
+// Best of our pieces to mark with a loot spell. `perCapture` scales the expected
+// income (Piratify $2 a capture, Thief $1) so the more mobile a piece — and the
+// more enemy material it can hit — the better the mark.
+function aiMarkTargets(me, perCapture) {
+  const out = [];
+  for (let r = 0; r < SIZE; r++) for (let c = 0; c < SIZE; c++) {
+    const p = state.board[r][c];
+    if (!p || p.color !== me || p.type === "K") continue;
+    if (state.piratify.some(x => x.r === r && x.c === c) || state.thief.some(x => x.r === r && x.c === c)) continue;
+    let v = 25 * perCapture;
+    try {
+      const ms = pseudoMoves(state.board, r, c, state.castling, state.epTarget, blockedSet(state));
+      for (const m of ms) {
+        const t = state.board[m.r][m.c];
+        if (t && t.color !== me) v += Math.min(50, (PIECE_SCORE[t.type] || 100) * 0.15) * perCapture;
+      }
+    } catch (e) {}
+    out.push({ r, c, score: v });
+  }
+  return aiTop(out);
+}
+
+// Expected value of a spell that needs no target square.
+function aiInstantScore(id, me) {
+  const enemy = opp(me);
+  if (id === "killRandom") {
+    // 75% hits a random enemy, 25% hits one of ours — score the net expectation.
+    let eSum = 0, eN = 0, oSum = 0, oN = 0;
+    for (let r = 0; r < SIZE; r++) for (let c = 0; c < SIZE; c++) {
+      const p = state.board[r][c];
+      if (!p || p.type === "K") continue;
+      if (p.color === enemy) { eSum += PIECE_SCORE[p.type] || 300; eN++; }
+      else { oSum += PIECE_SCORE[p.type] || 300; oN++; }
+    }
+    if (!eN) return 0;
+    return (eSum / eN) * 0.75 - (oN ? oSum / oN : 0) * 0.25;
+  }
+  if (id === "bounty") {
+    let fresh = 0;
+    for (let r = 0; r < SIZE; r++) for (let c = 0; c < SIZE; c++) {
+      const p = state.board[r][c];
+      if (p && p.color === enemy && p.type !== "K" && !p.bounty) fresh++;
+    }
+    return Math.min(fresh, 2) * 45 + 20;
+  }
+  return 0;
+}
+
+// Gate for trying Echo: it is search-valued (its extra turn is modelled in the
+// search), so this only decides whether it is worth evaluating — roughly one
+// extra capture-free move of tempo.
+function aiEchoScore(me) {
+  return 220;
+}
+
+// Candidates [{r, c, (r2, c2), score} | {instant:true, score} | {score}] for
+// casting `id`, best first.
+function aiSpellTargets(id, me) {
+  switch (id) {
+    case "sleep":     return aiSleepTargets(me);
+    case "confuse":   return aiConfuseTargets(me);
+    case "curse":     return aiCurseTargets(me);
+    case "shield":    return aiShieldTargets(me);
+    case "dispel":    return aiDispelTargets(me);
+    case "push":      return aiPushTargets(me);
+    case "sacrifice": return aiSacrificeTargets(me);
+    case "killPawn":  return aiSnipeTargets(me);
+    case "block":     return aiBlockTargets(me);
+    case "piratify":  return aiMarkTargets(me, 2);
+    case "thief":     return aiMarkTargets(me, 1);
+    case "swap":      return aiSwapTargets(me);
+    case "killRandom":
+    case "bounty": {
+      const v = aiInstantScore(id, me);
+      return v > 0 ? [{ instant: true, score: v }] : [];
+    }
+    // Echo is search-valued: its extra turn is modelled by applyMove/applySpellToSnapshot.
+    case "echo": return [{ score: aiEchoScore(me) }];
+    default: return [];
+  }
+}
+
+function aiSpellThreshold(id) {
+  return AI_SPELL_THRESHOLD[id] != null ? AI_SPELL_THRESHOLD[id] : AI_SPELL_MIN;
+}
+
+// Pick the best spell to cast this turn: targeted spells are valued by search
+// (spell, then the best move, at depth D — the same as the plain move), the
+// random ones by expectation less their price. Returns the candidate with
+// {slot, id, value, then} or null.
+function aiBestSpell(me, planVal, D, level) {
+  if (state.spellUsedThisTurn || state.placementMode || state.targetMode || state.taxSkipPending) return null;
+  const maxSearched = level <= 3 ? 2 : level <= 6 ? 4 : 8;
+  const money = state.money[me];
+  const cands = [];
+  for (let i = 0; i < state.spells.length; i++) {
+    const id = state.spells[i];
+    if (!id || id === "moneySkip") continue;   // Tax is valued separately (it ends the turn)
+    const mod = state.spellMods[i] || "normal";
+    const cost = spellEffCost(id, mod);
+    if (money < cost) continue;
+    for (const cand of aiSpellTargets(id, me)) {
+      if (cand.score >= aiSpellThreshold(id)) cands.push({ ...cand, slot: i, id, mod, cost });
+    }
+  }
+  cands.sort((a, b) => b.score - a.score);
+  let best = null, searched = 0;
+  for (const cand of cands) {
+    let value, then = null;
+    if (cand.instant) {
+      value = planVal + cand.score - (moneyValue(money) - moneyValue(money - cand.cost));
+    } else {
+      if (searched >= maxSearched) continue;
+      searched++;
+      const res = aiSpellValue(me, cand, cand.cost, D, Math.max(planVal + AI_PARAMS.spellMargin, best ? best.value : -Infinity));
+      if (!res) continue;
+      value = res.value; then = res.then;
+    }
+    if (!best || value > best.value) best = { ...cand, value, then };
+  }
+  return best;
+}
+
+// Value of casting a targeted spell and then playing the best follow-up move,
+// searched to depth D; only values above `floor` matter. Returns
+// {value, then} or null (not modelled, or out of budget).
+function aiSpellValue(me, cand, cost, D, floor) {
+  const applied = applySpellToSnapshot(snapshotFromState(state), cand.id, cand.r, cand.c, me, cand.r2, cand.c2);
+  if (!applied) return null;
+  applied.money[me] -= cost;
+  const saved = AI_CTX.oppSpells;
+  AI_CTX.oppSpells = AI_CTX.oppSpellsAfterCast;   // casting refills the spell bar
+  try {
+    // Cheap probe first (two plies shallower): skip a spell clearly below the bar.
+    if (D >= 3) {
+      const probe = aiRootSearch(applied, me, { depth: D - 2, fixedDepth: true, alphaFloor: floor - AI_PROBE_MARGIN });
+      if (!probe || probe.value <= floor - AI_PROBE_MARGIN) return null;
+    }
+    const res = aiRootSearch(applied, me, { depth: D, fixedDepth: true, alphaFloor: floor });
+    return res && res.best ? { value: res.value, then: res.best } : null;
+  } finally {
+    AI_CTX.oppSpells = saved;
+  }
+}
+
+// Apply a targeted spell's effect onto a snapshot (`me` is the caster, who is
+// still to move afterwards, since a spell is a free action). Returns the
+// modified snapshot or null when the spell can't be modeled here.
+function applySpellToSnapshot(snap, id, r, c, me, r2, c2) {
+  const board = cloneBoard(snap.board);
+  const out = { ...snap, board, money: { ...snap.money } };
+  out.blocked = snap.blocked.map(b=>({...b}));
+  out.sleeping = (snap.sleeping||[]).map(b=>({...b}));
+  out.shielded = (snap.shielded||[]).map(b=>({...b}));
+  out.confused = (snap.confused||[]).map(b=>({...b}));
+  out.cursed = (snap.cursed||[]).map(b=>({...b}));
+  out.piratify = (snap.piratify||[]).map(b=>({...b}));
+  out.thief = (snap.thief||[]).map(b=>({...b}));
+  out.swapLocked = (snap.swapLocked||[]).map(b=>({...b}));
+  out.noCapture = { w: (snap.noCapture && snap.noCapture.w) || 0, b: (snap.noCapture && snap.noCapture.b) || 0 };
+  out.extraTurns = { w: (snap.extraTurns && snap.extraTurns.w) || 0, b: (snap.extraTurns && snap.extraTurns.b) || 0 };
+  switch (id) {
+    case "echo": {
+      // Echo: no captures this move and the extra turn; the caster keeps the turn.
+      out.noCapture[me] = 2;
+      out.extraTurns[me] = Math.max(out.extraTurns[me], 1);
+      return out;
+    }
+    case "sleep":   out.sleeping.push({ r, c, owner: me, rem: 2 }); return out;
+    case "confuse": out.confused.push({ r, c }); return out;
+    case "curse":   out.cursed.push({ r, c, owner: me }); return out;
+    case "shield":  out.shielded.push({ r, c, owner: me, rem: 2 }); return out;
+    case "block": {
+      if (board[r][c] || out.blocked.some(b => b.r === r && b.c === c)) return null;
+      out.blocked.push({ r, c, owner: me, rem: 2 });
+      return out;
+    }
+    case "piratify": {
+      const p = board[r][c];
+      if (!p || p.color !== me) return null;
+      if (out.piratify.some(x => x.r === r && x.c === c) || out.thief.some(x => x.r === r && x.c === c)) return null;
+      out.piratify.push({ r, c });
+      return out;
+    }
+    case "thief": {
+      const p = board[r][c];
+      if (!p || p.color !== me) return null;
+      if (out.piratify.some(x => x.r === r && x.c === c) || out.thief.some(x => x.r === r && x.c === c)) return null;
+      out.thief.push({ r, c });
+      return out;
+    }
+    case "swap": {
+      if (r2 == null || c2 == null || (r === r2 && c === c2)) return null;
+      const pa = board[r][c], pb = board[r2][c2];
+      if (!pa || !pb || pa.color !== me || pb.color !== me || pa.type === "K" || pb.type === "K") return null;
+      if (out.blocked.some(b => (b.r === r2 && b.c === c2))) return null;
+      board[r][c] = pb; board[r2][c2] = pa;
+      // Square-keyed markers follow the two pieces.
+      for (const list of [out.shielded, out.piratify, out.thief, out.cursed, out.confused, out.sleeping]) {
+        for (const e of list) {
+          if (e.r === r && e.c === c) { e.r = r2; e.c = c2; }
+          else if (e.r === r2 && e.c === c2) { e.r = r; e.c = c; }
+        }
+      }
+      // Both swapped pieces are locked for the rest of this turn.
+      out.swapLocked.push({ r, c, owner: me, rem: 1 });
+      out.swapLocked.push({ r: r2, c: c2, owner: me, rem: 1 });
+      return out;
+    }
+    case "push": {
+      const p = board[r][c];
+      if (!p) return null;
+      const dir = p.color === "w" ? 1 : -1;
+      let tr = r, moved = 0;
+      while (moved < 3) {
+        const nr = tr + dir;
+        if (nr < 0 || nr >= SIZE || out.blocked.some(b => b.r === nr && b.c === c) || board[nr][c]) break;
+        tr = nr; moved++;
+      }
+      if (!moved) return null;
+      // Every square-keyed marker travels with the pushed piece.
+      for (const list of [out.sleeping, out.cursed, out.shielded, out.piratify, out.thief, out.confused, out.swapLocked]) {
+        for (const e of list) if (e.r === r && e.c === c) e.r = tr;
+      }
+      board[tr][c] = p; board[r][c] = null;
+      return out;
+    }
+    case "sacrifice": {
+      const p = board[r][c];
+      if (!p || p.color !== me || p.type === "K") return null;
+      const gain = SHOP_PRICE[p.type] !== undefined ? SHOP_PRICE[p.type] : (PIECE_VALUE[p.type] || 0);
+      board[r][c] = null;
+      out.money[me] += gain;
+      return out;
+    }
+    case "killPawn": {
+      if (!board[r][c]) return null;
+      board[r][c] = null;
+      return out;
+    }
+    case "dispel": {
+      out.sleeping = out.sleeping.filter(e => !(e.r===r && e.c===c));
+      out.confused = out.confused.filter(e => !(e.r===r && e.c===c));
+      out.cursed = out.cursed.filter(e => !(e.r===r && e.c===c));
+      if (board[r][c] && board[r][c].bounty) board[r][c] = { ...board[r][c], bounty: null };
+      return out;
+    }
+    default: return null;
+  }
+}
+
+// ======== Playing the decision on the live board ========
+
+function aiMove() {
+  if (!state.aiOpponent || state.gameOver || state.turn !== state.aiColor) {
+    aiThinking = false; render(); return;
+  }
+  const me = state.aiColor;
+  // Tax Gain 2x/RND decision pending: take the free Tax (+$3, pass) if it is
+  // the offer, otherwise pass.
+  if (state.taxSkipPending) {
+    const slot = state.spells.indexOf("moneySkip");
+    if (slot >= 0) castSpell(slot);
+    else spellEndTurnSkip(false);
+    setTimeout(aiMove, 400);
+    return;
+  }
+  aiRequestDecision(me, (action) => aiExecute(me, action, false));
+}
+
+// Carry out a decision from aiDecide(). `sync` (self-play) does everything at
+// once; otherwise each step is paced with a short delay so it can be followed.
+function aiExecute(me, a, sync) {
+  if (!a || state.gameOver) { aiThinking = false; if (!sync) render(); return; }
+  switch (a.kind) {
+    case "move":
+      aiPlayMove(me, a);
+      return;
+    case "spell":
+      aiCastTargeted(a.slot, a.cand);
+      aiAfterCast(me, a.then, sync);
+      return;
+    case "followup":
+      if (a.use) aiCastTargeted(a.slot, a.cand);
+      else skipFollowUpSpell();
+      aiAfterCast(me, a.then, sync);
+      return;
+    case "buy":
+      buyPiece(a.slot);
+      if (sync) aiFinishPlacement(a);
+      else setTimeout(() => aiFinishPlacement(a), 400);
+      return;
+    case "tax":
+      castSpell(a.slot);
+      if (sync) aiThinking = false;
+      else setTimeout(aiMove, 400);   // passes the turn (or resolves a 2x/RND offer)
+      return;
+    case "none":
+      // No legal moves: same as the stalemate check after a move, the game ends
+      // instead of leaving the AI permanently stuck on its own turn.
+      aiThinking = false;
+      if (!state.gameOver) { state.gameOver = true; if (!sync) rebuildHistorySel(); }
+      if (!sync) render();
+      return;
+    default:   // the decision failed: play any legal move
+      aiFallbackMove(me);
+      aiThinking = false;
+      if (!sync) render();
+  }
+}
+
+// After a spell: play the planned follow-up move if it is still legal, or
+// decide again (a random spell changed the board, a free spell is on offer…).
+function aiAfterCast(me, then, sync) {
+  const playable = () => !!then && !state.gameOver && state.turn === me && !state.targetMode
+    && !state.placementMode && !state.taxSkipPending
+    && !(state.freeSpellId && state.followUpOwner === me) && aiMoveIsLegal(then);
+  if (sync) {
+    if (playable()) aiPlayMove(me, then);
+    return;   // aiSelfPlay decides again while it is still our turn
+  }
+  setTimeout(() => {
+    if (playable()) aiPlayMove(me, then);
+    else aiMove();
+  }, 400);
+}
+
+function aiMoveIsLegal(m) {
+  if (!m || !m.move) return false;
+  return legalMoves(state, m.fr, m.fc).some(x => x.r === m.move.r && x.c === m.move.c && !!x.shoot === !!m.move.shoot);
+}
+
+// Play a searched move on the live board.
+function aiPlayMove(me, best) {
+  try {
+    let mv = best;
+    // Confused AI piece: its move is random (the search valued it that way).
+    if (best.confused || state.confused.some(x => x.r === best.fr && x.c === best.fc)) {
+      const cm = legalMoves(state, best.fr, best.fc);
+      if (cm.length) mv = { fr: best.fr, fc: best.fc, move: cm[Math.floor(gRng() * cm.length)] };
+    }
+    // The search plans on a snapshot, but the live position can differ (a piece
+    // may have become curse-frozen with $0). If the chosen move was skipped,
+    // play any currently legal move so the AI never stalls on its turn.
+    const srcBefore = state.board[mv.fr][mv.fc];
+    if (mv.move.promotion) makeMove(mv.fr, mv.fc, { ...mv.move, promoteTo: (mv.move.promoteTo || "Q") });
+    else makeMove(mv.fr, mv.fc, mv.move);
+    if (!mv.move.shoot && state.board[mv.fr][mv.fc] === srcBefore) aiFallbackMove(me);
+  } catch (e) {
+    aiFallbackMove(me);
+  } finally {
+    aiThinking = false;
+  }
+  // Echo leaves the AI on move (an extra turn). makeMove kept the turn while
+  // aiThinking was still true, so render() must run again now that it's false
+  // for the AI trigger to schedule the extra move.
+  if (state.turn === me && !state.gameOver && !AI_HEADLESS) render();
+}
+
+// Emergency escape hatch: if the chosen move can't be applied, play any
+// currently legal move (chosen at random) so the AI always advances the game.
+function aiFallbackMove(me) {
+  for (let r = 0; r < SIZE; r++) {
+    for (let c = 0; c < SIZE; c++) {
+      const p = state.board[r][c];
+      if (!p || p.color !== me) continue;
+      const lm = legalMoves(state, r, c);
+      if (!lm.length) continue;
+      const mv = lm[Math.floor(gRng() * lm.length)];
+      makeMove(r, c, mv.promotion ? {...mv, promoteTo: (mv.promoteTo || "Q")} : mv);
+      return;
+    }
+  }
+}
+
+// Cast the spell in `slot` and resolve its targeting. Most spells need one click;
+// a Swap needs two (the second is only valid once the bar is in "swap2" mode).
+function aiCastTargeted(slot, cand) {
+  castSpell(slot);
+  for (let click = 0; click < 2; click++) {
+    if (!state.targetMode) break;
+    const rr = click === 0 ? cand.r : cand.r2;
+    const cc = click === 0 ? cand.c : cand.c2;
+    if (rr == null) { cancelPlacement(); break; }
+    if (isTargetable(rr, cc, state.targetMode.kind)) handleTargetClick(rr, cc);
+    else { cancelPlacement(); break; }
+  }
+}
+
+// Place the bought piece on the square the decision chose (or, if that is no
+// longer free, the best heuristic square on our half).
+function aiFinishPlacement(a) {
+  const me = state.aiColor || state.turn;
+  if (!state.placementMode) { aiThinking = false; if (!AI_HEADLESS) render(); return; }
+  const lo = me === "w" ? Math.ceil(SIZE / 2) : 0;
+  const hi = me === "w" ? SIZE - 1 : Math.floor(SIZE / 2) - 1;
+  const free = (r, c) => r >= lo && r <= hi && c >= 0 && c < SIZE && !state.board[r][c]
+    && !state.blocked.some(b => b.r === r && b.c === c);
+  let spot = a && free(a.r, a.c) ? a : null;
+  if (!spot) spot = aiPlacementSquares(me, state.placementPiece)[0] || null;
+  if (!spot) { cancelPlacement(); aiThinking = false; if (!AI_HEADLESS) render(); return; }
+  placePiece(spot.r, spot.c);
+  aiThinking = false;
+  if (!AI_HEADLESS) render();
+}
+
+// ======== Thinking off the main thread ========
+// The decision runs in a Web Worker built from this script block plus the main
+// script's functions (their source text) and top-level data, so a level-11
+// search never freezes the page. If the worker can't be created or fails, the
+// decision runs on the main thread instead (same code, same result).
+let aiWorker = null, aiWorkerFailed = false, aiWorkerUrl = null;
+let aiPendingReq = null, aiReqSeq = 0;
+
+// Source text for a top-level value of the main script, or null to skip it
+// (DOM nodes, huge strings like inline images, unserialisable objects).
+function aiSerializeValue(v) {
+  if (v === undefined) return "undefined";
+  if (v === null || typeof v === "number" || typeof v === "boolean") return String(v);
+  if (typeof v === "string") return v.length > 4000 ? null : JSON.stringify(v);
+  if (typeof v === "function") { const s = v.toString(); return s.includes("[native code]") ? null : s; }
+  if (typeof Node !== "undefined" && v instanceof Node) return null;
+  if (v instanceof Set) { try { return "new Set(" + JSON.stringify([...v]) + ")"; } catch (e) { return null; } }
+  if (v instanceof Map) return "new Map()";
+  if (ArrayBuffer.isView(v)) return "new " + v.constructor.name + "(" + v.length + ")";
+  try {
+    const j = JSON.stringify(v);
+    return (j === undefined || j.length > 200000) ? null : j;
+  } catch (e) { return null; }
+}
+
+function aiWorkerSource() {
+  const engine = document.getElementById("aiEngine").textContent;
+  const main = document.getElementById("mainScript").textContent;
+  const own = new Set(["state"]);
+  for (const m of engine.matchAll(/^(?:function|const|let|var)\s+([A-Za-z_$][\w$]*)/gm)) own.add(m[1]);
+  const decls = ['"use strict";', "let state = null;"], fns = [];
+  for (const m of main.matchAll(/^(?:const|let|var)\s+([A-Za-z_$][\w$]*)\s*=/gm)) {
+    const name = m[1];
+    if (own.has(name)) continue;
+    own.add(name);
+    let v;
+    try { v = (0, eval)(name); } catch (e) { continue; }   // a local that happens to start a line
+    const src = aiSerializeValue(v);
+    if (src !== null) decls.push("let " + name + " = " + src + ";");
+  }
+  for (const m of main.matchAll(/^[ \t]*function\s+([A-Za-z_$][\w$]*)\s*\(/gm)) {
+    const name = m[1];
+    if (own.has(name)) continue;
+    own.add(name);
+    const f = globalThis[name];
+    if (typeof f === "function") { const src = f.toString(); if (!src.includes("[native code]")) fns.push(src); }
+  }
+  return decls.concat(fns, [engine, AI_WORKER_MAIN]).join("\n");
+}
+
+// The worker's message loop: adopt the game, decide, reply.
+const AI_WORKER_MAIN = `
+self.onmessage = function (e) {
+  const d = e.data;
+  try {
+    SIZE = d.size; RANDOM960 = d.random960; SEED = d.seed; sandboxMode = d.sandbox;
+    state = d.state;
+    AI_LEVEL = d.level;
+    AI_PARAMS = d.params;
+    const t0 = Date.now();
+    const action = aiDecide(d.me, { repHashes: d.repHashes });
+    if (action.stats) action.stats.ms = Date.now() - t0;
+    self.postMessage({ id: d.id, action });
+  } catch (err) {
+    self.postMessage({ id: d.id, error: String((err && err.stack) || err) });
+  }
+};`;
+
+function aiGetWorker() {
+  if (aiWorkerFailed || typeof Worker === "undefined") return null;
+  if (aiWorker) return aiWorker;
+  try {
+    if (!aiWorkerUrl) aiWorkerUrl = URL.createObjectURL(new Blob([aiWorkerSource()], { type: "text/javascript" }));
+    aiWorker = new Worker(aiWorkerUrl);
+    aiWorker.onmessage = aiOnWorkerMessage;
+    aiWorker.onerror = (e) => { if (e.preventDefault) e.preventDefault(); aiWorkerBroken(e.message || "worker error"); };
+  } catch (e) {
+    aiWorkerBroken(e);
+    return null;
+  }
+  return aiWorker;
+}
+
+function aiWorkerBroken(why) {
+  console.warn("AI worker unavailable; thinking on the main thread instead.", why);
+  aiWorkerFailed = true;
+  if (aiWorker) { try { aiWorker.terminate(); } catch (e) {} aiWorker = null; }
+  const req = aiPendingReq;
+  if (req) setTimeout(() => aiRunOnMainThread(req), 0);   // redo the decision it was waiting on
+}
+
+function aiOnWorkerMessage(e) {
+  const d = e.data, req = aiPendingReq;
+  if (!req || d.id !== req.id) return;   // an abandoned request
+  if (d.error) { aiWorkerBroken(d.error); return; }
+  req.finish(d.action);
+}
+
+function aiRunOnMainThread(req) {
+  if (aiPendingReq !== req) return;
+  let action;
+  try { action = aiDecide(req.me); }
+  catch (e) { console.error("AI decision failed", e); action = { kind: "fallback" }; }
+  req.finish(action);
+}
+
+// What the worker needs of the live state (the undo history stays here).
+function aiStateForWorker() {
+  const s = {};
+  for (const k in state) if (k !== "history") s[k] = state[k];
+  return s;
+}
+
+// Ask for a decision for `me`; `cb(action)` runs only if the game is still
+// where it was when the request was made.
+function aiRequestDecision(me, cb) {
+  const req = { id: ++aiReqSeq, me, stateRef: state, histLen: state.history.length };
+  req.finish = (action) => {
+    if (aiPendingReq !== req) return;
+    aiPendingReq = null;
+    if (state !== req.stateRef || state.history.length !== req.histLen || state.turn !== me
+        || state.gameOver || !state.aiOpponent) {
+      aiThinking = false; render(); return;   // the game moved on while we were thinking
+    }
+    if (action && action.stats) aiLastStats = action.stats;
+    cb(action);
+  };
+  aiPendingReq = req;
+  updateStatus();
+  const w = aiGetWorker();
+  if (w) {
+    try {
+      w.postMessage({ id: req.id, me, level: AI_LEVEL, params: AI_PARAMS, size: SIZE, random960: RANDOM960,
+        seed: SEED, sandbox: sandboxMode, state: aiStateForWorker(), repHashes: aiRepetitionHashes(me) });
+      return;
+    } catch (e) {
+      aiWorkerBroken(e);   // re-runs this request on the main thread
+      return;
+    }
+  }
+  setTimeout(() => aiRunOnMainThread(req), 30);   // let the "thinking" status paint first
+}
+
+// Drop any decision in progress (new game / reset). A busy worker is stopped
+// at once rather than left to finish a long search.
+function aiCancelThinking() {
+  if (aiPendingReq && aiWorker) { aiWorker.terminate(); aiWorker = null; }
+  aiPendingReq = null;
+}
+
+// ======== Self-play (tuning harness, run from the browser console) ========
+// await aiSelfPlay({ games: 10, levelA: 4, levelB: 4, paramsA: { money: 30 }, paramsB: {} })
+// Plays AI-vs-AI games on this page with no rendering, configuration A taking
+// White in the even games and Black in the odd ones. Resolves to
+// { a, b, draws, games }: wins per configuration. Games that reach maxPlies are
+// adjudicated by the evaluation (±300 centipawns) or drawn. A fresh game
+// replaces the current one afterwards.
+async function aiSelfPlay(opts) {
+  opts = { games: 10, levelA: 4, levelB: 4, paramsA: {}, paramsB: {}, maxPlies: 300, size: 8, log: true, ...opts };
+  const saved = { level: AI_LEVEL, params: AI_PARAMS, size: SIZE, r960: RANDOM960 };
+  const res = { a: 0, b: 0, draws: 0, games: [] };
+  aiCancelThinking();
+  AI_HEADLESS = true;
+  try {
+    for (let g = 0; g < opts.games; g++) {
+      const aIsWhite = g % 2 === 0;
+      SIZE = opts.size;
+      RANDOM960 = false;
+      newSeed();
+      state = initialState();
+      refillShop();
+      refillSpells();
+      onTurnStart("w");
+      state.gameStarted = true;
+      const t0 = Date.now();
+      let plies = 0, steps = 0;
+      while (!state.gameOver && plies < opts.maxPlies && steps < opts.maxPlies * 8) {
+        const me = state.turn;
+        const isA = (me === "w") === aIsWhite;
+        AI_LEVEL = isA ? opts.levelA : opts.levelB;
+        AI_PARAMS = { ...AI_DEFAULT_PARAMS, ...(isA ? opts.paramsA : opts.paramsB) };
+        aiStepSync(me);
+        steps++;
+        if (state.turn !== me) plies++;
+        if (steps % 4 === 0) await new Promise(r => setTimeout(r, 0));   // keep the page alive
+      }
+      const kings = kingsPresent(state.board);
+      let winner = null;
+      if (!(kings & 1)) winner = "b";
+      else if (!(kings & 2)) winner = "w";
+      else if (!state.gameOver) {
+        AI_PARAMS = { ...AI_DEFAULT_PARAMS };
+        const e = evaluate(state, "w");
+        if (e > 300) winner = "w"; else if (e < -300) winner = "b";
+      }
+      const aWon = winner && ((winner === "w") === aIsWhite);
+      if (!winner) res.draws++; else if (aWon) res.a++; else res.b++;
+      const g1 = { game: g + 1, aIsWhite, winner, plies, seconds: (Date.now() - t0) / 1000,
+        money: { ...state.money }, adjudicated: !state.gameOver };
+      res.games.push(g1);
+      if (opts.log) console.log("aiSelfPlay", g1, "A", res.a, "B", res.b, "draws", res.draws);
+    }
+  } finally {
+    AI_HEADLESS = false;
+    AI_LEVEL = saved.level; AI_PARAMS = saved.params; SIZE = saved.size; RANDOM960 = saved.r960;
+    reset();
+  }
+  return res;
+}
+
+// One synchronous AI action for `me` (self-play).
+function aiStepSync(me) {
+  if (state.taxSkipPending) {
+    const slot = state.spells.indexOf("moneySkip");
+    if (slot >= 0) castSpell(slot);
+    else spellEndTurnSkip(false);
+    return;
+  }
+  if (state.placementMode) { aiFinishPlacement(null); return; }
+  if (state.targetMode) { cancelPlacement(); return; }
+  aiThinking = true;
+  aiExecute(me, aiDecide(me), true);
+  aiThinking = false;
+}
+</script>
+
+<script id="mainScript">
 "use strict";
 
 // ---- Board size ----
@@ -1789,11 +4232,11 @@ function squareAttacked(board, r, c, attackerColor) {
       if (t && t.color===attackerColor && t.type==="P") return true;
     }
   }
-  // Soldier: only attacks straight forward, one square
+  // Soldier and D-Pawn: both capture only straight forward, one square
   const sr = r - dir, sc = c;
   if (inBounds(sr, sc)) {
     const st = board[sr][sc];
-    if (st && st.color===attackerColor && st.type==="S") return true;
+    if (st && st.color===attackerColor && (st.type==="S" || st.type==="D")) return true;
   }
   // Knight
   const noff = [[-2,-1],[-2,1],[-1,-2],[-1,2],[1,-2],[1,2],[2,-1],[2,1]];
@@ -1801,7 +4244,7 @@ function squareAttacked(board, r, c, attackerColor) {
     const rr=r+dr, cc=c+dc;
     if (inBounds(rr,cc)) {
       const t=board[rr][cc];
-      if (t && t.color===attackerColor && t.type==="N") return true;
+      if (t && t.color===attackerColor && (t.type==="N" || t.type==="A")) return true;   // Amazon hops like a knight too
     }
   }
   // Camel
@@ -1863,13 +4306,13 @@ function squareAttacked(board, r, c, attackerColor) {
       if (t && t.color===attackerColor && t.type==="K") return true;
     }
   }
-  // Sliding: bishop/queen diagonal, rook/queen straight
+  // Sliding: bishop/queen/Amazon diagonal, rook/queen/Amazon straight
   const diag=[[-1,-1],[-1,1],[1,-1],[1,1]];
   for (const [dr,dc] of diag) {
     let rr=r+dr,cc=c+dc;
     while (inBounds(rr,cc)) {
       const t=board[rr][cc];
-      if (t) { if (t.color===attackerColor && (t.type==="B"||t.type==="Q")) return true; break; }
+      if (t) { if (t.color===attackerColor && (t.type==="B"||t.type==="Q"||t.type==="A")) return true; break; }
       rr+=dr; cc+=dc;
     }
   }
@@ -1878,7 +4321,7 @@ function squareAttacked(board, r, c, attackerColor) {
     let rr=r+dr,cc=c+dc;
     while (inBounds(rr,cc)) {
       const t=board[rr][cc];
-      if (t) { if (t.color===attackerColor && (t.type==="R"||t.type==="Q")) return true; break; }
+      if (t) { if (t.color===attackerColor && (t.type==="R"||t.type==="Q"||t.type==="A")) return true; break; }
       rr+=dr; cc+=dc;
     }
   }
@@ -2047,7 +4490,7 @@ function makeMove(fr, fc, move, promoteTo) {
   if (capturedAny) {
     const cap = captured || capturedEP;
     const capType = captured ? captured.type : "P"; // en passant captures a pawn
-    const dropV = SHOP_PRICE[capType] !== undefined ? SHOP_PRICE[capType] : PIECE_VALUE[capType];
+    const dropV = SHOP_PRICE[capType] !== undefined ? SHOP_PRICE[capType] : (PIECE_VALUE[capType] || 0);   // a king has no price
     state.money[p.color] += Math.floor(dropV / 2);
     if (cap && cap.bounty) applyBountyIfAny(cap);   // +$1 to bounty owner (stacks)
 // Plunder: a plundering piece earns +$1 for every capture
@@ -2217,6 +4660,7 @@ function hasAnyLegalMove(s) {
 
 // ---- Rendering ----
 function render() {
+  if (AI_HEADLESS) return;   // AI self-play runs without drawing
   const __liveState = state;
   if (reviewPos >= 0) {
     const __frame = reviewFrames[reviewPos];
@@ -2413,1615 +4857,6 @@ document.getElementById("aiBtn").style.display =
   }
 }
 
-let aiThinking = false;
-
-// ---- AI opponent: minimax with alpha-beta pruning ----
-const PIECE_SCORE = { P:100, N:320, B:330, R:500, Q:900, C:250, G:150, D:100, A:1400, S:100, H:600, K:20000, F:220, X:500, M:500, T:500 };
-// Piece-square tables (from white's perspective; mirrored for black)
-const PST = {
-  P: [[0,0,0,0,0,0,0,0],[50,50,50,50,50,50,50,50],[10,10,20,30,30,20,10,10],
-      [5,5,10,25,25,10,5,5],[0,0,0,20,20,0,0,0],[5,-5,-10,0,0,-10,-5,5],
-      [5,10,10,-20,-20,10,10,5],[0,0,0,0,0,0,0,0]],
-  N: [[-50,-40,-30,-30,-30,-30,-40,-50],[-40,-30,0,0,0,0,-30,-40],
-      [-30,0,10,15,15,10,0,-30],[-30,5,15,20,20,15,5,-30],
-      [-30,0,15,20,20,15,0,-30],[-30,5,10,15,15,10,5,-30],
-      [-40,-30,0,5,5,0,-30,-40],[-50,-40,-30,-30,-30,-30,-40,-50]],
-  B: [[-20,-10,-10,-10,-10,-10,-10,-20],[-10,0,0,0,0,0,0,-10],
-      [-10,0,5,10,10,5,0,-10],[-10,5,5,10,10,5,5,-10],
-      [-10,0,10,10,10,10,0,-10],[-10,10,10,10,10,10,10,-10],
-      [-10,5,0,0,0,0,5,-10],[-20,-10,-10,-10,-10,-10,-10,-20]],
-  R: [[0,0,0,0,0,0,0,0],[5,10,10,10,10,10,10,5],[-5,0,0,0,0,0,0,-5],
-      [-5,0,0,0,0,0,0,-5],[-5,0,0,0,0,0,0,-5],[-5,0,0,0,0,0,0,-5],
-      [-5,0,0,0,0,0,0,-5],[0,0,0,5,5,0,0,0]],
-  Q: [[-20,-10,-10,-5,-5,-10,-10,-20],[-10,0,0,0,0,0,0,-10],
-      [-10,0,5,5,5,5,0,-10],[-5,0,5,5,5,5,0,-5],
-      [0,0,5,5,5,5,0,-5],[-10,5,5,5,5,5,0,-10],
-      [-10,0,5,0,0,0,0,-10],[-20,-10,-10,-5,-5,-10,-10,-20]],
-  K: [[-30,-40,-40,-50,-50,-40,-40,-30],[-40,-40,-40,-40,-40,-40,-40,-40],
-      [-40,-40,-40,-40,-40,-40,-40,-40],[-50,-50,-50,-50,-50,-50,-50,-50],
-      [-50,-50,-50,-50,-50,-50,-50,-50],[-40,-40,-40,-40,-40,-40,-40,-40],
-      [-40,-40,-40,-40,-40,-40,-40,-40],[-30,-40,-40,-50,-50,-40,-40,-30]],
-};
-
-function pstValue(type, color, r, c) {
-const table = PST[type];
-  if (!table) return 0;
-  if (SIZE !== 8) return 0;   // piece-square tables are only tuned for 8x8
-  // mirror vertically for black so good placement is always + regardless of color
-  const row = color === "w" ? r : SIZE - 1 - r;
-  return table[row][c];
-}
-
-// Reward a king that still has friendly pieces (ideally pawns) shielding it and
-// penalise an exposed king. Cheap: just the three squares in front of the king.
-function kingShield(s, color, k) {
-  k = k || findKing(s.board, color);
-  if (!k) return 0;
-  const fdir = color === "w" ? -1 : 1;   // toward the enemy
-  let shield = 0, count = 0;
-  for (let dc = -1; dc <= 1; dc++) {
-    const rr = k.r + fdir, cc = k.c + dc;
-    if (rr < 0 || rr >= SIZE || cc < 0 || cc >= SIZE) continue;
-    const q = s.board[rr][cc];
-    if (q && q.color === color) { shield += (q.type === "P" ? 12 : 6); count++; }
-  }
-  return shield - (count === 0 ? 20 : 0);
-}
-
-// In the endgame the king is a fighting piece: reward centralisation.
-function kingActivity(s, color, k) {
-  k = k || findKing(s.board, color);
-  if (!k) return 0;
-  const mid = (SIZE - 1) / 2;
-  const dist = Math.abs(k.r - mid) + Math.abs(k.c - mid);
-  return Math.max(0, SIZE - dist) * 2;
-}
-
-// Fast, allocation-free mobility estimate for the standard pieces (used in the
-// evaluation; custom pieces fall back to material-only).
-const MOB_N = [[1,2],[2,1],[2,-1],[1,-2],[-1,-2],[-2,-1],[-2,1],[-1,2]];
-const MOB_K = [[1,0],[-1,0],[0,1],[0,-1],[1,1],[1,-1],[-1,1],[-1,-1]];
-const MOB_R = [[1,0],[-1,0],[0,1],[0,-1]];
-const MOB_B = [[1,1],[1,-1],[-1,1],[-1,-1]];
-const MOB_Q = MOB_R.concat(MOB_B);
-const CUSTOM_MOB = new Set(["C","G","D","S","H","M","T","X","F"]);   // fastMobility can't score these
-function fastMobility(s, r, c, blk) {
-  const p = s.board[r][c];
-  const t = p.type, own = p.color;
-  let n = 0;
-  const visit = (rr, cc) => {
-    if (rr < 0 || rr >= SIZE || cc < 0 || cc >= SIZE) return false;
-    if (blk.has(rr * SIZE + cc)) return false;
-    const q = s.board[rr][cc];
-    if (q && q.color === own) return false;
-    n++;
-    return !q;   // a capture ends the ray
-  };
-  if (t === "N") { for (const d of MOB_N) visit(r+d[0], c+d[1]); }
-  else if (t === "K") { for (const d of MOB_K) visit(r+d[0], c+d[1]); }
-  else if (t === "A") { for (const d of MOB_N) visit(r+d[0], c+d[1]); for (const d of MOB_Q) { let rr=r, cc=c; while (visit(rr+d[0], cc+d[1])) { rr+=d[0]; cc+=d[1]; } } }
-  else if (t === "R" || t === "B" || t === "Q") {
-    const dirs = t === "R" ? MOB_R : t === "B" ? MOB_B : MOB_Q;
-    for (const d of dirs) { let rr=r, cc=c; while (visit(rr+d[0], cc+d[1])) { rr+=d[0]; cc+=d[1]; } }
-  }
-  return n;
-}
-
-// Reused evaluation buffers (evaluate runs at every quiescence leaf, so it must
-// not allocate). Single-threaded, non-reentrant: safe to share.
-const EVAL_MAXSQ = 15 * 15;
-const EVAL_EFF = new Int16Array(EVAL_MAXSQ);
-const EVAL_PFW = new Int16Array(15), EVAL_PFB = new Int16Array(15);
-const EVAL_MOB_BLK = new Set();
-const EG_SLEEP = 1, EG_CONF = 2, EG_CURSE = 4, EG_SHIELD = 8, EG_PIR = 16, EG_THIEF = 32;
-
-function evaluate(s, aiColor) {
-  let wKing = false, bKing = false, totalMat = 0, pieces = 0, wKingPos = null, bKingPos = null;
-  let bishopsW = 0, bishopsB = 0;
-  let matMe = 0, matFoe = 0;   // non-king material per side (aiColor vs opponent)
-  const pfW = EVAL_PFW, pfB = EVAL_PFB;
-  for (let i = 0; i < SIZE; i++) { pfW[i] = 0; pfB[i] = 0; }
-
-  // One square-keyed bit grid for all effects, so the per-piece checks below are
-  // O(1) with no per-call allocation.
-  const eg = EVAL_EFF;
-  const sl = s.sleeping || [], co = s.confused || [], cu = s.cursed || [];
-  const sh = s.shielded || [], pi = s.piratify || [], th = s.thief || [];
-  for (let i = 0; i < sl.length; i++) eg[sl[i].r * SIZE + sl[i].c] |= EG_SLEEP;
-  for (let i = 0; i < co.length; i++) eg[co[i].r * SIZE + co[i].c] |= EG_CONF;
-  for (let i = 0; i < cu.length; i++) eg[cu[i].r * SIZE + cu[i].c] |= EG_CURSE;
-  for (let i = 0; i < sh.length; i++) eg[sh[i].r * SIZE + sh[i].c] |= EG_SHIELD;
-  for (let i = 0; i < pi.length; i++) eg[pi[i].r * SIZE + pi[i].c] |= EG_PIR;
-  for (let i = 0; i < th.length; i++) eg[th[i].r * SIZE + th[i].c] |= EG_THIEF;
-
-  let score = 0;
-  for (let r=0;r<SIZE;r++) for (let c=0;c<SIZE;c++) {
-    const p = s.board[r][c];
-    if (!p) continue;
-    if (p.type==="K") {
-      if (p.color==="w") { wKing=true; wKingPos={r,c}; } else { bKing=true; bKingPos={r,c}; }
-    }
-    else {
-      const mv0 = PIECE_SCORE[p.type] || 100;
-      totalMat += mv0; pieces++;
-      if (p.color === aiColor) matMe += mv0; else matFoe += mv0;
-    }
-    const sq = r * SIZE + c;
-    const sign = p.color === aiColor ? 1 : -1;
-    let v = (PIECE_SCORE[p.type] || 100) + pstValue(p.type, p.color, r, c);
-    // bounty bonus: a bountied enemy piece is worth more to capture
-    if (p.bounty && p.color !== aiColor) v += 30;
-    if (p.bounty && p.color === aiColor) v -= 15; // my bountied piece is a liability
-    // Control effects matter: a slept/confused/hexed piece is worth much less to
-    // its owner, so the search values spending a spell on it properly.
-    const epv = Math.min(PIECE_SCORE[p.type] || 100, 1000);
-    const bits = eg[sq];
-    if (bits & EG_SLEEP) v -= 0.30 * epv;
-    if (bits & EG_CONF) v -= 0.22 * epv;
-    if (bits & EG_CURSE) v -= 0.12 * epv;
-    if (bits & EG_SHIELD) v += 0.10 * epv;
-    // Plunder (Piratify, +$2 a capture) and Thief (+$1 a capture, +$1 stolen)
-    // are income streams, so a marked piece is worth a little over its face value.
-    if (bits & EG_PIR) v += 14;
-    if (bits & EG_THIEF) v += 10;
-    score += sign * v;
-    if (p.type === "P") { if (p.color === "w") pfW[c]++; else pfB[c]++; }
-    if (p.type === "B") { if (p.color === "w") bishopsW++; else bishopsB++; }
-  }
-  // Clear the reused effect grid (only the touched squares are non-zero).
-  for (let i = 0; i < sl.length; i++) eg[sl[i].r * SIZE + sl[i].c] = 0;
-  for (let i = 0; i < co.length; i++) eg[co[i].r * SIZE + co[i].c] = 0;
-  for (let i = 0; i < cu.length; i++) eg[cu[i].r * SIZE + cu[i].c] = 0;
-  for (let i = 0; i < sh.length; i++) eg[sh[i].r * SIZE + sh[i].c] = 0;
-  for (let i = 0; i < pi.length; i++) eg[pi[i].r * SIZE + pi[i].c] = 0;
-  for (let i = 0; i < th.length; i++) eg[th[i].r * SIZE + th[i].c] = 0;
-  // Second pass: rooks/queens like open files (no friendly pawn on that file),
-  // now that every pawn has been counted.
-  for (let r=0;r<SIZE;r++) for (let c=0;c<SIZE;c++) {
-    const p = s.board[r][c];
-    if (!p || (p.type !== "R" && p.type !== "Q")) continue;
-    const filePawns = p.color === "w" ? pfW[c] : pfB[c];
-    if (filePawns === 0) {
-      score += (p.color === aiColor ? 1 : -1) * (p.type === "R" ? 8 : 4);
-    }
-  }
-  if (!wKing) return aiColor === "b" ? 100000 : -100000;
-  if (!bKing) return aiColor === "w" ? 100000 : -100000;
-
-  const me = aiColor, foe = opp(aiColor);
-  // Mobility: approximate a piece's activity by its reachable-square count.
-  const mobBlk = EVAL_MOB_BLK; mobBlk.clear();
-  for (const b of s.blocked) mobBlk.add(b.r * SIZE + b.c);
-  for (let i = 0; i < sh.length; i++) mobBlk.add(sh[i].r * SIZE + sh[i].c);
-  let strBlk = null, mobMe = 0, mobFoe = 0;
-  for (let r=0;r<SIZE;r++) for (let c=0;c<SIZE;c++) {
-    const p = s.board[r][c];
-    if (!p) continue;
-    let m = fastMobility(s, r, c, mobBlk);
-    if (m === 0 && CUSTOM_MOB.has(p.type)) {
-      if (!strBlk) strBlk = blockedSet(s);
-      try { m = pseudoMoves(s.board, r, c, s.castling, s.epTarget, strBlk).length; } catch (e) { m = 0; }
-    }
-    if (m > 16) m = 16;
-    if (p.color === aiColor) mobMe += m; else mobFoe += m;
-  }
-  score += (mobMe - mobFoe);
-  // Bishop pair
-  const meBishops = me === "w" ? bishopsW : bishopsB;
-  const foeBishops = foe === "w" ? bishopsW : bishopsB;
-  score += (meBishops >= 2 ? 30 : 0) - (foeBishops >= 2 ? 30 : 0);
-  // Pawn structure: doubled and isolated pawns are weaker.
-  for (const col of ["w", "b"]) {
-    const sgn = col === me ? 1 : -1;
-    const pf = col === "w" ? pfW : pfB;
-    for (let c = 0; c < SIZE; c++) {
-      const n = pf[c];
-      if (n > 1) score += sgn * (-14) * (n - 1);
-      if (n > 0) {
-        const adj = (c > 0 ? pf[c-1] : 0) + (c < SIZE-1 ? pf[c+1] : 0);
-        if (adj === 0) score += sgn * (-10);
-      }
-    }
-  }
-  // King safety (reuse the king positions found above)
-  const meKing = me === "w" ? wKingPos : bKingPos;
-  const foeKing = foe === "w" ? wKingPos : bKingPos;
-  score += kingShield(s, me, meKing) - kingShield(s, foe, foeKing);
-  // Endgame: with little material left the king should head for the centre.
-  // Gate on piece count as well so it also triggers on the larger boards (where
-  // absolute material is much higher).
-  if (totalMat < 3000 || pieces <= 12) score += kingActivity(s, me, meKing) - kingActivity(s, foe, foeKing);
-  // Passed pawns: no enemy pawn on the file or either adjacent file ahead of it.
-  // D/S promote straight to an Amazon, so a runner is worth a lot. Allocation
-  // free (this runs at every quiescence leaf).
-  for (let r = 0; r < SIZE; r++) for (let c = 0; c < SIZE; c++) {
-    const p = s.board[r][c];
-    if (!p || (p.type !== "P" && p.type !== "D" && p.type !== "S")) continue;
-    const fdir = p.color === "w" ? -1 : 1;
-    let passed = true;
-    for (let dc = -1; dc <= 1 && passed; dc++) {
-      const cc = c + dc;
-      if (cc < 0 || cc >= SIZE) continue;
-      for (let rr = r + fdir; rr >= 0 && rr < SIZE; rr += fdir) {
-        const q = s.board[rr][cc];
-        if (q && q.color !== p.color && (q.type === "P" || q.type === "D" || q.type === "S")) { passed = false; break; }
-      }
-    }
-    if (passed) {
-      const adv = p.color === "w" ? (SIZE - 1 - r) : r;   // 0 at home .. toward promotion
-      score += (p.color === aiColor ? 1 : -1) * adv * adv * 3;
-    }
-  }
-  // Winning endgame: corner the enemy king and walk our own king in to capture
-  // it (this game is won by capturing the king, not by mate).
-  if ((totalMat < 3000 || pieces <= 12) && meKing && foeKing
-      && matMe > matFoe + 200) {
-    const edge = Math.min(foeKing.r, SIZE - 1 - foeKing.r, foeKing.c, SIZE - 1 - foeKing.c);
-    const dist = Math.max(Math.abs(meKing.r - foeKing.r), Math.abs(meKing.c - foeKing.c));
-    score -= edge * 10;
-    score -= dist * 8;
-  }
-  // Money advantage
-  score += (s.money[me] - s.money[foe]) * 8;
-  return score;
-}
-
-// Shallow-copy a square-keyed effect list so snapshots are self-contained.
-// Empty lists are shared (callers only ever reassign/read them, never push), so
-// the common no-effect position allocates nothing here.
-const EMPTY_LIST = [];
-function cloneEffectList(list) {
-  if (!list) return EMPTY_LIST;
-  const n = list.length;
-  if (n === 0) return list;
-  const out = new Array(n);
-  for (let i = 0; i < n; i++) out[i] = { ...list[i] };
-  return out;
-}
-function snapEffects(s) {
-  return {
-    blocked: cloneEffectList(s.blocked),
-    sleeping: cloneEffectList(s.sleeping),
-    shielded: cloneEffectList(s.shielded),
-    confused: cloneEffectList(s.confused),
-    piratify: cloneEffectList(s.piratify),
-    thief: cloneEffectList(s.thief),
-    cursed: cloneEffectList(s.cursed),
-    swapLocked: cloneEffectList(s.swapLocked),
-    noCapture: { w: (s.noCapture && s.noCapture.w) || 0, b: (s.noCapture && s.noCapture.b) || 0 },
-    extraTurns: { w: (s.extraTurns && s.extraTurns.w) || 0, b: (s.extraTurns && s.extraTurns.b) || 0 },
-  };
-}
-
-// Build a lightweight search snapshot from the live state
-function snapshotFromState(s) {
-  return {
-    board: cloneBoard(s.board),
-    castling: {...s.castling},
-    epTarget: s.epTarget ? {...s.epTarget} : null,
-    turn: s.turn,
-    ...snapEffects(s),
-    money: { w: s.money.w, b: s.money.b },
-  };
-}
-
-// Capture income mirrored from makeMove: half the victim's value, the bounty
-// payout, Plunder (Piratify) +$2, Thief steals $1, golden +$1, platinum +$3, and
-// the $1 toll a cursed mover pays. Without this the search would treat every
-// money-generating capture and spell (Bounty/Piratify/Thief, golden pieces) as
-// free, so it could never see their value.
-function applyMoveIncome(snap, money, mover, fr, fc, captured, move) {
-  if (captured) {
-    const dropV = SHOP_PRICE[captured.type] !== undefined ? SHOP_PRICE[captured.type] : PIECE_VALUE[captured.type];
-    money[mover.color] += Math.floor(dropV / 2);
-    if (captured.bounty) money[captured.bounty] = (money[captured.bounty] || 0) + 1;
-    if (snap.piratify && snap.piratify.some(x => x.r===fr && x.c===fc)) money[mover.color] += 2;
-    if (snap.thief && snap.thief.some(x => x.r===fr && x.c===fc)) {
-      const oc = opp(mover.color);
-      const gain = Math.min(1, money[oc] || 0);
-      money[oc] = (money[oc] || 0) - gain;
-      money[mover.color] += gain;
-    }
-    if (mover.golden) money[mover.color] += 1;
-    if (mover.platinum) money[mover.color] += 3;
-  }
-  if (!move.shoot && snap.cursed && snap.cursed.some(x => x.r===fr && x.c===fc)) {
-    money[mover.color] -= Math.min(1, money[mover.color] || 0);
-  }
-}
-
-// Apply a move onto a snapshot, returning a new snapshot
-function applyMove(snap, fr, fc, move, promoteTo) {
-  const board = cloneBoardRows(snap.board, [fr, move.r]);
-  const p = board[fr][fc];
-  const castling = {...snap.castling};
-  const money = { w: snap.money.w, b: snap.money.b };
-  const eff = snapEffects(snap);
-  // Turn bookkeeping, mirroring makeMove: the mover's no-capture counter ticks
-  // down, and Echo's pending extra turn keeps the turn with the mover.
-  const mover = p.color;
-  const extra = eff.extraTurns;
-  let turnAfter;
-  if (extra[mover] > 0) { extra[mover] -= 1; turnAfter = mover; }
-  else turnAfter = opp(mover);
-  eff.noCapture[mover] = Math.max(0, eff.noCapture[mover] - 1);
-  let epTarget = null;
-  // The captured piece (en passant victims sit beside the mover, not on the target).
-  const captured = move.enpassant ? board[fr][move.c] : board[move.r][move.c];
-  const vr = move.enpassant ? fr : move.r, vc = move.c;
-  if (move.enpassant) board[fr][move.c] = null;
-  // A captured piece takes its square-keyed markers with it.
-  if (captured) {
-    for (const key of ["blocked","sleeping","shielded","confused","piratify","thief","cursed","swapLocked"]) {
-      if (eff[key]) eff[key] = eff[key].filter(e => !(e.r === vr && e.c === vc));
-    }
-  }
-  // Shooter firing: target is destroyed, shooter stays put.
-  if (move.shoot) {
-    board[move.r][move.c] = null;
-    applyMoveIncome(snap, money, p, fr, fc, captured, move);
-    return { board, castling, epTarget, turn: turnAfter, ...eff, money };
-  }
-  board[fr][fc] = null;
-  board[move.r][move.c] = move.promotion && promoteTo
-    ? {type: promoteTo, color: p.color, bounty: p.bounty||null, golden: p.golden||false, platinum: p.platinum||false}
-    : {type: p.type, color: p.color, bounty: p.bounty||null, golden: p.golden||false, platinum: p.platinum||false};
-const kingCol = SIZE >> 1;
-  if (move.castle === "K") { board[move.r][kingCol+1] = board[move.r][SIZE-1]; board[move.r][SIZE-1] = null; }
-  else if (move.castle === "Q") { board[move.r][kingCol-1] = board[move.r][0]; board[move.r][0] = null; }
-  if (p.type === "K") { if (p.color === "w") {castling.wK=false; castling.wQ=false;} else {castling.bK=false; castling.bQ=false;} }
-  if (p.type === "R") {
-    if (p.color==="w") { if (fr===SIZE-1&&fc===0) castling.wQ=false; if (fr===SIZE-1&&fc===SIZE-1) castling.wK=false; }
-    else { if (fr===0&&fc===0) castling.bQ=false; if (fr===0&&fc===SIZE-1) castling.bK=false; }
-  }
-  const tr=move.r, tc=move.c;
-  if (tr===SIZE-1&&tc===0) castling.wQ=false; if (tr===SIZE-1&&tc===SIZE-1) castling.wK=false;
-  if (tr===0&&tc===0) castling.bQ=false; if (tr===0&&tc===SIZE-1) castling.bK=false;
-  // Plunder/Thief/Curse/Shield markers travel with the mover; confusion is spent.
-  if (eff.confused) eff.confused = eff.confused.filter(e => !(e.r === fr && e.c === fc));
-  for (const key of ["piratify","thief","cursed","shielded"]) {
-    if (eff[key]) for (const e of eff[key]) if (e.r === fr && e.c === fc) { e.r = move.r; e.c = move.c; }
-  }
-  if (move.doubleStep) epTarget = {r:(fr+move.r)/2, c:fc};
-  applyMoveIncome(snap, money, p, fr, fc, captured, move);
-  return { board, castling, epTarget, turn: turnAfter, ...eff, money };
-}
-
-// Apply a shop placement onto a snapshot: put `piece` (type) on (r,c) for
-// `color` and hand the turn to the opponent (a buy ends the turn).
-function applyPlacement(snap, piece, color, r, c) {
-  const board = cloneBoardRows(snap.board, [r]);
-  board[r][c] = { type: piece, color, bounty: null, golden: false, platinum: false };
-  return {
-    board,
-    castling: {...snap.castling},
-    epTarget: null,
-    turn: opp(color),
-    ...snapEffects(snap),
-    money: snap.money,
-  };
-}
-
-// `blk`, `inCheckNow` and `king` are optional cached values supplied by allMoves
-// (they are identical for every piece of the side to move, so recomputing them
-// per piece was a large waste).
-function snapLegal(snap, r, c, blk, inCheckNow, king) {
-  if (!snap.board[r][c] || snap.board[r][c].color !== snap.turn) return [];
-  if (isSleeping(snap, r, c)) return [];
-  if (snap.swapLocked && snap.swapLocked.some(x => x.r === r && x.c === c)) return []; // swapped this turn
-  const color = snap.turn;
-  const p = snap.board[r][c];
-  if (!blk) blk = blockedSet(snap);
-  let pm = pseudoMoves(snap.board, r, c, snap.castling, snap.epTarget, blk);
-  // A cursed piece whose owner has $0 is frozen: no moving, only standing shots.
-  if (cursedFrozen(snap, r, c)) pm = pm.filter(m => m.shoot);
-  // Echo's no-capture window: keep the search honest about legal captures.
-  if (snap.noCapture && snap.noCapture[color] > 0) {
-    pm = pm.filter(m => { const t = snap.board[m.r][m.c]; return !t && !m.enpassant; });
-  }
-  if (inCheckNow === undefined) inCheckNow = snapInCheck(snap, color);
-  const out = [];
-  for (const m of pm) {
-    if (p.type === "K") {
-      // The king may not land on a square the enemy attacks.
-      if (squareAttacked(snap.board, m.r, m.c, opp(color))) continue;
-      out.push(m); // castle intermediate squares were already vetted in pseudoMoves
-      continue;
-    }
-    if (inCheckNow) {
-      // Rare: while in check, simulate the move and re-test the king.
-      if (snapInCheck(applyMove(snap, r, c, m, null), color)) continue;
-      out.push(m);
-      continue;
-    }
-    const pin = snapPinRay(snap, color, r, c, king);
-    if (!pin || snapMoveOnPin(pin, m)) out.push(m);
-  }
-  return out;
-}
-
-// Is this snapshot's king of `color` attacked?
-function snapInCheck(snap, color) {
-  const k = findKing(snap.board, color);
-  if (!k) return true;   // king removed; treat as lost
-  return squareAttacked(snap.board, k.r, k.c, opp(color));
-}
-
-// If (r,c) sits directly between `color`'s king and an enemy slider on a
-// straight ray, return the pin geometry {kingR,kingC,dr,dc,dist}; else null.
-// (Bishops pin diagonally, rooks/queens/Amazons straight.)
-function snapPinRay(snap, color, r, c, king) {
-  const k = king || findKing(snap.board, color);
-  if (!k) return null;
-  const drR = r - k.r, dcC = c - k.c;
-  const g = Math.max(Math.abs(drR), Math.abs(dcC));
-  if (g === 0) return null;                      // mover is the king
-  if (drR % g !== 0 || dcC % g !== 0) return null; // not on a straight ray
-  const dr = drR / g, dc = dcC / g;
-  for (let kk = 1; kk < g; kk++) {
-    if (snap.board[k.r + dr * kk][k.c + dc * kk]) return null; // piece closer to king shields it
-  }
-  let rr = r + dr, cc = c + dc;
-  while (inBounds(rr, cc)) {
-    const t = snap.board[rr][cc];
-    if (t) {
-      if (t.color !== color) {
-        const orth = dr === 0 || dc === 0;
-        const diag = Math.abs(dr) === 1 && Math.abs(dc) === 1;
-        if ((t.type === "R" || t.type === "Q" || t.type === "A") && orth) {
-          return { kingR: k.r, kingC: k.c, dr, dc, dist: Math.max(Math.abs(rr - k.r), Math.abs(cc - k.c)) };
-        }
-        if ((t.type === "B" || t.type === "Q" || t.type === "A") && diag) {
-          return { kingR: k.r, kingC: k.c, dr, dc, dist: Math.max(Math.abs(rr - k.r), Math.abs(cc - k.c)) };
-        }
-      }
-      return null;
-    }
-    rr += dr; cc += dc;
-  }
-  return null;
-}
-
-// A pinned piece may only stay on the king<->attacker line (up to and including
-// a capture of the attacker). Moving off the ray is illegal.
-function snapMoveOnPin(pin, m) {
-  const relR = m.r - pin.kingR, relC = m.c - pin.kingC;
-  const g = Math.max(Math.abs(relR), Math.abs(relC));
-  if (g === 0) return false;
-  if (relR % g !== 0 || relC % g !== 0) return false;
-  if (relR / g !== pin.dr || relC / g !== pin.dc) return false;
-  return g <= pin.dist;
-}
-
-function allMoves(snap) {
-  const out = [];
-  // Compute the side-to-move invariants once instead of per piece.
-  const blk = blockedSet(snap);
-  const king = findKing(snap.board, snap.turn);
-  const inCheckNow = snapInCheck(snap, snap.turn);
-  for (let r=0;r<SIZE;r++) for (let c=0;c<SIZE;c++) {
-    const p = snap.board[r][c];
-    if (p && p.color === snap.turn && !isSleeping(snap, r, c)) {
-      for (const m of snapLegal(snap, r, c, blk, inCheckNow, king)) out.push({fr:r, fc:c, move:m});
-    }
-  }
-  return out;
-}
-
-// Search effort tables: per-ply killers (two per ply) and a global history
-// heuristic, both fed by the current game only.
-const KILLERS_TBL = [];
-const HISTORY_TBL = {};
-const QDEPTH = 8;   // max capture-search plies after the horizon
-
-function moveKey(fr, fc, r, c) { return fr + "," + fc + "," + r + "," + c; }
-
-function addKiller(ply, mv) {
-  const e = { fr: mv.fr, fc: mv.fc, r: mv.move.r, c: mv.move.c };
-  if (!KILLERS_TBL[ply]) { KILLERS_TBL[ply] = [e, null]; return; }
-  const k = KILLERS_TBL[ply];
-  if (k[0] && k[0].fr === e.fr && k[0].fc === e.fc && k[0].r === e.r && k[0].c === e.c) return;
-  if (k[1] && k[1].fr === e.fr && k[1].fc === e.fc && k[1].r === e.r && k[1].c === e.c) return;
-  k[1] = k[0]; k[0] = e;
-}
-
-function historyUpdate(mv, depth) {
-  const key = moveKey(mv.fr, mv.fc, mv.move.r, mv.move.c);
-  HISTORY_TBL[key] = (HISTORY_TBL[key] || 0) + depth * depth;
-  if (HISTORY_TBL[key] > 20000) for (const k2 in HISTORY_TBL) HISTORY_TBL[k2] >>= 1;
-}
-
-// ---- Transposition table (Zobrist-ish) ----
-// positionHash hashes everything the search result can depend on: the board
-// (with per-piece flags), the side to move, castling rights, en-passant, every
-// square-keyed effect, the no-capture counters and both wallets. Two independent
-// 32-bit accumulators are produced; entries are keyed by h1 and verified with h2
-// so a 32-bit collision cannot return a wrong result.
-const Z_TYPE = { P:1,N:2,B:3,R:4,Q:5,C:6,G:7,D:8,A:9,S:10,H:11,K:12,F:13,X:14,M:15,T:16 };
-const Z_EFF = { blocked:1, sleeping:2, shielded:3, confused:4, piratify:5, thief:6, cursed:7, swapLocked:8 };
-function positionHash(snap) {
-  let h1 = 0x811c9dc5 | 0, h2 = 0x9e3779b9 | 0;
-  const mix = (x) => {
-    x |= 0;
-    h1 = Math.imul(h1 ^ x, 0x01000193);
-    h2 = Math.imul(h2 ^ x, 0x85ebca6b);
-  };
-  for (let r = 0; r < SIZE; r++) {
-    const row = snap.board[r];
-    for (let c = 0; c < SIZE; c++) {
-      const p = row[c];
-      if (!p) continue;
-      const sq = r * SIZE + c;
-      mix(0x10000000 ^ ((sq * 24) | ((p.color === "w" ? 1 : 2) << 4) | (Z_TYPE[p.type] || 0)));
-      if (p.bounty) mix(0x20000000 ^ (sq << 3) ^ (p.bounty === "w" ? 1 : 2));
-      if (p.golden) mix(0x30000000 ^ sq);
-      if (p.platinum) mix(0x40000000 ^ sq);
-    }
-  }
-  for (const key in Z_EFF) {
-    const list = snap[key];
-    if (!list) continue;
-    for (let i = 0; i < list.length; i++) mix((Z_EFF[key] * 0x01000000) ^ (list[i].r * SIZE + list[i].c));
-  }
-  if (snap.turn === "b") mix(0x50000000);
-  if (snap.castling.wK) mix(0x51000001);
-  if (snap.castling.wQ) mix(0x51000002);
-  if (snap.castling.bK) mix(0x51000003);
-  if (snap.castling.bQ) mix(0x51000004);
-  if (snap.epTarget) mix(0x52000000 ^ (snap.epTarget.r * SIZE + snap.epTarget.c));
-  if (snap.noCapture) {
-    if (snap.noCapture.w > 0) mix(0x53000000 ^ snap.noCapture.w);
-    if (snap.noCapture.b > 0) mix(0x53000000 ^ (snap.noCapture.b << 3));
-  }
-  if (snap.extraTurns) {
-    if (snap.extraTurns.w > 0) mix(0x56000000 ^ snap.extraTurns.w);
-    if (snap.extraTurns.b > 0) mix(0x56000000 ^ (snap.extraTurns.b << 3));
-  }
-  mix(0x54000000 ^ (snap.money.w & 0xffff));
-  mix(0x55000000 ^ (snap.money.b & 0xffff));
-  return { h1: h1 >>> 0, h2: h2 >>> 0 };
-}
-
-const TT = new Map();
-const TT_MAX = 60000;
-const TT_EXACT = 0, TT_LOWER = 1, TT_UPPER = 2;
-let AI_USE_TT = true;        // transposition table on/off
-let AI_ITER_DEEPEN = true;   // iterative deepening on/off
-let AI_USE_LMR = true;       // late-move reductions on/off
-const LMR_MIN_DEPTH = 3;     // only reduce once this much depth remains
-const LMR_MIN_MOVES = 4;     // never reduce the first few ordered moves
-
-function ttStore(h1, h2, depth, score, flag, move) {
-  if (TT.size > TT_MAX) TT.clear();
-  const prev = TT.get(h1);
-  if (prev && prev.h2 === h2 && prev.depth > depth) return;
-  TT.set(h1, {
-    h2, depth, score, flag,
-    move: move ? { fr: move.fr, fc: move.fc, r: move.move.r, c: move.move.c } : null,
-  });
-}
-
-// Order moves: TT best move first, then MVV-LVA captures, promotions, killer
-// moves and history-found good moves — all so alpha-beta prunes much harder.
-function orderMoves(snap, moves, ply, ttMove) {
-  const killers = KILLERS_TBL[ply] || [];
-  const scored = moves.map(mv => {
-    const t = snap.board[mv.move.r][mv.move.c];
-    let s = 0;
-    if (ttMove && mv.fr === ttMove.fr && mv.fc === ttMove.fc && mv.move.r === ttMove.r && mv.move.c === ttMove.c) s += 20000;
-    if (mv.move.shoot) s += 15000;
-    if (t) s += 10000 + (PIECE_SCORE[t.type] || 100) * 10 - (PIECE_SCORE[snap.board[mv.fr][mv.fc].type] || 100); // MVV-LVA
-    else if (mv.move.enpassant) s += 9000;
-    if (mv.move.promotion) s += 8000 + (PIECE_SCORE.A || 1400);
-    if (killers[0] && killers[0].fr === mv.fr && killers[0].fc === mv.fc && killers[0].r === mv.move.r && killers[0].c === mv.move.c) s += 5000;
-    else if (killers[1] && killers[1].fr === mv.fr && killers[1].fc === mv.fc && killers[1].r === mv.move.r && killers[1].c === mv.move.c) s += 4500;
-    s += HISTORY_TBL[moveKey(mv.fr, mv.fc, mv.move.r, mv.move.c)] || 0;
-    mv._s = s;
-    return mv;
-  });
-  return scored.sort((a, b) => b._s - a._s);
-}
-
-function minimax(snap, depth, alpha, beta, aiColor, ply) {
-  // Terminal: king missing
-  const term = kingMissing(snap, opp(aiColor));
-  if (term) return 100000 + depth;
-  const ownLost = kingMissing(snap, aiColor);
-  if (ownLost) return -100000 - depth;
-  if (depth === 0) return quiesce(snap, alpha, beta, aiColor, QDEPTH);
-
-  // Transposition table: reuse a stored result (and its best move for ordering).
-  let ttMove = null, hash = null;
-  if (AI_USE_TT) {
-    hash = positionHash(snap);
-    const ent = TT.get(hash.h1);
-    if (ent && ent.h2 === hash.h2) {
-      ttMove = ent.move;
-      if (ent.depth >= depth) {
-        if (ent.flag === TT_EXACT) return ent.score;
-        if (ent.flag === TT_LOWER && ent.score >= beta) return ent.score;
-        if (ent.flag === TT_UPPER && ent.score <= alpha) return ent.score;
-      }
-    }
-  }
-
-  const alphaOrig = alpha, betaOrig = beta;
-  const moves = orderMoves(snap, allMoves(snap), ply, ttMove);
-  // No legal move: in this king-capture variant "checkmate" is not a loss, the
-  // game simply ends as a draw. So a side with no moves scores 0 — a winning AI
-  // must therefore avoid stalemating and keep hunting the king.
-  if (!moves.length) return 0;
-
-  let best, bestMove = null;
-  if (snap.turn === aiColor) {
-    best = -Infinity;
-    for (let i = 0; i < moves.length; i++) {
-      const mv = moves[i];
-      const promo = mv.move.promotion ? (mv.move.promoteTo || "Q") : null;
-      const child = applyMove(snap, mv.fr, mv.fc, mv.move, promo);
-      const quiet = !(snap.board[mv.move.r][mv.move.c] || mv.move.enpassant || mv.move.promotion || mv.move.shoot);
-      let v;
-      if (AI_USE_LMR && depth >= LMR_MIN_DEPTH && i >= LMR_MIN_MOVES && quiet) {
-        v = minimax(child, depth - 2, alpha, beta, aiColor, ply + 1);
-        if (v > alpha) v = minimax(child, depth - 1, alpha, beta, aiColor, ply + 1);
-      } else {
-        v = minimax(child, depth - 1, alpha, beta, aiColor, ply + 1);
-      }
-      if (v > best) { best = v; bestMove = mv; }
-      if (v > alpha) {
-        alpha = v;
-        if (alpha >= beta) {
-          // A quiet move that refutes the branch is a killer + history candidate.
-          if (quiet) { addKiller(ply, mv); historyUpdate(mv, depth); }
-          break;
-        }
-      }
-    }
-  } else {
-    best = Infinity;
-    for (let i = 0; i < moves.length; i++) {
-      const mv = moves[i];
-      const promo = mv.move.promotion ? (mv.move.promoteTo || "Q") : null;
-      const child = applyMove(snap, mv.fr, mv.fc, mv.move, promo);
-      const quiet = !(snap.board[mv.move.r][mv.move.c] || mv.move.enpassant || mv.move.promotion || mv.move.shoot);
-      let v;
-      if (AI_USE_LMR && depth >= LMR_MIN_DEPTH && i >= LMR_MIN_MOVES && quiet) {
-        v = minimax(child, depth - 2, alpha, beta, aiColor, ply + 1);
-        if (v < beta) v = minimax(child, depth - 1, alpha, beta, aiColor, ply + 1);
-      } else {
-        v = minimax(child, depth - 1, alpha, beta, aiColor, ply + 1);
-      }
-      if (v < best) { best = v; bestMove = mv; }
-      if (v < beta) { beta = v; if (alpha >= beta) break; }
-    }
-  }
-  if (AI_USE_TT) ttStore(hash.h1, hash.h2, depth, best,
-    best <= alphaOrig ? TT_UPPER : best >= betaOrig ? TT_LOWER : TT_EXACT, bestMove);
-  return best;
-}
-
-// Quiescence search: after the horizon, keep resolving captures so the AI
-// doesn't blunder hanging pieces. When the side to move is in check it cannot
-// "stand pat", so every legal evasion is tried instead (otherwise a check at the
-// horizon would look harmless). Stand-pat + captures otherwise.
-function quiesce(snap, alpha, beta, aiColor, qdepth) {
-  const mine = snap.turn === aiColor;
-  const inChk = snapInCheck(snap, snap.turn);
-  let best, stand = 0;
-  if (inChk) {
-    best = mine ? -Infinity : Infinity;
-  } else {
-    stand = evaluate(snap, aiColor);
-    best = stand;
-    // Stand-pat fail-hard
-    if (mine) {
-      if (stand >= beta) return stand;
-      if (stand > alpha) alpha = stand;
-    } else {
-      if (stand <= alpha) return stand;
-      if (stand < beta) beta = stand;
-    }
-  }
-  if (qdepth <= 0) return inChk ? evaluate(snap, aiColor) : best;
-  let cands;
-  if (inChk) {
-    cands = allMoves(snap);                       // all legal evasions
-    if (!cands.length) return 0;                  // no move = draw (no checkmate here)
-  } else {
-    cands = [];
-    for (const mv of allMoves(snap)) {
-      if (mv.move.shoot || snap.board[mv.move.r][mv.move.c] || mv.move.enpassant || mv.move.promotion) cands.push(mv);
-    }
-    if (!cands.length) return best;
-  }
-  const ordered = orderMoves(snap, cands, 0);
-  for (const mv of ordered) {
-    // Delta pruning: if even winning the victim (plus any promotion) could not
-    // raise/lower the static score past alpha/beta, the capture is hopeless.
-    if (!inChk) {
-      const victim = mv.move.enpassant ? snap.board[mv.fr][mv.move.c] : snap.board[mv.move.r][mv.move.c];
-      let gain = victim ? (PIECE_SCORE[victim.type] || 100) : 0;
-      if (mv.move.promotion) {
-        const fromType = snap.board[mv.fr][mv.fc] ? snap.board[mv.fr][mv.fc].type : "P";
-        gain += Math.max(0, (PIECE_SCORE[mv.move.promoteTo || "Q"] || 900) - (PIECE_SCORE[fromType] || 100));
-      }
-      const slack = gain + 120;   // 120 = safety margin for positional swings
-      if (mine ? stand + slack <= alpha : stand - slack >= beta) continue;
-    }
-    const promo = mv.move.promotion ? (mv.move.promoteTo || "Q") : null;
-    const child = applyMove(snap, mv.fr, mv.fc, mv.move, promo);
-    const v = quiesce(child, alpha, beta, aiColor, qdepth - 1);
-    if (mine) {
-      if (v > best) best = v;
-      if (v > alpha) alpha = v;
-    } else {
-      if (v < best) best = v;
-      if (v < beta) beta = v;
-    }
-    if (alpha >= beta) break;
-  }
-  return best;
-}
-
-function kingMissing(snap, color) {
-  for (let r=0;r<SIZE;r++) for (let c=0;c<SIZE;c++) {
-    const p = snap.board[r][c];
-    if (p && p.type==="K" && p.color===color) return false;
-  }
-  return true;
-}
-
-function aiMove() {
-  if (!state.aiOpponent || state.gameOver || state.turn !== state.aiColor) {
-    aiThinking = false; render(); return;
-  }
-  TT.clear();   // one position set per turn (aiColor is constant within a turn)
-  const me = state.aiColor;
-
-// 2x decision: the pending free extra (Tax) is on the table. Tax:
-  // take it (+$3, pass).
-  if (state.taxSkipPending) {
-    const slot = state.spells.indexOf("moneySkip");
-    if (slot >= 0) castSpell(slot);
-    else spellEndTurnSkip(false);
-    setTimeout(aiMove, 400);
-    return;
-  }
-  // A 2x/RND follow-up was granted as a free spell: take it if it's useful,
-  // otherwise decline it and play on with the normal spell bar.
-  if (state.freeSpellId && state.followUpOwner === me && !state.taxSkipPending) {
-    aiTryFreeFollowUp(me);
-  }
-
-  // Baseline: the best move on the current board.
-  let plan = aiSearchBestMove(me);
-  const planVal = (plan && isFinite(plan.value)) ? plan.value : -Infinity;
-
-  // Best free spell (value-checked) and the best shop buy.
-  const sp = aiBestSpell(me, isFinite(planVal) ? planVal : 0);
-  const spellVal = sp ? sp.value : planVal;
-
-  // Shop: a buy ends the turn, so it must beat the better of "best move" and
-  // "best spell + best move". This stops the AI from shopping away a winning
-  // capture or a strong spell turn.
-  const buy = aiBestBuy(me);
-  if (buy && buy.value > Math.max(planVal, spellVal) + AI_BUY_MARGIN) {
-    buyPiece(buy.slot);
-    setTimeout(aiFinishPlacement, 400);
-    return;
-  }
-
-  // Tax Gain (+$3 but the move is skipped) also ends the turn, so — like a buy —
-  // it is only taken when it clearly beats playing on.
-  const tax = aiTaxGainValue(me);
-  if (tax && tax.value > Math.max(planVal, spellVal) + AI_TAX_MARGIN) {
-    castSpell(tax.slot);
-    setTimeout(aiMove, 400);
-    return;
-  }
-
-  // Cast the best spell when it improves on the plain move (a free action, so
-  // the AI still moves afterwards).
-  if (sp && sp.value > planVal + AI_SPELL_MARGIN) {
-    aiCastTargeted(sp.slot, sp);
-    // A 2x/RND modifier may have granted a free second cast — take it too.
-    aiTryFreeFollowUp(me);
-    plan = null;   // the spell may have changed the board
-  }
-  if (!plan) plan = aiSearchBestMove(me);
-  if (!plan || !plan.best) {
-    // No legal moves: same as the stalemate check after a move, the game ends
-    // instead of leaving the AI permanently stuck on its own turn.
-    aiThinking = false;
-    if (!state.gameOver) {
-      state.gameOver = true;
-      rebuildHistorySel();
-    }
-    render();
-    return;
-  }
-  try {
-    let best = plan.best;
-    // Confused AI piece: ignore the computed move and pick a random legal one instead.
-    const cidx = state.confused.findIndex(x => x.r===best.fr && x.c===best.fc);
-    if (cidx >= 0) {
-      const cm = legalMoves(state, best.fr, best.fc);
-      if (cm.length) {
-        const rand = cm[Math.floor(gRng()*cm.length)];
-        best = { fr: best.fr, fc: best.fc, move: rand };
-      }
-    }
-    // The search plans on a snapshot, but the live position can differ (a piece
-    // may have become curse-frozen with $0). If the chosen move was skipped,
-    // play any currently legal move so the AI never stalls on its turn.
-    const srcBefore = state.board[best.fr][best.fc];
-    if (best.move.promotion) {
-      makeMove(best.fr, best.fc, {...best.move, promoteTo: (best.move.promoteTo || "Q")});
-    } else {
-      makeMove(best.fr, best.fc, best.move);
-    }
-    if (!best.move.shoot && state.board[best.fr][best.fc] === srcBefore) aiFallbackMove(me);
-  } catch (e) {
-    aiFallbackMove(me);
-  } finally {
-    aiThinking = false;
-  }
-  // Echo leaves the AI on move (an extra turn). makeMove kept the turn while
-  // aiThinking was still true, so render() must run again now that it's false
-  // for the AI trigger to schedule the extra move.
-  if (state.turn === me && !state.gameOver) render();
-}
-
-// Emergency escape hatch: if the chosen move can't be applied, play any
-// currently legal move (chosen at random) so the AI always advances the game.
-function aiFallbackMove(me) {
-  for (let r = 0; r < SIZE; r++) {
-    for (let c = 0; c < SIZE; c++) {
-      const p = state.board[r][c];
-      if (!p || p.color !== me) continue;
-      const lm = legalMoves(state, r, c);
-      if (!lm.length) continue;
-      const mv = lm[Math.floor(gRng() * lm.length)];
-      makeMove(r, c, mv.promotion ? {...mv, promoteTo: (mv.promoteTo || "Q")} : mv);
-      return;
-    }
-  }
-}
-
-// Pick the best empty square on `me`'s half to place a held piece (a shop buy).
-// Heuristic-scored squares are shortlisted, then each is actually placed on a
-// snapshot and evaluated by the search — so the choice reflects the resulting
-// position (king safety, tactics) rather than the square's raw features. When
-// `cost` is given it is charged against the snapshot's money so the returned
-// `value` is directly comparable to a move's value.
-function aiBestPlacement(me, piece, cost) {
-  if (!piece) return null;
-  const enemy = opp(me);
-  const lo = me === "w" ? Math.ceil(SIZE / 2) : 0;
-  const hi = me === "w" ? SIZE - 1 : Math.floor(SIZE / 2) - 1;
-  const cands = [];
-  for (let r = lo; r <= hi; r++) {
-    for (let c = 0; c < SIZE; c++) {
-      if (state.board[r][c]) continue;
-      if (state.blocked.some(b => b.r === r && b.c === c)) continue;
-      cands.push({ r, c, h: aiPlacementScore(me, enemy, piece, r, c) });
-    }
-  }
-  if (!cands.length) return null;
-  cands.sort((a, b) => b.h - a.h);
-  const shortlist = cands.slice(0, SIZE >= 12 ? 6 : 10);
-  const snap0 = snapshotFromState(state);
-  // Shallow per-square search: the placement value is a comparable estimate, and
-  // depth 2 keeps the whole buy decision (up to 3 slots) fast.
-  const depth = SIZE >= 12 ? 1 : SIZE === 10 ? 1 : 2;
-  let best = null, bestVal = -Infinity;
-  for (const cd of shortlist) {
-    let v;
-    try {
-      const child = applyPlacement(snap0, piece, me, cd.r, cd.c);
-      if (cost) child.money = { ...child.money, [me]: child.money[me] - cost };
-      v = minimax(child, depth, -Infinity, Infinity, me, 1);
-    } catch (e) {
-      v = cd.h;   // search hiccup: fall back to the heuristic square
-    }
-    const total = v + cd.h * 0.02;   // tie-break toward the safer square
-    if (total > bestVal) { bestVal = total; best = { r: cd.r, c: cd.c, score: cd.h, value: v }; }
-  }
-  return best;
-}
-
-// Is there a friendly pawn within one square (for pawn-chain support)?
-function friendlyPawnNear(r, c, color) {
-  for (let dr = -1; dr <= 1; dr++) for (let dc = -1; dc <= 1; dc++) {
-    if (!dr && !dc) continue;
-    const rr = r + dr, cc = c + dc;
-    if (rr < 0 || rr >= SIZE || cc < 0 || cc >= SIZE) continue;
-    const q = state.board[rr][cc];
-    if (q && q.color === color && q.type === "P") return true;
-  }
-  return false;
-}
-function friendlyPawnOnFile(c, color) {
-  for (let r = 0; r < SIZE; r++) {
-    const q = state.board[r][c];
-    if (q && q.color === color && q.type === "P") return true;
-  }
-  return false;
-}
-
-// Score an empty square (r,c) in the AI's own half for placing `piece`.
-function aiPlacementScore(me, enemy, piece, r, c) {
-  const mid = (SIZE - 1) / 2;
-  const depth = me === "w" ? SIZE - 1 - r : r;        // 0 = own back rank
-  const isPawnLike = piece === "P" || piece === "D" || piece === "S" || piece === "G" || piece === "F";
-  const isSlider = piece === "Q" || piece === "B" || piece === "R" || piece === "X";
-  const pv = PIECE_SCORE[piece] || 300;
-
-  let score = 0;
-  score += (mid - Math.abs(c - mid)) * 12;            // central files first
-
-  if (isPawnLike) score += 110 - Math.abs(depth - 1) * 18;   // right where pawns belong
-  else if (isSlider) score += 90 - depth * 22;               // keep sliders sheltered
-  else score += 70 - Math.abs(depth - 2) * 12;               // minor-ish: two rows out
-
-  // Danger: weight the penalty by the piece's value, so a hanging queen is
-  // avoided far more strongly than a hanging pawn.
-  const attacked = squareAttacked(state.board, r, c, enemy);
-  const defended = squareAttacked(state.board, r, c, me);
-  if (attacked) score -= (defended ? 0.55 : 1.25) * pv;
-  else score += 70;
-  if (defended) score += Math.min(60, pv * 0.15);
-
-  // Pawn structure: reward chaining with a neighbour, avoid doubling on a file.
-  if (piece === "P") {
-    if (friendlyPawnNear(r, c, me)) score += 35;
-    if (friendlyPawnOnFile(c, me)) score -= 25;
-  }
-
-  // Threat potential: a piece that lands attacking enemy material is more
-  // active (this only shapes the shortlist — the search confirms the value).
-  try {
-    const b = cloneBoard(state.board);
-    b[r][c] = { type: piece, color: me, bounty: null, golden: false, platinum: false };
-    const ms = pseudoMoves(b, r, c, state.castling, state.epTarget, blockedSet(state));
-    let threat = 0;
-    for (const m of ms) {
-      const t = b[m.r][m.c];
-      if (t && t.color === enemy) threat += Math.min(90, (PIECE_SCORE[t.type] || 100) * 0.18);
-    }
-    score += threat;
-  } catch (e) {}
-
-  score += gRng() * 6;                                // tiny variety
-  return score;
-}
-
-// ---- AI spell use ----
-// Spells are a free action, so the AI may cast one and still move. Each spell's
-// candidate target is scored on the same rough scale and must clear its
-// threshold; a buy must out-value "best move + free spell" by AI_BUY_MARGIN
-// before the AI gives up its move for the shop.
-const AI_SPELL_MIN = 180;      // generic fallback floor
-const AI_BUY_MARGIN = 40;      // how much a buy must beat the best move by
-const AI_SPELL_MARGIN = 10;    // how much "spell + move" must beat a plain move
-const AI_TAX_MARGIN = 25;      // how much Tax Gain (+$3, skip move) must beat playing on
-const AI_SPELL_THRESHOLD = {
-  sleep: 300, confuse: 300, curse: 400, shield: 300, dispel: 300,
-  push: 400, sacrifice: 24, killPawn: 180, killRandom: 100, bounty: 90, echo: 100,
-  block: 120, piratify: 100, thief: 70, swap: 30,
-};
-
-// Does the enemy piece at (r,c) attack any of `me`'s non-king pieces?
-function aiPieceThreatensUs(r, c, me) {
-  const p = state.board[r][c];
-  if (!p || p.color === me) return false;
-  let ms;
-  try { ms = pseudoMoves(state.board, r, c, state.castling, state.epTarget, blockedSet(state)); }
-  catch (e) { return false; }
-  for (const m of ms) {
-    const t = state.board[m.r][m.c];
-    if (t && t.color === me && t.type !== "K") return true;
-  }
-  return false;
-}
-
-// Put the enemy's most valuable active piece to sleep.
-function aiSleepTarget(me) {
-  let best = null;
-  for (let r = 0; r < SIZE; r++) for (let c = 0; c < SIZE; c++) {
-    const p = state.board[r][c];
-    if (!p || p.color === me || p.type === "K") continue;
-    if (isSleeping(state, r, c)) continue;
-    let v = PIECE_SCORE[p.type] || 300;
-    if (aiPieceThreatensUs(r, c, me)) v += 60;
-    if (!best || v > best.score) best = { r, c, score: v };
-  }
-  return best;
-}
-
-// Shield our most valuable piece that is currently under attack.
-function aiShieldTarget(me) {
-  let best = null;
-  for (let r = 0; r < SIZE; r++) for (let c = 0; c < SIZE; c++) {
-    const p = state.board[r][c];
-    if (!p || p.color !== me || p.type === "K") continue;
-    if (isShielded(state, r, c)) continue;
-    if (!squareAttacked(state.board, r, c, opp(me))) continue;   // only shield if in danger
-    const defended = squareAttacked(state.board, r, c, me);
-    const v = (PIECE_SCORE[p.type] || 300) * (defended ? 0.6 : 1.0);
-    if (!best || v > best.score) best = { r, c, score: v };
-  }
-  return best;
-}
-
-// Dispel the most harmful enemy effect on our own pieces (sleep/confusion/curse
-// or an enemy bounty), picking the highest-value piece affected.
-function aiDispelTarget(me) {
-  let best = null;
-  for (let r = 0; r < SIZE; r++) for (let c = 0; c < SIZE; c++) {
-    const p = state.board[r][c];
-    if (!p || p.color !== me) continue;
-    const sleeping = isSleeping(state, r, c);
-    const confused = state.confused.some(x => x.r === r && x.c === c);
-    const cursed   = state.cursed.some(x => x.r === r && x.c === c && x.owner !== me);
-    const foeBounty = p.bounty && p.bounty !== me;
-    if (!sleeping && !confused && !cursed && !foeBounty) continue;
-    let v = PIECE_SCORE[p.type] || 300;
-    if (sleeping) v += 40;
-    if (!best || v > best.score) best = { r, c, score: v };
-  }
-  return best;
-}
-
-// Confuse the enemy's most valuable active piece (it must then move randomly).
-function aiConfuseTarget(me) {
-  let best = null;
-  for (let r = 0; r < SIZE; r++) for (let c = 0; c < SIZE; c++) {
-    const p = state.board[r][c];
-    if (!p || p.color === me || p.type === "K") continue;
-    if (state.confused.some(x => x.r === r && x.c === c)) continue;
-    let v = (PIECE_SCORE[p.type] || 300) * 0.9;
-    if (aiPieceThreatensUs(r, c, me)) v += 60;
-    if (!best || v > best.score) best = { r, c, score: v };
-  }
-  return best;
-}
-
-// Curse the enemy's most valuable piece (its owner bleeds $1 per move).
-function aiCurseTarget(me) {
-  let best = null;
-  for (let r = 0; r < SIZE; r++) for (let c = 0; c < SIZE; c++) {
-    const p = state.board[r][c];
-    if (!p || p.color === me || p.type === "K") continue;
-    if (state.cursed.some(x => x.r === r && x.c === c)) continue;
-    let v = (PIECE_SCORE[p.type] || 300) * 0.6;
-    if (aiPieceThreatensUs(r, c, me)) v += 40;
-    if (!best || v > best.score) best = { r, c, score: v };
-  }
-  return best;
-}
-
-// Push an enemy piece back toward its own side, ideally one that threatens us.
-function aiPushTarget(me) {
-  let best = null;
-  for (let r = 0; r < SIZE; r++) for (let c = 0; c < SIZE; c++) {
-    const p = state.board[r][c];
-    if (!p || p.color === me) continue;
-    if (!isTargetable(r, c, "pushable")) continue;
-    let v = PIECE_SCORE[p.type] || 300;
-    if (aiPieceThreatensUs(r, c, me)) v += 100;
-    if (!best || v > best.score) best = { r, c, score: v };
-  }
-  return best;
-}
-
-// Sacrifice a genuinely lost piece (attacked and undefended) to salvage cash.
-function aiSacrificeTarget(me) {
-  let best = null;
-  for (let r = 0; r < SIZE; r++) for (let c = 0; c < SIZE; c++) {
-    const p = state.board[r][c];
-    if (!p || p.color !== me || p.type === "K") continue;
-    if (!squareAttacked(state.board, r, c, opp(me))) continue;
-    if (squareAttacked(state.board, r, c, me)) continue;
-    // Only salvage a piece that has no safe square to escape to.
-    const lm = legalMoves(state, r, c);
-    if (lm.some(m => !squareAttacked(state.board, m.r, m.c, opp(me)))) continue;
-    const gain = SHOP_PRICE[p.type] !== undefined ? SHOP_PRICE[p.type] : (PIECE_VALUE[p.type] || 0);
-    const v = gain * 12;
-    if (!best || v > best.score) best = { r, c, score: v };
-  }
-  return best;
-}
-
-// Snipe an enemy pawn, preferring one that threatens us or is near our side.
-function aiSnipeTarget(me) {
-  let best = null;
-  for (let r = 0; r < SIZE; r++) for (let c = 0; c < SIZE; c++) {
-    const p = state.board[r][c];
-    if (!p || p.color === me) continue;
-    if (p.type !== "P" && p.type !== "D" && p.type !== "S") continue;
-    let v = 100;
-    if (aiPieceThreatensUs(r, c, me)) v += 120;
-    const depth = me === "w" ? (SIZE - 1 - r) : r;   // rows into our own half
-    if (depth <= 1) v += 60;
-    if (!best || v > best.score) best = { r, c, score: v };
-  }
-  return best;
-}
-
-// Is (r,c) on an open ray between `me`'s king and an enemy slider? A wall
-// dropped there would break the line (a defensive use of Wall).
-function aiBlocksKingLine(r, c, me, k) {
-  const dr0 = r - k.r, dc0 = c - k.c;
-  const g = Math.max(Math.abs(dr0), Math.abs(dc0));
-  if (g === 0) return false;
-  if (dr0 % g !== 0 || dc0 % g !== 0) return false;
-  const dr = dr0 / g, dc = dc0 / g;
-  for (let i = 1; i < g; i++) if (state.board[k.r + dr*i][k.c + dc*i]) return false;
-  let rr = r + dr, cc = c + dc;
-  while (inBounds(rr, cc)) {
-    const t = state.board[rr][cc];
-    if (t) {
-      if (t.color !== me) {
-        const orth = dr === 0 || dc === 0;
-        const diag = Math.abs(dr) === 1 && Math.abs(dc) === 1;
-        if (((t.type === "R" || t.type === "Q" || t.type === "A") && orth) ||
-            ((t.type === "B" || t.type === "Q" || t.type === "A") && diag)) return true;
-      }
-      return false;
-    }
-    rr += dr; cc += dc;
-  }
-  return false;
-}
-
-// Best empty square for a Wall: break a slider's line to our king, stall an
-// enemy pawn nearing promotion, or shelter the king.
-function aiBlockTarget(me) {
-  const enemy = opp(me);
-  const k = findKing(state.board, me);
-  const mid = (SIZE - 1) / 2;
-  let best = null;
-  for (let r = 0; r < SIZE; r++) for (let c = 0; c < SIZE; c++) {
-    if (state.board[r][c]) continue;
-    if (state.blocked.some(b => b.r === r && b.c === c)) continue;
-    let v = 0;
-    if (k && aiBlocksKingLine(r, c, me, k)) v += 220;
-    // One square ahead of an enemy pawn that is nearly promoting.
-    const fdir = enemy === "w" ? -1 : 1;
-    const pr = r - fdir;
-    if (inBounds(pr, c)) {
-      const p = state.board[pr][c];
-      if (p && p.color === enemy && (p.type === "P" || p.type === "D" || p.type === "S")) {
-        const promoRow = enemy === "w" ? 0 : SIZE - 1;
-        const dist = Math.abs(promoRow - pr);
-        if (dist <= 2) v += 40 + (3 - dist) * 40;
-      }
-    }
-    if (k && Math.max(Math.abs(r - k.r), Math.abs(c - k.c)) === 1) v += 25;
-    // Offensive use: cramping the enemy on their own half — wall a square next
-    // to their pieces (and in front of their pawns) to cut their mobility.
-    if (me === "w" ? r < SIZE / 2 : r >= SIZE / 2) {
-      let adj = 0;
-      for (const [dr, dc] of [[1,0],[-1,0],[0,1],[0,-1],[1,1],[1,-1],[-1,1],[-1,-1]]) {
-        const nr = r + dr, nc = c + dc;
-        if (!inBounds(nr, nc)) continue;
-        const q = state.board[nr][nc];
-        if (q && q.color === enemy) adj++;
-      }
-      v += adj * 18;
-    }
-    v += (mid - Math.abs(c - mid)) * 2;
-    if (!best || v > best.score) best = { r, c, score: v };
-  }
-  return best;
-}
-
-// Rough positional fitness of putting `type` on (r,c) — enough to rank Swap
-// pairs; the search confirms the real value.
-function aiSquareFit(type, r, c, me) {
-  const mid = (SIZE - 1) / 2;
-  const fwd = me === "w" ? (SIZE - 1 - r) : r;
-  return pstValue(type, me, r, c) + (mid - Math.abs(c - mid)) * 5 + fwd * 2;
-}
-
-// Best Swap: exchange two of our non-king pieces so each lands on the better
-// square. Returns {r,c,r2,c2,score} or null.
-function aiSwapTarget(me) {
-  const mine = [];
-  for (let r = 0; r < SIZE; r++) for (let c = 0; c < SIZE; c++) {
-    const p = state.board[r][c];
-    if (p && p.color === me && p.type !== "K") mine.push({ r, c, type: p.type });
-  }
-  let best = null;
-  for (let i = 0; i < mine.length; i++) for (let j = i + 1; j < mine.length; j++) {
-    const a = mine[i], b = mine[j];
-    if (state.blocked.some(x => (x.r === a.r && x.c === a.c) || (x.r === b.r && x.c === b.c))) continue;
-    const before = aiSquareFit(a.type, a.r, a.c, me) + aiSquareFit(b.type, b.r, b.c, me);
-    const after  = aiSquareFit(a.type, b.r, b.c, me) + aiSquareFit(b.type, a.r, a.c, me);
-    const score = after - before;
-    if (score <= 0) continue;
-    if (!best || score > best.score) best = { r: a.r, c: a.c, r2: b.r, c2: b.c, score };
-  }
-  return best;
-}
-
-// Best of our pieces to mark with a loot spell. `perCapture` scales the expected
-// income (Piratify $2 a capture, Thief $1) so the more mobile a piece — and the
-// more enemy material it can hit — the better the mark.
-function aiMarkTarget(me, perCapture) {
-  let best = null;
-  for (let r = 0; r < SIZE; r++) for (let c = 0; c < SIZE; c++) {
-    const p = state.board[r][c];
-    if (!p || p.color !== me || p.type === "K") continue;
-    if (state.piratify.some(x => x.r === r && x.c === c) || state.thief.some(x => x.r === r && x.c === c)) continue;
-    let v = 25 * perCapture;
-    try {
-      const ms = pseudoMoves(state.board, r, c, state.castling, state.epTarget, blockedSet(state));
-      for (const m of ms) {
-        const t = state.board[m.r][m.c];
-        if (t && t.color !== me) v += Math.min(50, (PIECE_SCORE[t.type] || 100) * 0.15) * perCapture;
-      }
-    } catch (e) {}
-    if (!best || v > best.score) best = { r, c, score: v };
-  }
-  return best;
-}
-
-// Expected value of a spell that needs no target square.
-function aiInstantScore(id, me) {
-  const enemy = opp(me);
-  if (id === "killRandom") {
-    // 75% hits a random enemy, 25% hits one of ours — score the net expectation.
-    let eSum = 0, eN = 0, oSum = 0, oN = 0;
-    for (let r = 0; r < SIZE; r++) for (let c = 0; c < SIZE; c++) {
-      const p = state.board[r][c];
-      if (!p || p.type === "K") continue;
-      if (p.color === enemy) { eSum += PIECE_SCORE[p.type] || 300; eN++; }
-      else { oSum += PIECE_SCORE[p.type] || 300; oN++; }
-    }
-    if (!eN) return 0;
-    return (eSum / eN) * 0.75 - (oN ? oSum / oN : 0) * 0.25;
-  }
-  if (id === "bounty") {
-    let fresh = 0;
-    for (let r = 0; r < SIZE; r++) for (let c = 0; c < SIZE; c++) {
-      const p = state.board[r][c];
-      if (p && p.color === enemy && p.type !== "K" && !p.bounty) fresh++;
-    }
-    return Math.min(fresh, 2) * 45 + 20;
-  }
-  return 0;
-}
-
-// Gate for trying Echo: it is search-valued (its extra turn is modelled in the
-// search), so this only decides whether it is worth evaluating — roughly one
-// extra capture-free move of tempo.
-function aiEchoScore(me) {
-  return 220;
-}
-
-// Candidate {r, c, score} (or {instant:true, score}) for casting `id`, or null.
-function aiSpellTarget(id, me) {
-  switch (id) {
-    case "sleep":     return aiSleepTarget(me);
-    case "confuse":   return aiConfuseTarget(me);
-    case "curse":     return aiCurseTarget(me);
-    case "shield":    return aiShieldTarget(me);
-    case "dispel":    return aiDispelTarget(me);
-    case "push":      return aiPushTarget(me);
-    case "sacrifice": return aiSacrificeTarget(me);
-    case "killPawn":  return aiSnipeTarget(me);
-    case "block":     return aiBlockTarget(me);
-    case "piratify":  return aiMarkTarget(me, 2);
-    case "thief":     return aiMarkTarget(me, 1);
-    case "swap":      return aiSwapTarget(me);
-    case "killRandom":
-    case "bounty": {
-      const v = aiInstantScore(id, me);
-      return v > 0 ? { instant: true, score: v } : null;
-    }
-    // Echo is search-valued: its extra turn is modelled by applyMove/applySpellToSnapshot.
-    case "echo": return { score: aiEchoScore(me) };
-    default: return null;
-  }
-}
-
-function aiSpellThreshold(id) {
-  return AI_SPELL_THRESHOLD[id] != null ? AI_SPELL_THRESHOLD[id] : AI_SPELL_MIN;
-}
-
-// Pick the best spell to cast this turn, judged by search value where possible
-// (targeted spells) and by heuristic score for untargeted ones. `planVal` is the
-// value of the plain best move, used as the baseline for instant spells.
-function aiBestSpell(me, planVal) {
-  if (state.spellUsedThisTurn || state.placementMode || state.targetMode) return null;
-  const cands = [];
-  for (let i = 0; i < state.spells.length; i++) {
-    const id = state.spells[i];
-    if (!id) continue;
-    const mod = state.spellMods[i] || "normal";
-    if (state.money[me] < spellEffCost(id, mod)) continue;
-    const cand = aiSpellTarget(id, me);
-    if (!cand || cand.score < aiSpellThreshold(id)) continue;
-    cands.push({ slot: i, id, mod, r: cand.r, c: cand.c, r2: cand.r2, c2: cand.c2, instant: !!cand.instant, score: cand.score });
-  }
-  if (!cands.length) return null;
-  cands.sort((a, b) => b.score - a.score);
-  let best = null, targeted = 0;
-  for (const cand of cands) {
-    let value;
-    if (cand.instant) {
-      value = planVal + cand.score;             // heuristic bonus over the plain move
-    } else if (targeted < 3) {
-      targeted++;
-      const v = aiSpellValue(me, cand, spellEffCost(cand.id, cand.mod));
-      value = (v === null) ? planVal + cand.score : v;   // fallback to heuristic
-    } else {
-      continue;                                  // cap the expensive evaluations
-    }
-    if (!best || value > best.value) best = { ...cand, value };
-  }
-  return best;
-}
-
-// Cast the free 2x/RND follow-up if it's worthwhile, else decline it. Targeted
-// spells are checked by value (it's free, so compare spell+move vs a plain move).
-function aiTryFreeFollowUp(me) {
-  if (!state.freeSpellId || state.followUpOwner !== me) return false;
-  const id = state.freeSpellId;
-  const slot = state.spells.indexOf(id);
-  if (slot < 0) { skipFollowUpSpell(); return false; }
-  const cand = aiSpellTarget(id, me);
-  if (cand && cand.score >= aiSpellThreshold(id)) {
-    let use = true;
-    if (!cand.instant) {
-      const base = aiSearchBestMove(me);
-      const baseVal = (base && isFinite(base.value)) ? base.value : 0;
-      const v = aiSpellValue(me, cand, 0);   // free
-      if (v !== null && v <= baseVal + AI_SPELL_MARGIN) use = false;
-    }
-    if (use) {
-      aiCastTargeted(slot, cand);
-      return true;
-    }
-  }
-  skipFollowUpSpell();
-  return false;
-}
-
-// Cast the spell in `slot` and resolve its targeting. Most spells need one click;
-// a Swap needs two (the second is only valid once the bar is in "swap2" mode).
-function aiCastTargeted(slot, cand) {
-  castSpell(slot);
-  for (let click = 0; click < 2; click++) {
-    if (!state.targetMode) break;
-    const rr = click === 0 ? cand.r : cand.r2;
-    const cc = click === 0 ? cand.c : cand.c2;
-    if (rr == null) { cancelPlacement(); break; }
-    if (isTargetable(rr, cc, state.targetMode.kind)) handleTargetClick(rr, cc);
-    else { cancelPlacement(); break; }
-  }
-}
-
-// Search depth: by board size, plus one ply when the board is thin (endgames
-// are both cheaper and more tactical), capped on the biggest boards.
-function searchDepth(snap) {
-  let d = SIZE >= 12 ? 2 : SIZE === 10 ? 3 : 4;
-  let pieces = 0;
-  for (let r = 0; r < SIZE; r++) for (let c = 0; c < SIZE; c++) {
-    const p = snap.board[r][c];
-    if (p && p.type !== "K") pieces++;
-  }
-  if (pieces <= 10) d += 1;
-  const cap = SIZE >= 12 ? 3 : SIZE === 10 ? 4 : 5;
-  return Math.min(d, cap);
-}
-
-// Search the best legal move for `me` on the live board and return it with its
-// value (from me's perspective). Used to play the move and as the baseline that
-// a shop buy must beat.
-function aiSearchBestMove(me) {
-  return aiSearchBestMoveOn(snapshotFromState(state), me);
-}
-
-// Same search, on an arbitrary snapshot whose side to move is `me`.
-function aiSearchBestMoveOn(start, me) {
-  const maxDepth = searchDepth(start);
-  let rootMoves;
-  try { rootMoves = allMoves(start); } catch (e) { rootMoves = []; }
-  if (!rootMoves.length) return { best: null, value: -Infinity };
-  // Iterative deepening: each iteration orders the root with the previous best
-  // move first and fills the TT, so deeper iterations prune much harder. The
-  // final iteration's result is returned.
-  let best = null, bestVal = -Infinity, prevKey = null;
-  for (let d = (AI_ITER_DEEPEN ? 1 : maxDepth); d <= maxDepth; d++) {
-    const moves = orderMoves(start, rootMoves, 0, prevKey);
-    let localBest = moves[0], localVal = -Infinity, alpha = -Infinity;
-    for (const mv of moves) {
-      const promo = mv.move.promotion ? (mv.move.promoteTo || "Q") : null;
-      const child = applyMove(start, mv.fr, mv.fc, mv.move, promo);
-      const v = minimax(child, d - 1, alpha, Infinity, me, 1);
-      if (v > localVal) { localVal = v; localBest = mv; }
-      if (v > alpha) alpha = v;
-    }
-    best = localBest; bestVal = localVal;
-    prevKey = localBest ? { fr: localBest.fr, fc: localBest.fc, r: localBest.move.r, c: localBest.move.c } : null;
-  }
-  return { best, value: bestVal };
-}
-
-// Value of casting Tax Gain (+$3 but the move is skipped): bank the money, hand
-// the turn to the opponent, then search. Returns { slot, value } or null.
-function aiTaxGainValue(me) {
-  if (state.taxSkipPending || state.spellUsedThisTurn || state.placementMode || state.targetMode || state.gameOver) return null;
-  const slot = state.spells.indexOf("moneySkip");
-  if (slot < 0) return null;
-  if (state.money[me] < spellEffCost("moneySkip", state.spellMods[slot] || "normal")) return null;
-  try {
-    const snap = snapshotFromState(state);
-    snap.money = { ...snap.money, [me]: snap.money[me] + 3 };
-    snap.turn = opp(me);
-    return { slot, value: minimax(snap, searchDepth(snap), -Infinity, Infinity, me, 1) };
-  } catch (e) { return null; }
-}
-
-// Apply a targeted spell's effect onto a snapshot for a 1-ply lookahead (the
-// caster is still to move afterwards, since a spell is a free action). Returns
-// the modified snapshot or null when the spell can't be modeled here.
-function applySpellToSnapshot(snap, id, r, c, me, r2, c2) {
-  const board = cloneBoard(snap.board);
-  const out = { ...snap, board, money: { ...snap.money } };
-  out.blocked = snap.blocked.map(b=>({...b}));
-  out.sleeping = (snap.sleeping||[]).map(b=>({...b}));
-  out.shielded = (snap.shielded||[]).map(b=>({...b}));
-  out.confused = (snap.confused||[]).map(b=>({...b}));
-  out.cursed = (snap.cursed||[]).map(b=>({...b}));
-  out.piratify = (snap.piratify||[]).map(b=>({...b}));
-  out.thief = (snap.thief||[]).map(b=>({...b}));
-  out.swapLocked = (snap.swapLocked||[]).map(b=>({...b}));
-  out.noCapture = { w: (snap.noCapture && snap.noCapture.w) || 0, b: (snap.noCapture && snap.noCapture.b) || 0 };
-  out.extraTurns = { w: (snap.extraTurns && snap.extraTurns.w) || 0, b: (snap.extraTurns && snap.extraTurns.b) || 0 };
-  switch (id) {
-    case "echo": {
-      // Echo: no captures this move and the extra turn; the caster keeps the turn.
-      out.noCapture[me] = 2;
-      out.extraTurns[me] = Math.max(out.extraTurns[me], 1);
-      return out;
-    }
-    case "sleep":   out.sleeping.push({ r, c, owner: me, rem: 2 }); return out;
-    case "confuse": out.confused.push({ r, c }); return out;
-    case "curse":   out.cursed.push({ r, c, owner: me }); return out;
-    case "shield":  out.shielded.push({ r, c, owner: me, rem: 2 }); return out;
-    case "block": {
-      if (board[r][c] || out.blocked.some(b => b.r === r && b.c === c)) return null;
-      out.blocked.push({ r, c, owner: me, rem: 2 });
-      return out;
-    }
-    case "piratify": {
-      const p = board[r][c];
-      if (!p || p.color !== me) return null;
-      if (out.piratify.some(x => x.r === r && x.c === c) || out.thief.some(x => x.r === r && x.c === c)) return null;
-      out.piratify.push({ r, c });
-      return out;
-    }
-    case "thief": {
-      const p = board[r][c];
-      if (!p || p.color !== me) return null;
-      if (out.piratify.some(x => x.r === r && x.c === c) || out.thief.some(x => x.r === r && x.c === c)) return null;
-      out.thief.push({ r, c });
-      return out;
-    }
-    case "swap": {
-      if (r2 == null || c2 == null || (r === r2 && c === c2)) return null;
-      const pa = board[r][c], pb = board[r2][c2];
-      if (!pa || !pb || pa.color !== me || pb.color !== me || pa.type === "K" || pb.type === "K") return null;
-      if (out.blocked.some(b => (b.r === r2 && b.c === c2))) return null;
-      board[r][c] = pb; board[r2][c2] = pa;
-      // Square-keyed markers follow the two pieces.
-      for (const list of [out.shielded, out.piratify, out.thief, out.cursed, out.confused, out.sleeping]) {
-        for (const e of list) {
-          if (e.r === r && e.c === c) { e.r = r2; e.c = c2; }
-          else if (e.r === r2 && e.c === c2) { e.r = r; e.c = c; }
-        }
-      }
-      // Both swapped pieces are locked for the rest of this turn.
-      out.swapLocked.push({ r, c, owner: me, rem: 1 });
-      out.swapLocked.push({ r: r2, c: c2, owner: me, rem: 1 });
-      return out;
-    }
-    case "push": {
-      const p = board[r][c];
-      if (!p) return null;
-      const dir = p.color === "w" ? 1 : -1;
-      let tr = r, moved = 0;
-      while (moved < 3) {
-        const nr = tr + dir;
-        if (nr < 0 || nr >= SIZE || out.blocked.some(b => b.r === nr && b.c === c) || board[nr][c]) break;
-        tr = nr; moved++;
-      }
-      if (!moved) return null;
-      for (const list of [out.sleeping, out.cursed, out.shielded]) {
-        for (const e of list) if (e.r === r && e.c === c) e.r = tr;
-      }
-      board[tr][c] = p; board[r][c] = null;
-      return out;
-    }
-    case "sacrifice": {
-      const p = board[r][c];
-      if (!p || p.color !== me || p.type === "K") return null;
-      const gain = SHOP_PRICE[p.type] !== undefined ? SHOP_PRICE[p.type] : (PIECE_VALUE[p.type] || 0);
-      board[r][c] = null;
-      out.money[me] += gain;
-      return out;
-    }
-    case "killPawn": {
-      if (!board[r][c]) return null;
-      board[r][c] = null;
-      return out;
-    }
-    case "dispel": {
-      out.sleeping = out.sleeping.filter(e => !(e.r===r && e.c===c));
-      out.confused = out.confused.filter(e => !(e.r===r && e.c===c));
-      out.cursed = out.cursed.filter(e => !(e.r===r && e.c===c));
-      if (board[r][c] && board[r][c].bounty) board[r][c] = { ...board[r][c], bounty: null };
-      return out;
-    }
-    default: return null;
-  }
-}
-
-// Value of casting a targeted spell and then playing the best follow-up move.
-// null when the spell isn't modeled (e.g. instant spells) — caller falls back
-// to the heuristic decision.
-function aiSpellValue(me, cand, cost) {
-  try {
-    const applied = applySpellToSnapshot(snapshotFromState(state), cand.id, cand.r, cand.c, me, cand.r2, cand.c2);
-    if (!applied) return null;
-    applied.money = { ...applied.money, [me]: applied.money[me] - cost };
-    const res = aiSearchBestMoveOn(applied, me);
-    return res && isFinite(res.value) ? res.value : null;
-  } catch (e) { return null; }
-}
-
-// Pick the best affordable shop buy for `me` (slot + placement), valued by the
-// search on the resulting position with the price charged. Returns null when
-// shopping isn't allowed or nothing affordable is worth considering.
-function aiBestBuy(me) {
-  if (state.spellUsedThisTurn || state.placementMode || state.targetMode || state.gameOver) return null;
-  if (inCheck(state.board, me)) return null;   // must resolve the check on the board
-  let best = null;
-  for (let i = 0; i < 3; i++) {
-    const e = state.shop[i];
-    if (!e) continue;
-    const cost = shopPrice(e);
-    if (state.money[me] < cost) continue;
-    const spot = aiBestPlacement(me, e.p, cost);
-    if (!spot) continue;
-    if (!best || spot.value > best.value) best = { slot: i, value: spot.value, spot };
-  }
-  return best;
-}
-
-function aiFinishPlacement() {
-  const me = state.aiColor;
-  if (!state.placementMode) { aiThinking = false; render(); return; }
-  let spot = aiBestPlacement(me, state.placementPiece);
-  if (!spot) {
-    // Half is (nearly) full: drop the piece on any free non-wall square there.
-    const lo = me === "w" ? Math.ceil(SIZE / 2) : 0;
-    const hi = me === "w" ? SIZE - 1 : Math.floor(SIZE / 2) - 1;
-    outer:
-    for (let r = lo; r <= hi; r++) for (let c = 0; c < SIZE; c++) {
-      if (!state.board[r][c] && !state.blocked.some(b => b.r === r && b.c === c)) { spot = { r, c }; break outer; }
-    }
-    if (!spot) { aiThinking = false; render(); return; }
-  }
-  placePiece(spot.r, spot.c);
-  aiThinking = false;
-  render();
-}
-
 function isTargetable(r, c, kind) {
   const p = state.board[r][c];
   const god = godCasting();   // God Mode: any piece, either color, may be targeted
@@ -4122,6 +4957,7 @@ dispelable: "click a wall / sleeping / confused / bountied / piratified / thief 
     if (state.extraTurns[state.turn] > 0) t += " [extra turn — no captures]";
     else if (state.noCapture[state.turn] > 0) t += " — no captures this turn";
     if (inCheck(state.board, state.turn)) t += " — Check!";
+    if (state.aiOpponent && state.turn === state.aiColor && aiThinking) t += " — AI (level " + AI_LEVEL + ") thinking…";
     STATUS_EL.textContent = t;
   } finally {
     if (viewing && !state.gameOver) STATUS_EL.textContent += " — reviewing";
@@ -5170,6 +6006,7 @@ state.money = prev.money;
 }
 
 function rebuildHistorySel() {
+  if (AI_HEADLESS) return;
   HISTORY_SEL.innerHTML = "";
   for (let i=0;i<state.moveLog.length;i+=2) {
     const opt = document.createElement("option");
@@ -5219,6 +6056,7 @@ function showPromotion() {
 }
 
 function reset() {
+  aiCancelThinking();
   aiThinking = false;
   newSeed();
 state = initialState();
@@ -5246,7 +6084,7 @@ let SOUND_VOLUME = 100; // 0..100 percent
 let DING_ON = true;     // turn-notifier chime on/off
 let MUSIC_ON = true;    // ambient piano on/off
 function playDing() {
-  if (!DING_ON || SOUND_VOLUME <= 0) return;
+  if (!DING_ON || SOUND_VOLUME <= 0 || AI_HEADLESS) return;
   try {
     const AC = window.AudioContext || window.webkitAudioContext;
     if (!AC) return;
@@ -6071,6 +6909,7 @@ try {
   else if (typeof settings.sound === "boolean") SOUND_VOLUME = settings.sound ? 100 : 0; // legacy on/off
   if (typeof settings.musicOn === "boolean") MUSIC_ON = settings.musicOn;
   if (typeof settings.dingOn === "boolean") DING_ON = settings.dingOn;
+  if (typeof settings.aiLevel === "number") AI_LEVEL = Math.max(AI_LEVEL_MIN, Math.min(AI_LEVEL_MAX, Math.round(settings.aiLevel)));
 }
 updateMenuMusic(); // apply a stored music off/mute immediately
 
@@ -6084,7 +6923,16 @@ render();
 
 // ---- Main menu ----
 function saveMenuSettings() {
-  try { localStorage.setItem("moneyChessSettings", JSON.stringify({ volume: SOUND_VOLUME, musicOn: MUSIC_ON, dingOn: DING_ON })); } catch (e) {}
+  try { localStorage.setItem("moneyChessSettings", JSON.stringify({ volume: SOUND_VOLUME, musicOn: MUSIC_ON, dingOn: DING_ON, aiLevel: AI_LEVEL })); } catch (e) {}
+}
+// AI difficulty 1..11 (11 searches about 5 s a move); takes effect on the AI's next decision.
+function syncAiLevelUI() {
+  for (const [slId, lblId] of [["aiLevelSlider", "aiLevelPct"], ["gameAiLevelSlider", "gameAiLevelPct"]]) {
+    const slider = document.getElementById(slId);
+    const lbl = document.getElementById(lblId);
+    if (slider) slider.value = AI_LEVEL;
+    if (lbl) lbl.textContent = AI_LEVEL;
+  }
 }
 function syncVolumeUI() {
   for (const [slId, pctId] of [["soundSlider", "soundPct"], ["gameSoundSlider", "gameSoundPct"]]) {
@@ -6112,6 +6960,7 @@ document.getElementById("menuSettingsBtn").addEventListener("click", () => {
   menuShow("menuSettings");
   syncVolumeUI();
   syncTogglesUI();
+  syncAiLevelUI();
 });
 document.querySelectorAll(".back-btn").forEach(b => b.addEventListener("click", () => menuShow(b.dataset.back)));
 
@@ -6121,6 +6970,13 @@ for (const id of ["soundSlider", "gameSoundSlider"]) {
     syncVolumeUI();
     saveMenuSettings();
     updateMenuMusic();
+  });
+}
+for (const id of ["aiLevelSlider", "gameAiLevelSlider"]) {
+  document.getElementById(id).addEventListener("input", (e) => {
+    AI_LEVEL = Math.max(AI_LEVEL_MIN, Math.min(AI_LEVEL_MAX, +e.target.value));
+    syncAiLevelUI();
+    saveMenuSettings();
   });
 }
 for (const id of ["musicToggle", "gameMusicToggle"]) {
@@ -6140,11 +6996,13 @@ for (const id of ["dingToggle", "gameDingToggle"]) {
 }
 syncVolumeUI();
 syncTogglesUI();
+syncAiLevelUI();
 
 // ---- In-game settings (top-right button): volume slider + quit to menu ----
 function openGameSettings() {
   syncVolumeUI();
   syncTogglesUI();
+  syncAiLevelUI();
   document.getElementById("gameSettings").style.display = "flex";
 }
 function closeGameSettings() {
