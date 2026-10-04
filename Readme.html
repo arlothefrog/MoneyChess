@@ -132,7 +132,7 @@
     <tr><td><span class="mono">Reset</span></td><td>New seed + new game (local play only). Also restores the board settings to 8x8 and turns Chess 960 off (the size-menu highlight and 960 toggle update to match; picking a size or toggling 960 afterwards still re-applies that choice).</td></tr>
     <tr><td><span class="mono">Piece Catalog</span></td><td>Popup reference of every piece in alphabetical order: each on an empty 8x8 board shown selected with its move dots, next to its name, shop cost and move description (the Cricket shows two enemy pieces â€” one adjacent diagonal, one at double-diagonal â€” so both movement modes are visible; the Cat shows five enemy pieces demonstrating its 2-square jump-captures and knight-square captures; the Shooter shows three enemies on its 2-square shot ring plus one adjacent enemy it cannot hurt). Scrollable.</td></tr>
     <tr><td><span class="mono">Spell Catalog</span></td><td>Popup reference of every spell in alphabetical order: captioned demo board(s) showing the cast targeting view and/or the result (e.g. Piratify: all your pieces selectable â†’ a full starting board with one of White's knights piratified), next to name, cost and effect text. Scrollable.</td></tr>
-    <tr><td><span class="mono">God Mode</span> (Sandbox only)</td><td>Opens a cheat panel with four sections: <em>Money</em> (+$1/+$5/+$10/+$25 for either side), <em>Remove a piece</em> — a Snipe button that enters snipe mode: click any piece to destroy it (repeatedly, any number of pieces, no capture money awarded; destroying a king ends the game; Cancel exits snipe mode, and snipe edits are not logged in the move list), <em>Pieces</em> — pick a shop modifier (Normal/Golden/Platinum/+$1/−$1) then click any shop piece to place it for free <strong>anywhere on the board</strong> with the color chosen (defaults to White) — placement costs nothing, does <strong>not</strong> end your turn, and is not logged in the move list (Cancel aborts) — and <em>Spells</em> — pick a spell modifier (Normal/−$1/+$1/Double/RND extra) then click any spell to cast it immediately for free through the normal pipeline (targeting, follow-ups, reshuffle all unchanged).</td></tr>
+    <tr><td><span class="mono">God Mode</span> (Sandbox only)</td><td>Opens a cheat panel with four sections: <em>Money</em> (+$1/+$5/+$10/+$25 for either side), <em>Remove a piece</em> — a Snipe button that enters snipe mode: click any piece to destroy it (repeatedly, any number of pieces, no capture money awarded; destroying a king ends the game; Cancel exits snipe mode, and snipe edits are not logged in the move list), <em>Pieces</em> — pick a shop modifier (Normal/Golden/Platinum/+$1/−$1) then click any shop piece to place it for free <strong>anywhere on the board</strong> with the color chosen (defaults to White) — placement costs nothing, does <strong>not</strong> end your turn, and is not logged in the move list (Cancel aborts) — and <em>Spells</em> — pick a spell <em>side</em> (White/Black, the color the spell acts "as", defaulting to the side to move) and a spell modifier (Normal/−$1/+$1/Double/RND extra) then click any spell to cast it immediately for free through the normal pipeline (follow-ups, reshuffle all unchanged). In God Mode, <strong>targeted spells may be cast on any piece regardless of color</strong> (e.g. Sleep/Piratify/Shield a white <em>or</em> black piece) and the <strong>random/untargeted spells</strong> (Lightning, Bounty, Echo) use the chosen spell side — so you can strike, bounty, or grant an extra turn for either player. The usual targeting rules are untouched for normal (non-God) casts.</td></tr>
     <tr><td><span class="mono">Host Online / Join / Close Room</span></td><td>Twoâ€‘player networking (see Â§10). Hidden while a Sandbox session is active.</td></tr>
     <tr><td><span class="mono">Cancel Placement</span></td><td>Abort an unplaced shop purchase or a targeting spell (restores the pre-action state).</td></tr>
     <tr><td><span class="mono">Skip Turn</span></td><td>Only appears for the Tax GainÃ—2 / RND forced decision; passes the turn (declining the offered free spell).</td></tr>
@@ -188,7 +188,7 @@
 
   <h2>6. Pieces</h2>
 <p>Internal letters (<span class="mono">type</span>), names, movement and matching shop prices
-  (<span class="mono">PIECE_VALUE</span>, with shop overrides <span class="mono">SHOP_PRICE.M = 4</span> for the Rat, <span class="mono">SHOP_PRICE.T = 6</span> for the Cat and <span class="mono">SHOP_PRICE.X = 7</span> for the Shooter):</p>
+  (<span class="mono">PIECE_VALUE</span>, with shop overrides <span class="mono">SHOP_PRICE.M = 4</span> for the Rat, <span class="mono">SHOP_PRICE.T = 7</span> for the Cat and <span class="mono">SHOP_PRICE.X = 8</span> for the Shooter):</p>
   <table>
     <tr><th>Letter</th><th>Name</th><th>Glyph</th><th>Shop</th><th>Movement (per code)</th></tr>
     <tr><td>P</td><td>Pawn</td><td>â™Ÿ</td><td>$1</td><td>Move 1 forward (2 from start); capture diagonally forward; en passant (only while the just-double-stepped enemy pawn still stands beside the mover &#8212; a spell that relocates the pawn cancels the capture); promotes to queen on last rank.</td></tr>
@@ -204,8 +204,8 @@
     <tr><td>A</td><td>Amazon</td><td>â™ž+crown</td><td>$12*</td><td>Queen + knight moves. Only obtained via D/S auto-promotion (its shop price exists only for reference; it is not in the shop pool).</td></tr>
     <tr><td>H</td><td>Centaur</td><td>ðŸ¦„-like</td><td>$7</td><td>Knight + king moves.</td></tr>
 <tr><td>M</td><td>Rat</td><td>ðŸ€</td><td>$4</td><td>Slides up to 2 squares in any of 8 directions; cannot jump. Shop price $4, capture pays $2.</td></tr>
-    <tr><td>T</td><td>Cat</td><td>ðŸ±</td><td>$6</td><td>Moves 1 square any of 8 directions; captures up to 2 away in those directions (leaps) and on knight squares (capture only, cannot land there). Shop price $6, capture pays $3.</td></tr>
-    <tr><td>X</td><td>Shooter</td><td>sprite</td><td>$7</td><td>Moves 1 to an <em>empty</em> adjacent square (any direction, no capture-by-landing); instead shoots an enemy at Chebyshev distance exactly 2 (the 5Ã—5 ring), destroying it without moving. Shop price $7, capture pays $3.</td></tr>
+    <tr><td>T</td><td>Cat</td><td>ðŸ±</td><td>$7</td><td>Moves 1 square any of 8 directions; captures up to 2 away in those directions (leaps) and on knight squares (capture only, cannot land there). Shop price $7, capture pays $3.</td></tr>
+    <tr><td>X</td><td>Shooter</td><td>sprite</td><td>$8</td><td>Moves 1 to an <em>empty</em> adjacent square (any direction, no capture-by-landing); instead shoots an enemy at Chebyshev distance exactly 2 (the 5Ã—5 ring), destroying it without moving. Shop price $8, capture pays $4.</td></tr>
     <tr><td>F</td><td>Fake Knight</td><td>â™ž-flip</td><td>$4</td><td>Slides 1â€“2 straight in any direction, or 2 straight then 1 sideways; may move or capture at any square on the path; <em>cannot jump</em>.</td></tr>
   </table>
   <p>
@@ -303,33 +303,74 @@
   <ul>
     <li>The AI plays Black when "Play vs AI" is clicked before a game. It uses minimax with alpha-beta, move ordering, killer &
       history heuristics, and piece-square tables tuned for 8x8.</li>
-    <li>Search depth depends on board size: depth 3 on 8x8, 2 on 10x10, 1 on 12x12+.</li>
-    <li>The turn decision compares three options by search value: the best move
-      (<span class="mono">aiSearchBestMove</span>), a free spell plus the best follow-up move
-      (<span class="mono">aiBestSpell</span> via <span class="mono">aiSpellValue</span>), and a shop buy
-      (<span class="mono">aiBestBuy</span>). A buy ends the turn, so it is only taken when it beats <em>both</em> the best
-      move and the best spell turn by <span class="mono">AI_BUY_MARGIN</span>; this stops the AI from shopping away a winning
-      capture. A spell is cast when it beats the plain move by <span class="mono">AI_SPELL_MARGIN</span> (it is free, so the
-      AI still moves afterwards).</li>
+    <li>Search depth depends on board size: depth 4 on 8x8, 3 on 10x10, 2 on 12x12+, plus one extra ply when the board
+      is thin (≤10 non-king pieces, i.e. an endgame — cheaper and more tactical); big boards are capped at 3
+      (<span class="mono">searchDepth</span>). <strong>Late-move reductions</strong> (<span class="mono">AI_USE_LMR</span>)
+      search late quiet moves one ply shallower and re-search only when they beat the window, which buys the extra depth
+      at roughly the previous cost.</li>
+    <li>Quiescence resolves captures and promotions after the horizon, prunes hopeless captures with delta pruning
+      (skip a capture if winning the victim plus a margin still cannot pass alpha/beta), and searches every legal evasion
+      (instead of standing pat) when the side to move is in check. Because this is a king-capture variant with no
+      checkmate, any no-legal-move position is scored as a draw (0) — so a winning AI avoids stalemating itself or the
+      opponent and keeps hunting the king, while a losing AI will happily take the draw. (There is no repetition or
+      50-move draw, so the AI does not model repetition.)</li>
+    <li>Search nodes avoid allocation: <span class="mono">cloneBoardRows</span> shallow-copies only the one or two rows a
+      move touches and shares unchanged piece objects (pieces are never edited in place during the search), empty effect
+      lists are shared, and the side-to-move invariants (blocked set, king square, in-check flag) are computed once per
+      <span class="mono">allMoves</span> rather than per piece. The evaluation reuses module-level buffers (an effect bit
+      grid, pawn-file arrays, a blocked set) instead of allocating per call — it runs at every quiescence leaf.</li>
+    <li>A <strong>transposition table</strong> (<span class="mono">positionHash</span> + <span class="mono">ttStore</span>,
+      Map keyed by a 32-bit Zobrist-style hash and verified with a second 32-bit hash) caches <span class="mono">minimax</span>
+      results and the best move per position, and the root uses <strong>iterative deepening</strong> so each depth reorders
+      with the previous best move and fills the table. The hash covers everything the result depends on: board + per-piece
+      flags, side to move, castling, en-passant, every effect, the no-capture counters, extra turns and both wallets.
+      (The table is cleared once per AI turn; internal flags <span class="mono">AI_USE_TT</span> /
+      <span class="mono">AI_ITER_DEEPEN</span> / <span class="mono">AI_USE_LMR</span> can disable them.) Verified to return
+      the same values as the non-TT search at fixed depth.</li>
+    <li>The turn decision compares the best move (<span class="mono">aiSearchBestMove</span>), a free spell plus the best
+      follow-up move (<span class="mono">aiBestSpell</span> via <span class="mono">aiSpellValue</span>), a shop buy
+      (<span class="mono">aiBestBuy</span>) and Tax Gain (<span class="mono">aiTaxGainValue</span>) by search value. A buy
+      and Tax Gain both end the turn, so they are only taken when they beat <em>both</em> the best move and the best spell
+      turn (by <span class="mono">AI_BUY_MARGIN</span> / <span class="mono">AI_TAX_MARGIN</span>); this stops the AI from
+      shopping or taxing away a winning capture. A spell is cast when it beats the plain move by
+      <span class="mono">AI_SPELL_MARGIN</span> (it is free, so the AI still moves afterwards).</li>
     <li>Placement is chosen by search: the heuristic (<span class="mono">aiPlacementScore</span> — danger weighted by piece
-      value, pawn-chain bonus, anti-doubling) shortlists the best squares, then each is actually placed on a snapshot and
-      evaluated by <span class="mono">minimax</span> (<span class="mono">aiBestPlacement</span>, shortlist 10 on small boards /
-      6 on 12x12+, depth 2 / 1). The price is charged to the snapshot so the buy value is comparable to a move's.</li>
+      value, pawn-chain bonus, anti-doubling, and the threat the new piece creates) shortlists the best squares, then each is
+      actually placed on a snapshot and evaluated by <span class="mono">minimax</span>
+      (<span class="mono">aiBestPlacement</span>, shortlist 10 on small boards / 6 on 12x12+, depth 2 / 1). The price is
+      charged to the snapshot so the buy value is comparable to a move's.</li>
     <li>Supported spells (<span class="mono">aiSpellTarget</span>): <strong>Sleep</strong>, <strong>Confusion</strong>,
       <strong>Curse</strong>, <strong>Shield</strong>, <strong>Dispel</strong>, <strong>Push</strong>,
       <strong>Sacrifice</strong> (only a piece that is attacked, undefended and has no safe escape), <strong>Snipe Pawn</strong>
-      (enemy pawns), and the untargeted <strong>Lightning</strong>, <strong>Bounty</strong> and <strong>Echo</strong> (scored
-      by expectation). Each candidate must first clear <span class="mono">AI_SPELL_THRESHOLD</span>; targeted spells are then
-      simulated with <span class="mono">applySpellToSnapshot</span> and valued by the search (the two strongest are evaluated).</li>
+      (enemy pawns), <strong>Wall</strong> (<span class="mono">aiBlockTarget</span> — break a slider&rsquo;s line to the king,
+      stall a pawn near promotion, shelter the king, or cramp the enemy on their own half), <strong>Piratify</strong> and
+      <strong>Thief</strong> (<span class="mono">aiMarkTarget</span> — the most mobile piece that can hit enemy material),
+      <strong>Swap</strong> (<span class="mono">aiSwapTarget</span> — the best pair to exchange onto better squares; the
+      two-click cast is driven by <span class="mono">aiCastTargeted</span>), <strong>Echo</strong> (search-valued by
+      <span class="mono">aiEchoScore</span>: its extra turn is modelled in <span class="mono">applyMove</span> and
+      <span class="mono">applySpellToSnapshot</span> — the caster moves twice with no captures), and the untargeted
+      <strong>Lightning</strong> and <strong>Bounty</strong> (scored by expectation).
+      <strong>Tax Gain</strong> (+$3, turn-ending) is valued separately like a buy. <strong>Freecast</strong> is not
+      modelled (its granted spell is random). Each candidate must first clear
+      <span class="mono">AI_SPELL_THRESHOLD</span>; targeted spells are then simulated with
+      <span class="mono">applySpellToSnapshot</span> and valued by the search (the three strongest are evaluated).</li>
+    <li>The search mirrors the live capture economy: <span class="mono">applyMove</span> credits half the victim&rsquo;s value,
+      the bounty payout, Plunder +$2, Thief&rsquo;s $1 steal, golden +$1, platinum +$3 and the $1 cursed-mover toll
+      (<span class="mono">applyMoveIncome</span>), and carries Piratify/Thief/Curse/Shield markers with a moving piece.
+      Without this the AI would treat money-generating captures and loot spells as free.</li>
     <li>2x/RND free follow-ups are value-checked too and taken when useful, otherwise declined
       (<span class="mono">aiTryFreeFollowUp</span>). Echo's extra turn is honored: the AI re-renders so it takes the extra
       move (and the search models the no-capture window so it won't plan an illegal capture).</li>
-    <li>Snapshots carry every square-keyed effect plus the no-capture counters (<span class="mono">snapEffects</span>), and
+    <li>Snapshots carry every square-keyed effect plus the no-capture counters and pending extra turns
+      (<span class="mono">snapEffects</span>; the latter let the search play out an Echo), and
       <span class="mono">evaluate</span> values control effects (a slept piece is worth ~30% less to its owner, confused
       ~22%, cursed ~12%, and a shield adds ~10%) so spell turns are judged against moves fairly. It also scores king safety
       (<span class="mono">kingShield</span>), doubled/isolated pawns, the bishop pair, rooks/queens on open files, piece
       mobility (<span class="mono">fastMobility</span>, with a move-generation fallback for the custom pieces), and — once
-      material is low — king activity (<span class="mono">kingActivity</span>).</li>
+      material or the piece count is low — king activity (<span class="mono">kingActivity</span>). It also rewards
+      <strong>passed pawns</strong> (scaled by advancement — D/S runners promote straight to an Amazon) and, when clearly
+      ahead in a thin endgame, <strong>king conversion</strong> (corner the enemy king and walk our king in, since the game
+      is won by capturing the king, not by mate).</li>
     <li>Safety nets: if its planned move can't be applied (e.g. a piece became curse-frozen), it plays any legal move
       (<span class="mono">aiFallbackMove</span>); if it has no moves at all it ends the game as a stalemate draw.</li>
   </ul>
@@ -342,7 +383,8 @@
     <tr><td>Bounty (red halo + "$")</td><td>Red halo and $ mark</td><td>Owner earns +$1 when that piece is captured.</td></tr>
     <tr><td>Piratified (skull badge)</td><td>â˜  marker</td><td>Own piece earns +$2 per capture.</td></tr>
     <tr><td>Thief (money bag badge)</td><td>ðŸ’° marker</td><td>Own piece steals $1 per capture from opponent.</td></tr>
-    <tr><td>Cursed (skull badge)</td><td>â˜  marker</td><td>Enemy piece loses $1 per move; frozen at $0.</td></tr>
+    <tr><td>Cursed (skull badge)</td><td>â˜  marker</td><td>Enemy piece loses $1 per move; frozen at $0. The marker follows the piece when it moves.</td></tr>
+    <tr><td>Shielded</td><td>shield glyph</td><td>Own piece can't capture or be captured; expires after the opponent's turn (dispellable). The marker follows the piece when it moves (<span class="mono">makeMove</span> re-keys it, as it does Piratify/Thief/Curse).</td></tr>
     <tr><td>Sleeping</td><td>Faded piece + ðŸ’¤</td><td>Cannot move this next turn.</td></tr>
     <tr><td>Confused</td><td>Wobble + spinning â˜¯</td><td>Next move is random.</td></tr>
     <tr><td>Wall</td><td>â–£ overlay</td><td>Blocked square (pieces can't move into/through).</td></tr>
@@ -370,7 +412,7 @@
     <li><span class="mono">openCatalog("pieces"|"spells") / buildPieceCatalog() / buildSpellCatalog() / makeCatBoard() / catPieceSpan() / catMoves()</span> â€” the Piece &amp; Spell Catalog popups (mini 8x8 demo boards reuse the game's square/piece/effect CSS).</li>
     <li><span class="mono">reviewBack() / reviewForward() / reviewShow() / reviewExit() / viewStartLive() / cloneStateForReview() / updateHistoryButtons()</span> â€” move review (the <span class="mono">â†</span> <span class="mono">current move</span> <span class="mono">â†’</span> buttons; <span class="mono">updateHistoryButtons()</span> also toggles the middle <span class="mono">current move</span> button, which calls <span class="mono">reviewExit()</span> + <span class="mono">render()</span> to jump straight to the current move). <span class="mono">reviewFrames[i]</span> holds a snapshot of the position after move i (index 0 = starting position, kept in step by <span class="mono">rebuildHistorySel()</span>); if a new move is recorded while <span class="mono">reviewPos &gt;= 0</span>, the review snaps back to the live board so the current position always shows; <span class="mono">render()</span> swaps the live <span class="mono">state</span> for a frame only for the duration of the draw (try/finally), and a document-level capture click handler ignores gameplay clicks while <span class="mono">reviewPos &gt;= 0</span>.</li>
     <li><span class="mono">openGod() / closeGod() / buildGodPanel() / godSpawnPiece(type) / godCastSpell(id) / godSnipePiece(r,c)</span> &mdash; the Sandbox God Mode panel. <span class="mono">godSpawnPiece</span> works like <span class="mono">buyPiece()</span> without cost/shop consumption; its placement (<span class="mono">state.placementGod</span>) accepts any empty square and any color (<span class="mono">godPieceColor</span>), and <span class="mono">godPlacePiece()</span> completes it without ending the turn or touching the move log. <span class="mono">godCastSpell</span> stages the chosen spell into slot 0 and waives cost/limits via a transient <span class="mono">state.godFreeSpell</span> flag honoured by canCast/castSpell; <span class="mono">godSnipePiece</span> destroys a piece with no capture money, driven by the <span class="mono">godSnipeMode</span> flag consulted in onSquareClick, and stays active until Cancel (any number of pieces).</li>
-    <li><span class="mono">enableAI() / aiMove() / aiSearchBestMove() / aiBestBuy() / aiBestSpell() / aiSpellTarget() / aiSpellValue() / aiTryFreeFollowUp() / aiBestPlacement() / aiPlacementScore() / applyPlacement() / applySpellToSnapshot() / snapEffects()</span> â€” AI behaviours.</li>
+    <li><span class="mono">enableAI() / aiMove() / aiSearchBestMove() / aiBestBuy() / aiBestSpell() / aiSpellTarget() / aiSpellValue() / aiTryFreeFollowUp() / aiCastTargeted() / aiTaxGainValue() / aiBlockTarget() / aiMarkTarget() / aiSwapTarget() / aiSquareFit() / aiEchoScore() / aiBestPlacement() / aiPlacementScore() / applyPlacement() / applyMoveIncome() / applySpellToSnapshot() / snapEffects() / searchDepth() / cloneBoardRows() / positionHash() / ttStore()</span> â€” AI behaviours.</li>
     <li><span class="mono">netStartHost() / netJoin() / netOnData() / netAdopt()</span> â€” online multiplayer.</li>
     <li><span class="mono">gRng() / newSeed()</span> â€” seeded RNG.</li>
   </ul>

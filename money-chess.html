@@ -337,7 +337,13 @@
   }
   @keyframes confuseWob { from { transform: rotate(-4deg); } to { transform: rotate(4deg); } }
   @keyframes confuseSpin { from { transform: rotate(0); } to { transform: rotate(360deg); } }
-  .square.shielded .piece { filter: drop-shadow(0 0 6px #6fd3ff); }
+  /* Shield: ring the tile instead of filtering the piece — a `filter` on the
+     piece would override the invert() that renders white pawns (and the tint
+     classes), making a shielded white pawn look black. */
+  .square.shielded {
+    outline: 3px solid rgba(111, 211, 255, 0.9);
+    outline-offset: -3px;
+  }
   .square.shielded::after {
     content: "🛡";
     position: absolute;
@@ -386,9 +392,18 @@
     80% { box-shadow: 0 0 22px 6px rgba(255, 240, 0, 0.9); }
     100% { box-shadow: 0 0 0 0 rgba(255, 240, 0, 0); }
   }
-  .piece.tint-white { filter: grayscale(100%) brightness(2.2); }
+  /* White pieces on the light tiles need an outline to stand out. Glyph pieces
+     get a dark text-shadow; the filter-based ones (white pawns invert a black
+     glyph, the white rat is brightened, centaur/shooter are images) compose the
+     same outline into their filter so it survives. */
+  .piece.side-w:not(.pawn-iw):not(.tint-white):not(.centaur):not(.shooter) {
+    text-shadow: 0 0 1px rgba(0, 0, 0, 0.9), 0 0 2px rgba(0, 0, 0, 0.6);
+  }
+  .piece.tint-white { filter: grayscale(100%) brightness(2.2) drop-shadow(0 0 1px rgba(0, 0, 0, 0.9)); }
   /* White pawns: solid black pawn pixels flipped to white via invert */
   .piece.pawn-iw, .glyph.pawn-iw { color: #000; filter: grayscale(100%) invert(1) brightness(2); }
+  .piece.pawn-iw { filter: grayscale(100%) invert(1) brightness(2) drop-shadow(0 0 1px rgba(0, 0, 0, 0.9)); }
+  .piece.side-w.centaur, .piece.side-w.shooter { filter: drop-shadow(0 0 1px rgba(0, 0, 0, 0.9)); }
   .piece.tint-black { filter: grayscale(100%) brightness(0.25); }
   .piece.cat-black { filter: grayscale(100%) brightness(0.55); }
   .piece.dpawn, .glyph.dpawn {
@@ -1017,7 +1032,8 @@
         <div class="god-row" id="godPieces"></div>
       </div>
       <div class="god-section">
-        <div class="god-label">Cast a spell (free, ignores one-per-turn limits)</div>
+        <div class="god-label">Cast a spell (free, ignores one-per-turn limits; side = who it acts as)</div>
+        <div class="god-row" id="godSpellColors"></div>
         <div class="god-row" id="godSpellMods"></div>
         <div class="god-row" id="godSpells"></div>
       </div>
@@ -1136,7 +1152,13 @@ let sandboxMode = false;     // sandbox: local play + God Mode panel
 let godPieceMod = "normal";  // modifier chosen in the God panel for pieces
 let godPieceColor = "w";     // color chosen in the God panel for placed pieces
 let godSpellMod = "normal";  // modifier chosen in the God panel for spells
+let godSpellColor = "w";     // side God Mode spells are cast "as" (targets / random spells)
 let godSnipeMode = false;    // God panel: click pieces to destroy them (no money)
+
+// The active caster for a God Mode spell: set when a God spell is staged and
+// cleared when it resolves or is cancelled. Falls back to the side to move.
+function godCasting() { return state && state.godSpellColor != null; }
+function spellCaster() { return godCasting() ? state.godSpellColor : state.turn; }
 
 // Build a symmetric back rank of length SIZE: king+queen centered, then
 // bishops, knights and rooks fanning outward (extra columns get more rooks).
@@ -1268,7 +1290,7 @@ function refillShop() {
 // Effective shop price for an entry, honoring free / pricier modifiers.
 // The rat is discounted and the cat/shooter are marked up; capturing a shop
 // piece pays half its shop price (see makeMove), so these two stay in sync.
-const SHOP_PRICE = { M: 4, T: 6, X: 7 };
+const SHOP_PRICE = { M: 4, T: 7, X: 8 };
 function shopPrice(e) {
   const base = SHOP_PRICE[e.p] !== undefined ? SHOP_PRICE[e.p] : PIECE_VALUE[e.p];
   if (e.mod === "pricier") return base + 1;
@@ -1369,6 +1391,19 @@ function spellEffCost(id, mod) {
 
 function cloneBoard(b) {
   return b.map(row => row.map(p => p ? {type:p.type, color:p.color, bounty:p.bounty||null, golden:p.golden||false, platinum:p.platinum||false} : null));
+}
+// Clone only the given rows; the others are shared read-only. A move touches at
+// most two rows. Piece objects are treated as immutable during the search (a
+// move replaces array slots with new objects, it never edits one in place), so
+// the rows can be shallow-copied and the unchanged pieces shared — this removes
+// most of the per-node allocation.
+function cloneBoardRows(b, rows) {
+  const out = b.slice();
+  for (const r of rows) {
+    if (r < 0 || r >= SIZE) continue;
+    out[r] = b[r].slice();
+  }
+  return out;
 }
 function cloneStateForHistory(s) {
   return {
@@ -2040,6 +2075,9 @@ state.money[p.color] += gain;
   // Thief marker travels the same way
   const tlfIdx = state.thief.findIndex(x => x.r===fr && x.c===fc);
   if (tlfIdx >= 0 && !move.shoot) state.thief[tlfIdx] = { r: move.r, c: move.c };
+  // Shield marker travels with its piece too (a shooter that fires stays put).
+  const shlIdx = (state.shielded||[]).findIndex(x => x.r===fr && x.c===fc);
+  if (shlIdx >= 0 && !move.shoot) state.shielded[shlIdx] = { ...state.shielded[shlIdx], r: move.r, c: move.c };
   // Curse: a cursed piece loses $1 every time it moves (the curser gains nothing).
   const curIdx = state.cursed.findIndex(x => x.r===fr && x.c===fc);
   if (curIdx >= 0 && !move.shoot) {
@@ -2237,6 +2275,7 @@ function render() {
       if (p) {
         const span = document.createElement("span");
         span.className = "piece" + (p.bounty ? " bounty" : "");
+        if (p.color === "w") span.classList.add("side-w");
         const pc = p.color === "w" ? "#ffffff" : "#1a1a1a";
         span.style.color = pc;
         if (p.type === "H") {
@@ -2415,8 +2454,8 @@ const table = PST[type];
 
 // Reward a king that still has friendly pieces (ideally pawns) shielding it and
 // penalise an exposed king. Cheap: just the three squares in front of the king.
-function kingShield(s, color) {
-  const k = findKing(s.board, color);
+function kingShield(s, color, k) {
+  k = k || findKing(s.board, color);
   if (!k) return 0;
   const fdir = color === "w" ? -1 : 1;   // toward the enemy
   let shield = 0, count = 0;
@@ -2430,8 +2469,8 @@ function kingShield(s, color) {
 }
 
 // In the endgame the king is a fighting piece: reward centralisation.
-function kingActivity(s, color) {
-  const k = findKing(s.board, color);
+function kingActivity(s, color, k) {
+  k = k || findKing(s.board, color);
   if (!k) return 0;
   const mid = (SIZE - 1) / 2;
   const dist = Math.abs(k.r - mid) + Math.abs(k.c - mid);
@@ -2468,17 +2507,46 @@ function fastMobility(s, r, c, blk) {
   return n;
 }
 
+// Reused evaluation buffers (evaluate runs at every quiescence leaf, so it must
+// not allocate). Single-threaded, non-reentrant: safe to share.
+const EVAL_MAXSQ = 15 * 15;
+const EVAL_EFF = new Int16Array(EVAL_MAXSQ);
+const EVAL_PFW = new Int16Array(15), EVAL_PFB = new Int16Array(15);
+const EVAL_MOB_BLK = new Set();
+const EG_SLEEP = 1, EG_CONF = 2, EG_CURSE = 4, EG_SHIELD = 8, EG_PIR = 16, EG_THIEF = 32;
+
 function evaluate(s, aiColor) {
-  let wKing = false, bKing = false, totalMat = 0;
-  const pawnFiles = { w: new Array(SIZE).fill(0), b: new Array(SIZE).fill(0) };
-  const bishops = { w: 0, b: 0 };
+  let wKing = false, bKing = false, totalMat = 0, pieces = 0, wKingPos = null, bKingPos = null;
+  let bishopsW = 0, bishopsB = 0;
+  let matMe = 0, matFoe = 0;   // non-king material per side (aiColor vs opponent)
+  const pfW = EVAL_PFW, pfB = EVAL_PFB;
+  for (let i = 0; i < SIZE; i++) { pfW[i] = 0; pfB[i] = 0; }
+
+  // One square-keyed bit grid for all effects, so the per-piece checks below are
+  // O(1) with no per-call allocation.
+  const eg = EVAL_EFF;
+  const sl = s.sleeping || [], co = s.confused || [], cu = s.cursed || [];
+  const sh = s.shielded || [], pi = s.piratify || [], th = s.thief || [];
+  for (let i = 0; i < sl.length; i++) eg[sl[i].r * SIZE + sl[i].c] |= EG_SLEEP;
+  for (let i = 0; i < co.length; i++) eg[co[i].r * SIZE + co[i].c] |= EG_CONF;
+  for (let i = 0; i < cu.length; i++) eg[cu[i].r * SIZE + cu[i].c] |= EG_CURSE;
+  for (let i = 0; i < sh.length; i++) eg[sh[i].r * SIZE + sh[i].c] |= EG_SHIELD;
+  for (let i = 0; i < pi.length; i++) eg[pi[i].r * SIZE + pi[i].c] |= EG_PIR;
+  for (let i = 0; i < th.length; i++) eg[th[i].r * SIZE + th[i].c] |= EG_THIEF;
 
   let score = 0;
   for (let r=0;r<SIZE;r++) for (let c=0;c<SIZE;c++) {
     const p = s.board[r][c];
     if (!p) continue;
-    if (p.type==="K") { if (p.color==="w") wKing=true; else bKing=true; }
-    else totalMat += PIECE_SCORE[p.type] || 100;
+    if (p.type==="K") {
+      if (p.color==="w") { wKing=true; wKingPos={r,c}; } else { bKing=true; bKingPos={r,c}; }
+    }
+    else {
+      const mv0 = PIECE_SCORE[p.type] || 100;
+      totalMat += mv0; pieces++;
+      if (p.color === aiColor) matMe += mv0; else matFoe += mv0;
+    }
+    const sq = r * SIZE + c;
     const sign = p.color === aiColor ? 1 : -1;
     let v = (PIECE_SCORE[p.type] || 100) + pstValue(p.type, p.color, r, c);
     // bounty bonus: a bountied enemy piece is worth more to capture
@@ -2487,20 +2555,33 @@ function evaluate(s, aiColor) {
     // Control effects matter: a slept/confused/hexed piece is worth much less to
     // its owner, so the search values spending a spell on it properly.
     const epv = Math.min(PIECE_SCORE[p.type] || 100, 1000);
-    if (isSleeping(s, r, c)) v -= 0.30 * epv;
-    if (s.confused && s.confused.some(x => x.r===r && x.c===c)) v -= 0.22 * epv;
-    if (s.cursed && s.cursed.some(x => x.r===r && x.c===c)) v -= 0.12 * epv;
-    if (isShielded(s, r, c)) v += 0.10 * epv;
+    const bits = eg[sq];
+    if (bits & EG_SLEEP) v -= 0.30 * epv;
+    if (bits & EG_CONF) v -= 0.22 * epv;
+    if (bits & EG_CURSE) v -= 0.12 * epv;
+    if (bits & EG_SHIELD) v += 0.10 * epv;
+    // Plunder (Piratify, +$2 a capture) and Thief (+$1 a capture, +$1 stolen)
+    // are income streams, so a marked piece is worth a little over its face value.
+    if (bits & EG_PIR) v += 14;
+    if (bits & EG_THIEF) v += 10;
     score += sign * v;
-    if (p.type === "P") pawnFiles[p.color][c]++;
-    if (p.type === "B") bishops[p.color]++;
+    if (p.type === "P") { if (p.color === "w") pfW[c]++; else pfB[c]++; }
+    if (p.type === "B") { if (p.color === "w") bishopsW++; else bishopsB++; }
   }
+  // Clear the reused effect grid (only the touched squares are non-zero).
+  for (let i = 0; i < sl.length; i++) eg[sl[i].r * SIZE + sl[i].c] = 0;
+  for (let i = 0; i < co.length; i++) eg[co[i].r * SIZE + co[i].c] = 0;
+  for (let i = 0; i < cu.length; i++) eg[cu[i].r * SIZE + cu[i].c] = 0;
+  for (let i = 0; i < sh.length; i++) eg[sh[i].r * SIZE + sh[i].c] = 0;
+  for (let i = 0; i < pi.length; i++) eg[pi[i].r * SIZE + pi[i].c] = 0;
+  for (let i = 0; i < th.length; i++) eg[th[i].r * SIZE + th[i].c] = 0;
   // Second pass: rooks/queens like open files (no friendly pawn on that file),
   // now that every pawn has been counted.
   for (let r=0;r<SIZE;r++) for (let c=0;c<SIZE;c++) {
     const p = s.board[r][c];
     if (!p || (p.type !== "R" && p.type !== "Q")) continue;
-    if (pawnFiles[p.color][c] === 0) {
+    const filePawns = p.color === "w" ? pfW[c] : pfB[c];
+    if (filePawns === 0) {
       score += (p.color === aiColor ? 1 : -1) * (p.type === "R" ? 8 : 4);
     }
   }
@@ -2509,9 +2590,9 @@ function evaluate(s, aiColor) {
 
   const me = aiColor, foe = opp(aiColor);
   // Mobility: approximate a piece's activity by its reachable-square count.
-  const mobBlk = new Set();
+  const mobBlk = EVAL_MOB_BLK; mobBlk.clear();
   for (const b of s.blocked) mobBlk.add(b.r * SIZE + b.c);
-  for (const sh of (s.shielded || [])) mobBlk.add(sh.r * SIZE + sh.c);
+  for (let i = 0; i < sh.length; i++) mobBlk.add(sh[i].r * SIZE + sh[i].c);
   let strBlk = null, mobMe = 0, mobFoe = 0;
   for (let r=0;r<SIZE;r++) for (let c=0;c<SIZE;c++) {
     const p = s.board[r][c];
@@ -2526,39 +2607,89 @@ function evaluate(s, aiColor) {
   }
   score += (mobMe - mobFoe);
   // Bishop pair
-  score += (bishops[me] >= 2 ? 30 : 0) - (bishops[foe] >= 2 ? 30 : 0);
+  const meBishops = me === "w" ? bishopsW : bishopsB;
+  const foeBishops = foe === "w" ? bishopsW : bishopsB;
+  score += (meBishops >= 2 ? 30 : 0) - (foeBishops >= 2 ? 30 : 0);
   // Pawn structure: doubled and isolated pawns are weaker.
   for (const col of ["w", "b"]) {
     const sgn = col === me ? 1 : -1;
+    const pf = col === "w" ? pfW : pfB;
     for (let c = 0; c < SIZE; c++) {
-      const n = pawnFiles[col][c];
+      const n = pf[c];
       if (n > 1) score += sgn * (-14) * (n - 1);
       if (n > 0) {
-        const adj = (c > 0 ? pawnFiles[col][c-1] : 0) + (c < SIZE-1 ? pawnFiles[col][c+1] : 0);
+        const adj = (c > 0 ? pf[c-1] : 0) + (c < SIZE-1 ? pf[c+1] : 0);
         if (adj === 0) score += sgn * (-10);
       }
     }
   }
-  // King safety
-  score += kingShield(s, me) - kingShield(s, foe);
+  // King safety (reuse the king positions found above)
+  const meKing = me === "w" ? wKingPos : bKingPos;
+  const foeKing = foe === "w" ? wKingPos : bKingPos;
+  score += kingShield(s, me, meKing) - kingShield(s, foe, foeKing);
   // Endgame: with little material left the king should head for the centre.
-  if (totalMat < 3000) score += kingActivity(s, me) - kingActivity(s, foe);
+  // Gate on piece count as well so it also triggers on the larger boards (where
+  // absolute material is much higher).
+  if (totalMat < 3000 || pieces <= 12) score += kingActivity(s, me, meKing) - kingActivity(s, foe, foeKing);
+  // Passed pawns: no enemy pawn on the file or either adjacent file ahead of it.
+  // D/S promote straight to an Amazon, so a runner is worth a lot. Allocation
+  // free (this runs at every quiescence leaf).
+  for (let r = 0; r < SIZE; r++) for (let c = 0; c < SIZE; c++) {
+    const p = s.board[r][c];
+    if (!p || (p.type !== "P" && p.type !== "D" && p.type !== "S")) continue;
+    const fdir = p.color === "w" ? -1 : 1;
+    let passed = true;
+    for (let dc = -1; dc <= 1 && passed; dc++) {
+      const cc = c + dc;
+      if (cc < 0 || cc >= SIZE) continue;
+      for (let rr = r + fdir; rr >= 0 && rr < SIZE; rr += fdir) {
+        const q = s.board[rr][cc];
+        if (q && q.color !== p.color && (q.type === "P" || q.type === "D" || q.type === "S")) { passed = false; break; }
+      }
+    }
+    if (passed) {
+      const adv = p.color === "w" ? (SIZE - 1 - r) : r;   // 0 at home .. toward promotion
+      score += (p.color === aiColor ? 1 : -1) * adv * adv * 3;
+    }
+  }
+  // Winning endgame: corner the enemy king and walk our own king in to capture
+  // it (this game is won by capturing the king, not by mate).
+  if ((totalMat < 3000 || pieces <= 12) && meKing && foeKing
+      && matMe > matFoe + 200) {
+    const edge = Math.min(foeKing.r, SIZE - 1 - foeKing.r, foeKing.c, SIZE - 1 - foeKing.c);
+    const dist = Math.max(Math.abs(meKing.r - foeKing.r), Math.abs(meKing.c - foeKing.c));
+    score -= edge * 10;
+    score -= dist * 8;
+  }
   // Money advantage
   score += (s.money[me] - s.money[foe]) * 8;
   return score;
 }
 
-// Copy every square-keyed effect list so snapshots are self-contained.
+// Shallow-copy a square-keyed effect list so snapshots are self-contained.
+// Empty lists are shared (callers only ever reassign/read them, never push), so
+// the common no-effect position allocates nothing here.
+const EMPTY_LIST = [];
+function cloneEffectList(list) {
+  if (!list) return EMPTY_LIST;
+  const n = list.length;
+  if (n === 0) return list;
+  const out = new Array(n);
+  for (let i = 0; i < n; i++) out[i] = { ...list[i] };
+  return out;
+}
 function snapEffects(s) {
   return {
-    blocked: (s.blocked||[]).map(b=>({...b})),
-    sleeping: (s.sleeping||[]).map(b=>({...b})),
-    shielded: (s.shielded||[]).map(b=>({...b})),
-    confused: (s.confused||[]).map(b=>({...b})),
-    piratify: (s.piratify||[]).map(b=>({...b})),
-    thief: (s.thief||[]).map(b=>({...b})),
-    cursed: (s.cursed||[]).map(b=>({...b})),
+    blocked: cloneEffectList(s.blocked),
+    sleeping: cloneEffectList(s.sleeping),
+    shielded: cloneEffectList(s.shielded),
+    confused: cloneEffectList(s.confused),
+    piratify: cloneEffectList(s.piratify),
+    thief: cloneEffectList(s.thief),
+    cursed: cloneEffectList(s.cursed),
+    swapLocked: cloneEffectList(s.swapLocked),
     noCapture: { w: (s.noCapture && s.noCapture.w) || 0, b: (s.noCapture && s.noCapture.b) || 0 },
+    extraTurns: { w: (s.extraTurns && s.extraTurns.w) || 0, b: (s.extraTurns && s.extraTurns.b) || 0 },
   };
 }
 
@@ -2574,22 +2705,62 @@ function snapshotFromState(s) {
   };
 }
 
+// Capture income mirrored from makeMove: half the victim's value, the bounty
+// payout, Plunder (Piratify) +$2, Thief steals $1, golden +$1, platinum +$3, and
+// the $1 toll a cursed mover pays. Without this the search would treat every
+// money-generating capture and spell (Bounty/Piratify/Thief, golden pieces) as
+// free, so it could never see their value.
+function applyMoveIncome(snap, money, mover, fr, fc, captured, move) {
+  if (captured) {
+    const dropV = SHOP_PRICE[captured.type] !== undefined ? SHOP_PRICE[captured.type] : PIECE_VALUE[captured.type];
+    money[mover.color] += Math.floor(dropV / 2);
+    if (captured.bounty) money[captured.bounty] = (money[captured.bounty] || 0) + 1;
+    if (snap.piratify && snap.piratify.some(x => x.r===fr && x.c===fc)) money[mover.color] += 2;
+    if (snap.thief && snap.thief.some(x => x.r===fr && x.c===fc)) {
+      const oc = opp(mover.color);
+      const gain = Math.min(1, money[oc] || 0);
+      money[oc] = (money[oc] || 0) - gain;
+      money[mover.color] += gain;
+    }
+    if (mover.golden) money[mover.color] += 1;
+    if (mover.platinum) money[mover.color] += 3;
+  }
+  if (!move.shoot && snap.cursed && snap.cursed.some(x => x.r===fr && x.c===fc)) {
+    money[mover.color] -= Math.min(1, money[mover.color] || 0);
+  }
+}
+
 // Apply a move onto a snapshot, returning a new snapshot
 function applyMove(snap, fr, fc, move, promoteTo) {
-  const board = cloneBoard(snap.board);
+  const board = cloneBoardRows(snap.board, [fr, move.r]);
   const p = board[fr][fc];
   const castling = {...snap.castling};
+  const money = { w: snap.money.w, b: snap.money.b };
+  const eff = snapEffects(snap);
+  // Turn bookkeeping, mirroring makeMove: the mover's no-capture counter ticks
+  // down, and Echo's pending extra turn keeps the turn with the mover.
+  const mover = p.color;
+  const extra = eff.extraTurns;
+  let turnAfter;
+  if (extra[mover] > 0) { extra[mover] -= 1; turnAfter = mover; }
+  else turnAfter = opp(mover);
+  eff.noCapture[mover] = Math.max(0, eff.noCapture[mover] - 1);
   let epTarget = null;
+  // The captured piece (en passant victims sit beside the mover, not on the target).
+  const captured = move.enpassant ? board[fr][move.c] : board[move.r][move.c];
+  const vr = move.enpassant ? fr : move.r, vc = move.c;
   if (move.enpassant) board[fr][move.c] = null;
+  // A captured piece takes its square-keyed markers with it.
+  if (captured) {
+    for (const key of ["blocked","sleeping","shielded","confused","piratify","thief","cursed","swapLocked"]) {
+      if (eff[key]) eff[key] = eff[key].filter(e => !(e.r === vr && e.c === vc));
+    }
+  }
   // Shooter firing: target is destroyed, shooter stays put.
   if (move.shoot) {
     board[move.r][move.c] = null;
-    return {
-      board, castling, epTarget,
-      turn: opp(snap.turn),
-      ...snapEffects(snap),
-      money: snap.money,
-    };
+    applyMoveIncome(snap, money, p, fr, fc, captured, move);
+    return { board, castling, epTarget, turn: turnAfter, ...eff, money };
   }
   board[fr][fc] = null;
   board[move.r][move.c] = move.promotion && promoteTo
@@ -2606,19 +2777,20 @@ const kingCol = SIZE >> 1;
   const tr=move.r, tc=move.c;
   if (tr===SIZE-1&&tc===0) castling.wQ=false; if (tr===SIZE-1&&tc===SIZE-1) castling.wK=false;
   if (tr===0&&tc===0) castling.bQ=false; if (tr===0&&tc===SIZE-1) castling.bK=false;
+  // Plunder/Thief/Curse/Shield markers travel with the mover; confusion is spent.
+  if (eff.confused) eff.confused = eff.confused.filter(e => !(e.r === fr && e.c === fc));
+  for (const key of ["piratify","thief","cursed","shielded"]) {
+    if (eff[key]) for (const e of eff[key]) if (e.r === fr && e.c === fc) { e.r = move.r; e.c = move.c; }
+  }
   if (move.doubleStep) epTarget = {r:(fr+move.r)/2, c:fc};
-  return {
-    board, castling, epTarget,
-    turn: opp(snap.turn),
-    ...snapEffects(snap),
-    money: snap.money,
-  };
+  applyMoveIncome(snap, money, p, fr, fc, captured, move);
+  return { board, castling, epTarget, turn: turnAfter, ...eff, money };
 }
 
 // Apply a shop placement onto a snapshot: put `piece` (type) on (r,c) for
 // `color` and hand the turn to the opponent (a buy ends the turn).
 function applyPlacement(snap, piece, color, r, c) {
-  const board = cloneBoard(snap.board);
+  const board = cloneBoardRows(snap.board, [r]);
   board[r][c] = { type: piece, color, bounty: null, golden: false, platinum: false };
   return {
     board,
@@ -2630,19 +2802,24 @@ function applyPlacement(snap, piece, color, r, c) {
   };
 }
 
-function snapLegal(snap, r, c) {
+// `blk`, `inCheckNow` and `king` are optional cached values supplied by allMoves
+// (they are identical for every piece of the side to move, so recomputing them
+// per piece was a large waste).
+function snapLegal(snap, r, c, blk, inCheckNow, king) {
   if (!snap.board[r][c] || snap.board[r][c].color !== snap.turn) return [];
   if (isSleeping(snap, r, c)) return [];
+  if (snap.swapLocked && snap.swapLocked.some(x => x.r === r && x.c === c)) return []; // swapped this turn
   const color = snap.turn;
   const p = snap.board[r][c];
-  let pm = pseudoMoves(snap.board, r, c, snap.castling, snap.epTarget, blockedSet(snap));
+  if (!blk) blk = blockedSet(snap);
+  let pm = pseudoMoves(snap.board, r, c, snap.castling, snap.epTarget, blk);
   // A cursed piece whose owner has $0 is frozen: no moving, only standing shots.
   if (cursedFrozen(snap, r, c)) pm = pm.filter(m => m.shoot);
   // Echo's no-capture window: keep the search honest about legal captures.
   if (snap.noCapture && snap.noCapture[color] > 0) {
     pm = pm.filter(m => { const t = snap.board[m.r][m.c]; return !t && !m.enpassant; });
   }
-  const inCheckNow = snapInCheck(snap, color);
+  if (inCheckNow === undefined) inCheckNow = snapInCheck(snap, color);
   const out = [];
   for (const m of pm) {
     if (p.type === "K") {
@@ -2657,7 +2834,7 @@ function snapLegal(snap, r, c) {
       out.push(m);
       continue;
     }
-    const pin = snapPinRay(snap, color, r, c);
+    const pin = snapPinRay(snap, color, r, c, king);
     if (!pin || snapMoveOnPin(pin, m)) out.push(m);
   }
   return out;
@@ -2673,8 +2850,8 @@ function snapInCheck(snap, color) {
 // If (r,c) sits directly between `color`'s king and an enemy slider on a
 // straight ray, return the pin geometry {kingR,kingC,dr,dc,dist}; else null.
 // (Bishops pin diagonally, rooks/queens/Amazons straight.)
-function snapPinRay(snap, color, r, c) {
-  const k = findKing(snap.board, color);
+function snapPinRay(snap, color, r, c, king) {
+  const k = king || findKing(snap.board, color);
   if (!k) return null;
   const drR = r - k.r, dcC = c - k.c;
   const g = Math.max(Math.abs(drR), Math.abs(dcC));
@@ -2718,10 +2895,14 @@ function snapMoveOnPin(pin, m) {
 
 function allMoves(snap) {
   const out = [];
+  // Compute the side-to-move invariants once instead of per piece.
+  const blk = blockedSet(snap);
+  const king = findKing(snap.board, snap.turn);
+  const inCheckNow = snapInCheck(snap, snap.turn);
   for (let r=0;r<SIZE;r++) for (let c=0;c<SIZE;c++) {
     const p = snap.board[r][c];
     if (p && p.color === snap.turn && !isSleeping(snap, r, c)) {
-      for (const m of snapLegal(snap, r, c)) out.push({fr:r, fc:c, move:m});
+      for (const m of snapLegal(snap, r, c, blk, inCheckNow, king)) out.push({fr:r, fc:c, move:m});
     }
   }
   return out;
@@ -2750,13 +2931,84 @@ function historyUpdate(mv, depth) {
   if (HISTORY_TBL[key] > 20000) for (const k2 in HISTORY_TBL) HISTORY_TBL[k2] >>= 1;
 }
 
-// Order moves: MVV-LVA captures first, then promotions, killer moves, and
-// history-found good moves — all so alpha-beta prunes much harder.
-function orderMoves(snap, moves, ply) {
+// ---- Transposition table (Zobrist-ish) ----
+// positionHash hashes everything the search result can depend on: the board
+// (with per-piece flags), the side to move, castling rights, en-passant, every
+// square-keyed effect, the no-capture counters and both wallets. Two independent
+// 32-bit accumulators are produced; entries are keyed by h1 and verified with h2
+// so a 32-bit collision cannot return a wrong result.
+const Z_TYPE = { P:1,N:2,B:3,R:4,Q:5,C:6,G:7,D:8,A:9,S:10,H:11,K:12,F:13,X:14,M:15,T:16 };
+const Z_EFF = { blocked:1, sleeping:2, shielded:3, confused:4, piratify:5, thief:6, cursed:7, swapLocked:8 };
+function positionHash(snap) {
+  let h1 = 0x811c9dc5 | 0, h2 = 0x9e3779b9 | 0;
+  const mix = (x) => {
+    x |= 0;
+    h1 = Math.imul(h1 ^ x, 0x01000193);
+    h2 = Math.imul(h2 ^ x, 0x85ebca6b);
+  };
+  for (let r = 0; r < SIZE; r++) {
+    const row = snap.board[r];
+    for (let c = 0; c < SIZE; c++) {
+      const p = row[c];
+      if (!p) continue;
+      const sq = r * SIZE + c;
+      mix(0x10000000 ^ ((sq * 24) | ((p.color === "w" ? 1 : 2) << 4) | (Z_TYPE[p.type] || 0)));
+      if (p.bounty) mix(0x20000000 ^ (sq << 3) ^ (p.bounty === "w" ? 1 : 2));
+      if (p.golden) mix(0x30000000 ^ sq);
+      if (p.platinum) mix(0x40000000 ^ sq);
+    }
+  }
+  for (const key in Z_EFF) {
+    const list = snap[key];
+    if (!list) continue;
+    for (let i = 0; i < list.length; i++) mix((Z_EFF[key] * 0x01000000) ^ (list[i].r * SIZE + list[i].c));
+  }
+  if (snap.turn === "b") mix(0x50000000);
+  if (snap.castling.wK) mix(0x51000001);
+  if (snap.castling.wQ) mix(0x51000002);
+  if (snap.castling.bK) mix(0x51000003);
+  if (snap.castling.bQ) mix(0x51000004);
+  if (snap.epTarget) mix(0x52000000 ^ (snap.epTarget.r * SIZE + snap.epTarget.c));
+  if (snap.noCapture) {
+    if (snap.noCapture.w > 0) mix(0x53000000 ^ snap.noCapture.w);
+    if (snap.noCapture.b > 0) mix(0x53000000 ^ (snap.noCapture.b << 3));
+  }
+  if (snap.extraTurns) {
+    if (snap.extraTurns.w > 0) mix(0x56000000 ^ snap.extraTurns.w);
+    if (snap.extraTurns.b > 0) mix(0x56000000 ^ (snap.extraTurns.b << 3));
+  }
+  mix(0x54000000 ^ (snap.money.w & 0xffff));
+  mix(0x55000000 ^ (snap.money.b & 0xffff));
+  return { h1: h1 >>> 0, h2: h2 >>> 0 };
+}
+
+const TT = new Map();
+const TT_MAX = 60000;
+const TT_EXACT = 0, TT_LOWER = 1, TT_UPPER = 2;
+let AI_USE_TT = true;        // transposition table on/off
+let AI_ITER_DEEPEN = true;   // iterative deepening on/off
+let AI_USE_LMR = true;       // late-move reductions on/off
+const LMR_MIN_DEPTH = 3;     // only reduce once this much depth remains
+const LMR_MIN_MOVES = 4;     // never reduce the first few ordered moves
+
+function ttStore(h1, h2, depth, score, flag, move) {
+  if (TT.size > TT_MAX) TT.clear();
+  const prev = TT.get(h1);
+  if (prev && prev.h2 === h2 && prev.depth > depth) return;
+  TT.set(h1, {
+    h2, depth, score, flag,
+    move: move ? { fr: move.fr, fc: move.fc, r: move.move.r, c: move.move.c } : null,
+  });
+}
+
+// Order moves: TT best move first, then MVV-LVA captures, promotions, killer
+// moves and history-found good moves — all so alpha-beta prunes much harder.
+function orderMoves(snap, moves, ply, ttMove) {
   const killers = KILLERS_TBL[ply] || [];
   const scored = moves.map(mv => {
     const t = snap.board[mv.move.r][mv.move.c];
     let s = 0;
+    if (ttMove && mv.fr === ttMove.fr && mv.fc === ttMove.fc && mv.move.r === ttMove.r && mv.move.c === ttMove.c) s += 20000;
     if (mv.move.shoot) s += 15000;
     if (t) s += 10000 + (PIECE_SCORE[t.type] || 100) * 10 - (PIECE_SCORE[snap.board[mv.fr][mv.fc].type] || 100); // MVV-LVA
     else if (mv.move.enpassant) s += 9000;
@@ -2778,64 +3030,124 @@ function minimax(snap, depth, alpha, beta, aiColor, ply) {
   if (ownLost) return -100000 - depth;
   if (depth === 0) return quiesce(snap, alpha, beta, aiColor, QDEPTH);
 
-  const moves = orderMoves(snap, allMoves(snap), ply);
-  if (!moves.length) return evaluate(snap, aiColor) - 50; // effectively no-move penalty
+  // Transposition table: reuse a stored result (and its best move for ordering).
+  let ttMove = null, hash = null;
+  if (AI_USE_TT) {
+    hash = positionHash(snap);
+    const ent = TT.get(hash.h1);
+    if (ent && ent.h2 === hash.h2) {
+      ttMove = ent.move;
+      if (ent.depth >= depth) {
+        if (ent.flag === TT_EXACT) return ent.score;
+        if (ent.flag === TT_LOWER && ent.score >= beta) return ent.score;
+        if (ent.flag === TT_UPPER && ent.score <= alpha) return ent.score;
+      }
+    }
+  }
 
+  const alphaOrig = alpha, betaOrig = beta;
+  const moves = orderMoves(snap, allMoves(snap), ply, ttMove);
+  // No legal move: in this king-capture variant "checkmate" is not a loss, the
+  // game simply ends as a draw. So a side with no moves scores 0 — a winning AI
+  // must therefore avoid stalemating and keep hunting the king.
+  if (!moves.length) return 0;
+
+  let best, bestMove = null;
   if (snap.turn === aiColor) {
-    let best = -Infinity;
-    for (const mv of moves) {
+    best = -Infinity;
+    for (let i = 0; i < moves.length; i++) {
+      const mv = moves[i];
       const promo = mv.move.promotion ? (mv.move.promoteTo || "Q") : null;
       const child = applyMove(snap, mv.fr, mv.fc, mv.move, promo);
-      const v = minimax(child, depth - 1, alpha, beta, aiColor, ply + 1);
-      if (v > best) best = v;
+      const quiet = !(snap.board[mv.move.r][mv.move.c] || mv.move.enpassant || mv.move.promotion || mv.move.shoot);
+      let v;
+      if (AI_USE_LMR && depth >= LMR_MIN_DEPTH && i >= LMR_MIN_MOVES && quiet) {
+        v = minimax(child, depth - 2, alpha, beta, aiColor, ply + 1);
+        if (v > alpha) v = minimax(child, depth - 1, alpha, beta, aiColor, ply + 1);
+      } else {
+        v = minimax(child, depth - 1, alpha, beta, aiColor, ply + 1);
+      }
+      if (v > best) { best = v; bestMove = mv; }
       if (v > alpha) {
         alpha = v;
         if (alpha >= beta) {
           // A quiet move that refutes the branch is a killer + history candidate.
-          if (!(snap.board[mv.move.r][mv.move.c] || mv.move.promotion)) {
-            addKiller(ply, mv);
-            historyUpdate(mv, depth);
-          }
+          if (quiet) { addKiller(ply, mv); historyUpdate(mv, depth); }
           break;
         }
       }
     }
-    return best;
   } else {
-    let best = Infinity;
-    for (const mv of moves) {
+    best = Infinity;
+    for (let i = 0; i < moves.length; i++) {
+      const mv = moves[i];
       const promo = mv.move.promotion ? (mv.move.promoteTo || "Q") : null;
       const child = applyMove(snap, mv.fr, mv.fc, mv.move, promo);
-      const v = minimax(child, depth - 1, alpha, beta, aiColor, ply + 1);
-      if (v < best) best = v;
+      const quiet = !(snap.board[mv.move.r][mv.move.c] || mv.move.enpassant || mv.move.promotion || mv.move.shoot);
+      let v;
+      if (AI_USE_LMR && depth >= LMR_MIN_DEPTH && i >= LMR_MIN_MOVES && quiet) {
+        v = minimax(child, depth - 2, alpha, beta, aiColor, ply + 1);
+        if (v < beta) v = minimax(child, depth - 1, alpha, beta, aiColor, ply + 1);
+      } else {
+        v = minimax(child, depth - 1, alpha, beta, aiColor, ply + 1);
+      }
+      if (v < best) { best = v; bestMove = mv; }
       if (v < beta) { beta = v; if (alpha >= beta) break; }
     }
-    return best;
   }
+  if (AI_USE_TT) ttStore(hash.h1, hash.h2, depth, best,
+    best <= alphaOrig ? TT_UPPER : best >= betaOrig ? TT_LOWER : TT_EXACT, bestMove);
+  return best;
 }
 
 // Quiescence search: after the horizon, keep resolving captures so the AI
-// doesn't blunder hanging pieces. Stand-pat score, then try captures only.
+// doesn't blunder hanging pieces. When the side to move is in check it cannot
+// "stand pat", so every legal evasion is tried instead (otherwise a check at the
+// horizon would look harmless). Stand-pat + captures otherwise.
 function quiesce(snap, alpha, beta, aiColor, qdepth) {
   const mine = snap.turn === aiColor;
-  const stand = evaluate(snap, aiColor);
-  let best = stand;
-  // Stand-pat fail-hard
-  if (mine) {
-    if (stand >= beta) return stand;
-    if (stand > alpha) alpha = stand;
+  const inChk = snapInCheck(snap, snap.turn);
+  let best, stand = 0;
+  if (inChk) {
+    best = mine ? -Infinity : Infinity;
   } else {
-    if (stand <= alpha) return stand;
-    if (stand < beta) beta = stand;
+    stand = evaluate(snap, aiColor);
+    best = stand;
+    // Stand-pat fail-hard
+    if (mine) {
+      if (stand >= beta) return stand;
+      if (stand > alpha) alpha = stand;
+    } else {
+      if (stand <= alpha) return stand;
+      if (stand < beta) beta = stand;
+    }
   }
-  if (qdepth <= 0) return stand;
-  const caps = [];
-  for (const mv of allMoves(snap)) {
-    if (mv.move.shoot || snap.board[mv.move.r][mv.move.c] || mv.move.enpassant || mv.move.promotion) caps.push(mv);
+  if (qdepth <= 0) return inChk ? evaluate(snap, aiColor) : best;
+  let cands;
+  if (inChk) {
+    cands = allMoves(snap);                       // all legal evasions
+    if (!cands.length) return 0;                  // no move = draw (no checkmate here)
+  } else {
+    cands = [];
+    for (const mv of allMoves(snap)) {
+      if (mv.move.shoot || snap.board[mv.move.r][mv.move.c] || mv.move.enpassant || mv.move.promotion) cands.push(mv);
+    }
+    if (!cands.length) return best;
   }
-  if (!caps.length) return stand;
-  const ordered = orderMoves(snap, caps, 0);
+  const ordered = orderMoves(snap, cands, 0);
   for (const mv of ordered) {
+    // Delta pruning: if even winning the victim (plus any promotion) could not
+    // raise/lower the static score past alpha/beta, the capture is hopeless.
+    if (!inChk) {
+      const victim = mv.move.enpassant ? snap.board[mv.fr][mv.move.c] : snap.board[mv.move.r][mv.move.c];
+      let gain = victim ? (PIECE_SCORE[victim.type] || 100) : 0;
+      if (mv.move.promotion) {
+        const fromType = snap.board[mv.fr][mv.fc] ? snap.board[mv.fr][mv.fc].type : "P";
+        gain += Math.max(0, (PIECE_SCORE[mv.move.promoteTo || "Q"] || 900) - (PIECE_SCORE[fromType] || 100));
+      }
+      const slack = gain + 120;   // 120 = safety margin for positional swings
+      if (mine ? stand + slack <= alpha : stand - slack >= beta) continue;
+    }
     const promo = mv.move.promotion ? (mv.move.promoteTo || "Q") : null;
     const child = applyMove(snap, mv.fr, mv.fc, mv.move, promo);
     const v = quiesce(child, alpha, beta, aiColor, qdepth - 1);
@@ -2863,6 +3175,7 @@ function aiMove() {
   if (!state.aiOpponent || state.gameOver || state.turn !== state.aiColor) {
     aiThinking = false; render(); return;
   }
+  TT.clear();   // one position set per turn (aiColor is constant within a turn)
   const me = state.aiColor;
 
 // 2x decision: the pending free extra (Tax) is on the table. Tax:
@@ -2898,14 +3211,19 @@ function aiMove() {
     return;
   }
 
+  // Tax Gain (+$3 but the move is skipped) also ends the turn, so — like a buy —
+  // it is only taken when it clearly beats playing on.
+  const tax = aiTaxGainValue(me);
+  if (tax && tax.value > Math.max(planVal, spellVal) + AI_TAX_MARGIN) {
+    castSpell(tax.slot);
+    setTimeout(aiMove, 400);
+    return;
+  }
+
   // Cast the best spell when it improves on the plain move (a free action, so
   // the AI still moves afterwards).
   if (sp && sp.value > planVal + AI_SPELL_MARGIN) {
-    castSpell(sp.slot);
-    if (state.targetMode) {
-      if (isTargetable(sp.r, sp.c, state.targetMode.kind)) handleTargetClick(sp.r, sp.c);
-      else cancelPlacement();
-    }
+    aiCastTargeted(sp.slot, sp);
     // A 2x/RND modifier may have granted a free second cast — take it too.
     aiTryFreeFollowUp(me);
     plan = null;   // the spell may have changed the board
@@ -2993,6 +3311,8 @@ function aiBestPlacement(me, piece, cost) {
   cands.sort((a, b) => b.h - a.h);
   const shortlist = cands.slice(0, SIZE >= 12 ? 6 : 10);
   const snap0 = snapshotFromState(state);
+  // Shallow per-square search: the placement value is a comparable estimate, and
+  // depth 2 keeps the whole buy decision (up to 3 slots) fast.
   const depth = SIZE >= 12 ? 1 : SIZE === 10 ? 1 : 2;
   let best = null, bestVal = -Infinity;
   for (const cd of shortlist) {
@@ -3058,6 +3378,20 @@ function aiPlacementScore(me, enemy, piece, r, c) {
     if (friendlyPawnOnFile(c, me)) score -= 25;
   }
 
+  // Threat potential: a piece that lands attacking enemy material is more
+  // active (this only shapes the shortlist — the search confirms the value).
+  try {
+    const b = cloneBoard(state.board);
+    b[r][c] = { type: piece, color: me, bounty: null, golden: false, platinum: false };
+    const ms = pseudoMoves(b, r, c, state.castling, state.epTarget, blockedSet(state));
+    let threat = 0;
+    for (const m of ms) {
+      const t = b[m.r][m.c];
+      if (t && t.color === enemy) threat += Math.min(90, (PIECE_SCORE[t.type] || 100) * 0.18);
+    }
+    score += threat;
+  } catch (e) {}
+
   score += gRng() * 6;                                // tiny variety
   return score;
 }
@@ -3070,9 +3404,11 @@ function aiPlacementScore(me, enemy, piece, r, c) {
 const AI_SPELL_MIN = 180;      // generic fallback floor
 const AI_BUY_MARGIN = 40;      // how much a buy must beat the best move by
 const AI_SPELL_MARGIN = 10;    // how much "spell + move" must beat a plain move
+const AI_TAX_MARGIN = 25;      // how much Tax Gain (+$3, skip move) must beat playing on
 const AI_SPELL_THRESHOLD = {
   sleep: 300, confuse: 300, curse: 400, shield: 300, dispel: 300,
-  push: 400, sacrifice: 24, killPawn: 180, killRandom: 100, bounty: 90, echo: 350,
+  push: 400, sacrifice: 24, killPawn: 180, killRandom: 100, bounty: 90, echo: 100,
+  block: 120, piratify: 100, thief: 70, swap: 30,
 };
 
 // Does the enemy piece at (r,c) attack any of `me`'s non-king pieces?
@@ -3213,6 +3549,125 @@ function aiSnipeTarget(me) {
   return best;
 }
 
+// Is (r,c) on an open ray between `me`'s king and an enemy slider? A wall
+// dropped there would break the line (a defensive use of Wall).
+function aiBlocksKingLine(r, c, me, k) {
+  const dr0 = r - k.r, dc0 = c - k.c;
+  const g = Math.max(Math.abs(dr0), Math.abs(dc0));
+  if (g === 0) return false;
+  if (dr0 % g !== 0 || dc0 % g !== 0) return false;
+  const dr = dr0 / g, dc = dc0 / g;
+  for (let i = 1; i < g; i++) if (state.board[k.r + dr*i][k.c + dc*i]) return false;
+  let rr = r + dr, cc = c + dc;
+  while (inBounds(rr, cc)) {
+    const t = state.board[rr][cc];
+    if (t) {
+      if (t.color !== me) {
+        const orth = dr === 0 || dc === 0;
+        const diag = Math.abs(dr) === 1 && Math.abs(dc) === 1;
+        if (((t.type === "R" || t.type === "Q" || t.type === "A") && orth) ||
+            ((t.type === "B" || t.type === "Q" || t.type === "A") && diag)) return true;
+      }
+      return false;
+    }
+    rr += dr; cc += dc;
+  }
+  return false;
+}
+
+// Best empty square for a Wall: break a slider's line to our king, stall an
+// enemy pawn nearing promotion, or shelter the king.
+function aiBlockTarget(me) {
+  const enemy = opp(me);
+  const k = findKing(state.board, me);
+  const mid = (SIZE - 1) / 2;
+  let best = null;
+  for (let r = 0; r < SIZE; r++) for (let c = 0; c < SIZE; c++) {
+    if (state.board[r][c]) continue;
+    if (state.blocked.some(b => b.r === r && b.c === c)) continue;
+    let v = 0;
+    if (k && aiBlocksKingLine(r, c, me, k)) v += 220;
+    // One square ahead of an enemy pawn that is nearly promoting.
+    const fdir = enemy === "w" ? -1 : 1;
+    const pr = r - fdir;
+    if (inBounds(pr, c)) {
+      const p = state.board[pr][c];
+      if (p && p.color === enemy && (p.type === "P" || p.type === "D" || p.type === "S")) {
+        const promoRow = enemy === "w" ? 0 : SIZE - 1;
+        const dist = Math.abs(promoRow - pr);
+        if (dist <= 2) v += 40 + (3 - dist) * 40;
+      }
+    }
+    if (k && Math.max(Math.abs(r - k.r), Math.abs(c - k.c)) === 1) v += 25;
+    // Offensive use: cramping the enemy on their own half — wall a square next
+    // to their pieces (and in front of their pawns) to cut their mobility.
+    if (me === "w" ? r < SIZE / 2 : r >= SIZE / 2) {
+      let adj = 0;
+      for (const [dr, dc] of [[1,0],[-1,0],[0,1],[0,-1],[1,1],[1,-1],[-1,1],[-1,-1]]) {
+        const nr = r + dr, nc = c + dc;
+        if (!inBounds(nr, nc)) continue;
+        const q = state.board[nr][nc];
+        if (q && q.color === enemy) adj++;
+      }
+      v += adj * 18;
+    }
+    v += (mid - Math.abs(c - mid)) * 2;
+    if (!best || v > best.score) best = { r, c, score: v };
+  }
+  return best;
+}
+
+// Rough positional fitness of putting `type` on (r,c) — enough to rank Swap
+// pairs; the search confirms the real value.
+function aiSquareFit(type, r, c, me) {
+  const mid = (SIZE - 1) / 2;
+  const fwd = me === "w" ? (SIZE - 1 - r) : r;
+  return pstValue(type, me, r, c) + (mid - Math.abs(c - mid)) * 5 + fwd * 2;
+}
+
+// Best Swap: exchange two of our non-king pieces so each lands on the better
+// square. Returns {r,c,r2,c2,score} or null.
+function aiSwapTarget(me) {
+  const mine = [];
+  for (let r = 0; r < SIZE; r++) for (let c = 0; c < SIZE; c++) {
+    const p = state.board[r][c];
+    if (p && p.color === me && p.type !== "K") mine.push({ r, c, type: p.type });
+  }
+  let best = null;
+  for (let i = 0; i < mine.length; i++) for (let j = i + 1; j < mine.length; j++) {
+    const a = mine[i], b = mine[j];
+    if (state.blocked.some(x => (x.r === a.r && x.c === a.c) || (x.r === b.r && x.c === b.c))) continue;
+    const before = aiSquareFit(a.type, a.r, a.c, me) + aiSquareFit(b.type, b.r, b.c, me);
+    const after  = aiSquareFit(a.type, b.r, b.c, me) + aiSquareFit(b.type, a.r, a.c, me);
+    const score = after - before;
+    if (score <= 0) continue;
+    if (!best || score > best.score) best = { r: a.r, c: a.c, r2: b.r, c2: b.c, score };
+  }
+  return best;
+}
+
+// Best of our pieces to mark with a loot spell. `perCapture` scales the expected
+// income (Piratify $2 a capture, Thief $1) so the more mobile a piece — and the
+// more enemy material it can hit — the better the mark.
+function aiMarkTarget(me, perCapture) {
+  let best = null;
+  for (let r = 0; r < SIZE; r++) for (let c = 0; c < SIZE; c++) {
+    const p = state.board[r][c];
+    if (!p || p.color !== me || p.type === "K") continue;
+    if (state.piratify.some(x => x.r === r && x.c === c) || state.thief.some(x => x.r === r && x.c === c)) continue;
+    let v = 25 * perCapture;
+    try {
+      const ms = pseudoMoves(state.board, r, c, state.castling, state.epTarget, blockedSet(state));
+      for (const m of ms) {
+        const t = state.board[m.r][m.c];
+        if (t && t.color !== me) v += Math.min(50, (PIECE_SCORE[t.type] || 100) * 0.15) * perCapture;
+      }
+    } catch (e) {}
+    if (!best || v > best.score) best = { r, c, score: v };
+  }
+  return best;
+}
+
 // Expected value of a spell that needs no target square.
 function aiInstantScore(id, me) {
   const enemy = opp(me);
@@ -3236,8 +3691,14 @@ function aiInstantScore(id, me) {
     }
     return Math.min(fresh, 2) * 45 + 20;
   }
-  if (id === "echo") return state.money[me] >= 10 ? 350 : 0;
   return 0;
+}
+
+// Gate for trying Echo: it is search-valued (its extra turn is modelled in the
+// search), so this only decides whether it is worth evaluating — roughly one
+// extra capture-free move of tempo.
+function aiEchoScore(me) {
+  return 220;
 }
 
 // Candidate {r, c, score} (or {instant:true, score}) for casting `id`, or null.
@@ -3251,12 +3712,17 @@ function aiSpellTarget(id, me) {
     case "push":      return aiPushTarget(me);
     case "sacrifice": return aiSacrificeTarget(me);
     case "killPawn":  return aiSnipeTarget(me);
+    case "block":     return aiBlockTarget(me);
+    case "piratify":  return aiMarkTarget(me, 2);
+    case "thief":     return aiMarkTarget(me, 1);
+    case "swap":      return aiSwapTarget(me);
     case "killRandom":
-    case "bounty":
-    case "echo": {
+    case "bounty": {
       const v = aiInstantScore(id, me);
       return v > 0 ? { instant: true, score: v } : null;
     }
+    // Echo is search-valued: its extra turn is modelled by applyMove/applySpellToSnapshot.
+    case "echo": return { score: aiEchoScore(me) };
     default: return null;
   }
 }
@@ -3278,7 +3744,7 @@ function aiBestSpell(me, planVal) {
     if (state.money[me] < spellEffCost(id, mod)) continue;
     const cand = aiSpellTarget(id, me);
     if (!cand || cand.score < aiSpellThreshold(id)) continue;
-    cands.push({ slot: i, id, mod, r: cand.r, c: cand.c, instant: !!cand.instant, score: cand.score });
+    cands.push({ slot: i, id, mod, r: cand.r, c: cand.c, r2: cand.r2, c2: cand.c2, instant: !!cand.instant, score: cand.score });
   }
   if (!cands.length) return null;
   cands.sort((a, b) => b.score - a.score);
@@ -3316,16 +3782,40 @@ function aiTryFreeFollowUp(me) {
       if (v !== null && v <= baseVal + AI_SPELL_MARGIN) use = false;
     }
     if (use) {
-      castSpell(slot);
-      if (state.targetMode) {
-        if (isTargetable(cand.r, cand.c, state.targetMode.kind)) handleTargetClick(cand.r, cand.c);
-        else cancelPlacement();
-      }
+      aiCastTargeted(slot, cand);
       return true;
     }
   }
   skipFollowUpSpell();
   return false;
+}
+
+// Cast the spell in `slot` and resolve its targeting. Most spells need one click;
+// a Swap needs two (the second is only valid once the bar is in "swap2" mode).
+function aiCastTargeted(slot, cand) {
+  castSpell(slot);
+  for (let click = 0; click < 2; click++) {
+    if (!state.targetMode) break;
+    const rr = click === 0 ? cand.r : cand.r2;
+    const cc = click === 0 ? cand.c : cand.c2;
+    if (rr == null) { cancelPlacement(); break; }
+    if (isTargetable(rr, cc, state.targetMode.kind)) handleTargetClick(rr, cc);
+    else { cancelPlacement(); break; }
+  }
+}
+
+// Search depth: by board size, plus one ply when the board is thin (endgames
+// are both cheaper and more tactical), capped on the biggest boards.
+function searchDepth(snap) {
+  let d = SIZE >= 12 ? 2 : SIZE === 10 ? 3 : 4;
+  let pieces = 0;
+  for (let r = 0; r < SIZE; r++) for (let c = 0; c < SIZE; c++) {
+    const p = snap.board[r][c];
+    if (p && p.type !== "K") pieces++;
+  }
+  if (pieces <= 10) d += 1;
+  const cap = SIZE >= 12 ? 3 : SIZE === 10 ? 4 : 5;
+  return Math.min(d, cap);
 }
 
 // Search the best legal move for `me` on the live board and return it with its
@@ -3337,25 +3827,49 @@ function aiSearchBestMove(me) {
 
 // Same search, on an arbitrary snapshot whose side to move is `me`.
 function aiSearchBestMoveOn(start, me) {
-  const depth = SIZE >= 12 ? 1 : SIZE === 10 ? 2 : 3;
-  let moves;
-  try { moves = orderMoves(start, allMoves(start), 0); } catch (e) { moves = []; }
-  if (!moves.length) return { best: null, value: -Infinity };
-  let best = moves[0], bestVal = -Infinity, alpha = -Infinity, beta = Infinity;
-  for (const mv of moves) {
-    const promo = mv.move.promotion ? (mv.move.promoteTo || "Q") : null;
-    const child = applyMove(start, mv.fr, mv.fc, mv.move, promo);
-    const v = minimax(child, depth - 1, alpha, beta, me, 1);
-    if (v > bestVal) { bestVal = v; best = mv; }
-    if (v > alpha) alpha = v;
+  const maxDepth = searchDepth(start);
+  let rootMoves;
+  try { rootMoves = allMoves(start); } catch (e) { rootMoves = []; }
+  if (!rootMoves.length) return { best: null, value: -Infinity };
+  // Iterative deepening: each iteration orders the root with the previous best
+  // move first and fills the TT, so deeper iterations prune much harder. The
+  // final iteration's result is returned.
+  let best = null, bestVal = -Infinity, prevKey = null;
+  for (let d = (AI_ITER_DEEPEN ? 1 : maxDepth); d <= maxDepth; d++) {
+    const moves = orderMoves(start, rootMoves, 0, prevKey);
+    let localBest = moves[0], localVal = -Infinity, alpha = -Infinity;
+    for (const mv of moves) {
+      const promo = mv.move.promotion ? (mv.move.promoteTo || "Q") : null;
+      const child = applyMove(start, mv.fr, mv.fc, mv.move, promo);
+      const v = minimax(child, d - 1, alpha, Infinity, me, 1);
+      if (v > localVal) { localVal = v; localBest = mv; }
+      if (v > alpha) alpha = v;
+    }
+    best = localBest; bestVal = localVal;
+    prevKey = localBest ? { fr: localBest.fr, fc: localBest.fc, r: localBest.move.r, c: localBest.move.c } : null;
   }
   return { best, value: bestVal };
+}
+
+// Value of casting Tax Gain (+$3 but the move is skipped): bank the money, hand
+// the turn to the opponent, then search. Returns { slot, value } or null.
+function aiTaxGainValue(me) {
+  if (state.taxSkipPending || state.spellUsedThisTurn || state.placementMode || state.targetMode || state.gameOver) return null;
+  const slot = state.spells.indexOf("moneySkip");
+  if (slot < 0) return null;
+  if (state.money[me] < spellEffCost("moneySkip", state.spellMods[slot] || "normal")) return null;
+  try {
+    const snap = snapshotFromState(state);
+    snap.money = { ...snap.money, [me]: snap.money[me] + 3 };
+    snap.turn = opp(me);
+    return { slot, value: minimax(snap, searchDepth(snap), -Infinity, Infinity, me, 1) };
+  } catch (e) { return null; }
 }
 
 // Apply a targeted spell's effect onto a snapshot for a 1-ply lookahead (the
 // caster is still to move afterwards, since a spell is a free action). Returns
 // the modified snapshot or null when the spell can't be modeled here.
-function applySpellToSnapshot(snap, id, r, c, me) {
+function applySpellToSnapshot(snap, id, r, c, me, r2, c2) {
   const board = cloneBoard(snap.board);
   const out = { ...snap, board, money: { ...snap.money } };
   out.blocked = snap.blocked.map(b=>({...b}));
@@ -3365,11 +3879,57 @@ function applySpellToSnapshot(snap, id, r, c, me) {
   out.cursed = (snap.cursed||[]).map(b=>({...b}));
   out.piratify = (snap.piratify||[]).map(b=>({...b}));
   out.thief = (snap.thief||[]).map(b=>({...b}));
+  out.swapLocked = (snap.swapLocked||[]).map(b=>({...b}));
+  out.noCapture = { w: (snap.noCapture && snap.noCapture.w) || 0, b: (snap.noCapture && snap.noCapture.b) || 0 };
+  out.extraTurns = { w: (snap.extraTurns && snap.extraTurns.w) || 0, b: (snap.extraTurns && snap.extraTurns.b) || 0 };
   switch (id) {
+    case "echo": {
+      // Echo: no captures this move and the extra turn; the caster keeps the turn.
+      out.noCapture[me] = 2;
+      out.extraTurns[me] = Math.max(out.extraTurns[me], 1);
+      return out;
+    }
     case "sleep":   out.sleeping.push({ r, c, owner: me, rem: 2 }); return out;
     case "confuse": out.confused.push({ r, c }); return out;
     case "curse":   out.cursed.push({ r, c, owner: me }); return out;
     case "shield":  out.shielded.push({ r, c, owner: me, rem: 2 }); return out;
+    case "block": {
+      if (board[r][c] || out.blocked.some(b => b.r === r && b.c === c)) return null;
+      out.blocked.push({ r, c, owner: me, rem: 2 });
+      return out;
+    }
+    case "piratify": {
+      const p = board[r][c];
+      if (!p || p.color !== me) return null;
+      if (out.piratify.some(x => x.r === r && x.c === c) || out.thief.some(x => x.r === r && x.c === c)) return null;
+      out.piratify.push({ r, c });
+      return out;
+    }
+    case "thief": {
+      const p = board[r][c];
+      if (!p || p.color !== me) return null;
+      if (out.piratify.some(x => x.r === r && x.c === c) || out.thief.some(x => x.r === r && x.c === c)) return null;
+      out.thief.push({ r, c });
+      return out;
+    }
+    case "swap": {
+      if (r2 == null || c2 == null || (r === r2 && c === c2)) return null;
+      const pa = board[r][c], pb = board[r2][c2];
+      if (!pa || !pb || pa.color !== me || pb.color !== me || pa.type === "K" || pb.type === "K") return null;
+      if (out.blocked.some(b => (b.r === r2 && b.c === c2))) return null;
+      board[r][c] = pb; board[r2][c2] = pa;
+      // Square-keyed markers follow the two pieces.
+      for (const list of [out.shielded, out.piratify, out.thief, out.cursed, out.confused, out.sleeping]) {
+        for (const e of list) {
+          if (e.r === r && e.c === c) { e.r = r2; e.c = c2; }
+          else if (e.r === r2 && e.c === c2) { e.r = r; e.c = c; }
+        }
+      }
+      // Both swapped pieces are locked for the rest of this turn.
+      out.swapLocked.push({ r, c, owner: me, rem: 1 });
+      out.swapLocked.push({ r: r2, c: c2, owner: me, rem: 1 });
+      return out;
+    }
     case "push": {
       const p = board[r][c];
       if (!p) return null;
@@ -3416,7 +3976,7 @@ function applySpellToSnapshot(snap, id, r, c, me) {
 // to the heuristic decision.
 function aiSpellValue(me, cand, cost) {
   try {
-    const applied = applySpellToSnapshot(snapshotFromState(state), cand.id, cand.r, cand.c, me);
+    const applied = applySpellToSnapshot(snapshotFromState(state), cand.id, cand.r, cand.c, me, cand.r2, cand.c2);
     if (!applied) return null;
     applied.money = { ...applied.money, [me]: applied.money[me] - cost };
     const res = aiSearchBestMoveOn(applied, me);
@@ -3464,16 +4024,17 @@ function aiFinishPlacement() {
 
 function isTargetable(r, c, kind) {
   const p = state.board[r][c];
+  const god = godCasting();   // God Mode: any piece, either color, may be targeted
   if (kind === "enemyPawn") return p && (p.type === "P" || p.type === "D" || p.type === "S");
-  if (kind === "enemyPiece") return p && p.color !== state.turn;
-  if (kind === "confuse") return p && p.color !== state.turn && !state.confused.some(x => x.r===r && x.c===c);
-  if (kind === "piratify") return p && p.color === state.turn && !state.piratify.some(x => x.r===r && x.c===c) && !state.thief.some(x => x.r===r && x.c===c);
-  if (kind === "thief") return p && p.color === state.turn && !state.piratify.some(x => x.r===r && x.c===c) && !state.thief.some(x => x.r===r && x.c===c);
-  if (kind === "curse") return p && p.color !== state.turn && !state.cursed.some(x => x.r===r && x.c===c);
-  if (kind === "shield") return p && p.color === state.turn && !isShielded(state, r, c);
-  if (kind === "sacrifice") return p && p.color === state.turn && p.type !== "K";
-  if (kind === "swap") return p && p.color === state.turn && p.type !== "K" && !(state.swapSel && state.swapSel.r===r && state.swapSel.c===c);
-  if (kind === "swap2") return p && p.color === state.turn && p.type !== "K" && !(state.swapSel && state.swapSel.r===r && state.swapSel.c===c) && !state.blocked.some(b => b.r===r && b.c===c);
+  if (kind === "enemyPiece") return god ? !!p : (p && p.color !== state.turn);
+  if (kind === "confuse") return p && (god || p.color !== state.turn) && !state.confused.some(x => x.r===r && x.c===c);
+  if (kind === "piratify") return p && (god || p.color === state.turn) && !state.piratify.some(x => x.r===r && x.c===c) && !state.thief.some(x => x.r===r && x.c===c);
+  if (kind === "thief") return p && (god || p.color === state.turn) && !state.piratify.some(x => x.r===r && x.c===c) && !state.thief.some(x => x.r===r && x.c===c);
+  if (kind === "curse") return p && (god || p.color !== state.turn) && !state.cursed.some(x => x.r===r && x.c===c);
+  if (kind === "shield") return p && (god || p.color === state.turn) && !isShielded(state, r, c);
+  if (kind === "sacrifice") return p && (god || p.color === state.turn) && p.type !== "K";
+  if (kind === "swap") return p && (god || p.color === state.turn) && p.type !== "K" && !(state.swapSel && state.swapSel.r===r && state.swapSel.c===c);
+  if (kind === "swap2") return p && (god || p.color === state.turn) && p.type !== "K" && !(state.swapSel && state.swapSel.r===r && state.swapSel.c===c) && !state.blocked.some(b => b.r===r && b.c===c);
   if (kind === "anyEmpty") return !p;
   if (kind === "dispelable") {
     if (state.blocked.some(b => b.r===r && b.c===c)) return true;
@@ -3519,6 +4080,11 @@ function updateStatus() {
       return;
     }
     if (state.targetMode) {
+      if (godCasting()) {
+        const nm = (SPELLS[state.targetMode.spellId] && SPELLS[state.targetMode.spellId].name) || "spell";
+        STATUS_EL.textContent = `${prefix}${who} — God Mode: click any valid piece/square to resolve ${nm} (Cancel to abort)`;
+        return;
+      }
       const msgs = {
         enemyPawn: "click any pawn to snipe (either side)",
         enemyPiece: "click an enemy piece to put to sleep",
@@ -4059,6 +4625,9 @@ case "curse":
       state.targetMode = { kind: "sacrifice", spellId: id };
       break;
   }
+  // A non-targeted God spell (Tax, Freecast, instants) has fully resolved by
+  // now; targeted ones keep the caster color until the target click resolves.
+  if (!state.targetMode) state.godSpellColor = null;
   state.selected = null;
   state.legalForSelected = [];
   render();
@@ -4067,6 +4636,7 @@ case "curse":
 function finishSpell(logTxt, keepTurn) {
   state.spellUsedThisTurn = true;
   state.targetMode = null;
+  state.godSpellColor = null;   // a staged God spell is done resolving
   refillSpells();
   pushSpellLog(logTxt);
   endTurnChecks();
@@ -4165,6 +4735,7 @@ function spellEndTurnSkip(grantMoney = true) {
 state.spellUsedThisTurn = false;
   state.taxSkipPending = false;
   state.targetMode = null;
+  state.godSpellColor = null;
   refillSpells();
   onTurnStart(state.turn);
   rebuildHistorySel();
@@ -4198,10 +4769,11 @@ function clearPieceEffects(r, c) {
 }
 
 function spellKillRandom() {
+  const caster = spellCaster();   // God Mode can strike for either side
   const mine = [], foes = [];
   for (let r=0;r<SIZE;r++) for (let c=0;c<SIZE;c++) {
     const p = state.board[r][c];
-    if (p && p.type !== "K") (p.color === state.turn ? mine : foes).push({r,c});
+    if (p && p.type !== "K") (p.color === caster ? mine : foes).push({r,c});
   }
   if (!mine.length && !foes.length) { refundSpellNoEffect("killRandom"); return; }
   const pool = (gRng() < 0.75 ? foes : mine);
@@ -4211,7 +4783,7 @@ function spellKillRandom() {
   applyBountyIfAny(victim);
   state.board[t.r][t.c] = null;
   clearPieceEffects(t.r, t.c);
-  const label = `${state.turn==="w"?"W":"B"}:Lightning@${sqName(t.r,t.c)}`;
+  const label = `${caster==="w"?"W":"B"}:Lightning@${sqName(t.r,t.c)}`;
   finishSpell(label);
   strikeLightning(t.r, t.c);
 }
@@ -4228,11 +4800,12 @@ function pickBountyTargets(cands, n) {
 }
 
 function spellBounty() {
+  const caster = spellCaster();   // God Mode can place bounties for either side
   const myCands = [], foeCands = [];
   for (let r=0;r<SIZE;r++) for (let c=0;c<SIZE;c++) {
     const p = state.board[r][c];
     if (p && p.type !== "K") {
-      if (p.color === state.turn) myCands.push({r,c});
+      if (p.color === caster) myCands.push({r,c});
       else foeCands.push({r,c});
     }
   }
@@ -4240,21 +4813,22 @@ function spellBounty() {
   if (!myCands.length || foeCands.length < 2) { refundSpellNoEffect("bounty"); return; }
   const mine = pickBountyTargets(myCands, 1)[0];
   const [f1, f2] = pickBountyTargets(foeCands, 2);
-  state.board[mine.r][mine.c] = { ...state.board[mine.r][mine.c], bounty: state.turn };
-  state.board[f1.r][f1.c] = { ...state.board[f1.r][f1.c], bounty: state.turn };
-  state.board[f2.r][f2.c] = { ...state.board[f2.r][f2.c], bounty: state.turn };
-  finishSpell(`${state.turn==="w"?"W":"B"}:Bounty@${sqName(mine.r,mine.c)}+${sqName(f1.r,f1.c)},${sqName(f2.r,f2.c)}`);
+  state.board[mine.r][mine.c] = { ...state.board[mine.r][mine.c], bounty: caster };
+  state.board[f1.r][f1.c] = { ...state.board[f1.r][f1.c], bounty: caster };
+  state.board[f2.r][f2.c] = { ...state.board[f2.r][f2.c], bounty: caster };
+  finishSpell(`${caster==="w"?"W":"B"}:Bounty@${sqName(mine.r,mine.c)}+${sqName(f1.r,f1.c)},${sqName(f2.r,f2.c)}`);
 }
 
 function spellEcho(mod) {
   // Echo (1x): no captures during this and one extra turn.
   // Echo (2x): no captures during this + TWO extra turns.
   const doubles = mod === "double";
-  state.noCapture[state.turn] = doubles ? 3 : 2;  // current move + N extra moves
-  state.extraTurns[state.turn] = doubles ? 2 : 1;
+  const caster = spellCaster();   // God Mode can grant the extra turn to either side
+  state.noCapture[caster] = doubles ? 3 : 2;  // current move + N extra moves
+  state.extraTurns[caster] = doubles ? 2 : 1;
   // keepTurn: when Echo is the free spell rolled by a Tax Gain RND, its own
   // extra turn means the caster keeps the turn (see finishSpell).
-  finishSpell(`${state.turn==="w"?"W":"B"}:Echo${doubles?" x2":""}`, true);
+  finishSpell(`${caster==="w"?"W":"B"}:Echo${doubles?" x2":""}`, true);
 }
 
 function spellPrecast() {
@@ -4273,67 +4847,70 @@ function spellPrecast() {
 
 function refundSpellNoEffect(id) {
   // spell had no valid target — refund cost, do not consume the one-spell-per-turn
-  state.money[state.turn] += SPELLS[id].cost;
+  if (!state.godFreeSpell) state.money[state.turn] += SPELLS[id].cost;
   // a cast that fizzled shouldn't keep its double/random follow-up waiting
   state.followUpSpell = null;
   // pop the history snapshot we pushed
   state.history.pop();
   state.targetMode = null;
+  state.godSpellColor = null;
   render();
 }
 
 function handleTargetClick(r, c) {
   const tm = state.targetMode;
   if (!tm) return;
+  const god = godCasting();       // God Mode: any piece, either color
+  const caster = spellCaster();   // who the spell counts as (God: chosen side)
   if (tm.kind === "enemyPawn") {
     const p = state.board[r][c];
     if (!p || (p.type !== "P" && p.type !== "D" && p.type !== "S")) { render(); return; }
     applyBountyIfAny(p);
     state.board[r][c] = null;
     clearPieceEffects(r, c);
-    finishSpell(`${state.turn==="w"?"W":"B"}:Snipe@${sqName(r,c)}`);
+    finishSpell(`${caster==="w"?"W":"B"}:Snipe@${sqName(r,c)}`);
   } else if (tm.kind === "anyEmpty") {
     if (state.board[r][c]) { render(); return; }
-    state.blocked.push({ r, c, owner: state.turn, rem: 2 });
-    finishSpell(`${state.turn==="w"?"W":"B"}:Wall@${sqName(r,c)}`);
+    state.blocked.push({ r, c, owner: caster, rem: 2 });
+    finishSpell(`${caster==="w"?"W":"B"}:Wall@${sqName(r,c)}`);
   } else if (tm.kind === "enemyPiece") {
     const p = state.board[r][c];
-    if (!p || p.color === state.turn) { render(); return; }
-    state.sleeping.push({ r, c, owner: state.turn, rem: 2 });
-    finishSpell(`${state.turn==="w"?"W":"B"}:Sleep@${sqName(r,c)}`);
+    if (!p || (!god && p.color === state.turn)) { render(); return; }
+    state.sleeping.push({ r, c, owner: caster, rem: 2 });
+    finishSpell(`${caster==="w"?"W":"B"}:Sleep@${sqName(r,c)}`);
   } else if (tm.kind === "confuse") {
     const p = state.board[r][c];
-    if (!p || p.color === state.turn) { render(); return; }
+    if (!p || (!god && p.color === state.turn)) { render(); return; }
     if (state.confused.some(x => x.r===r && x.c===c)) { render(); return; }
     state.confused.push({ r, c });
-    finishSpell(`${state.turn==="w"?"W":"B"}:Confusion@${sqName(r,c)}`);
+    finishSpell(`${caster==="w"?"W":"B"}:Confusion@${sqName(r,c)}`);
   } else if (tm.kind === "piratify") {
     const p = state.board[r][c];
-    if (!p || p.color !== state.turn) { render(); return; }
+    if (!p || (!god && p.color !== state.turn)) { render(); return; }
     if (state.piratify.some(x => x.r===r && x.c===c) || state.thief.some(x => x.r===r && x.c===c)) { render(); return; }
     state.piratify.push({ r, c });
-    finishSpell(`${state.turn==="w"?"W":"B"}:Piratify@${sqName(r,c)}`);
+    finishSpell(`${caster==="w"?"W":"B"}:Piratify@${sqName(r,c)}`);
   } else if (tm.kind === "thief") {
     const p = state.board[r][c];
-    if (!p || p.color !== state.turn) { render(); return; }
+    if (!p || (!god && p.color !== state.turn)) { render(); return; }
     if (state.piratify.some(x => x.r===r && x.c===c) || state.thief.some(x => x.r===r && x.c===c)) { render(); return; }
     state.thief.push({ r, c });
-    finishSpell(`${state.turn==="w"?"W":"B"}:Thief@${sqName(r,c)}`);
+    finishSpell(`${caster==="w"?"W":"B"}:Thief@${sqName(r,c)}`);
   } else if (tm.kind === "curse") {
     const p = state.board[r][c];
-    if (!p || p.color === state.turn) { render(); return; }
+    if (!p || (!god && p.color === state.turn)) { render(); return; }
     if (state.cursed.some(x => x.r===r && x.c===c)) { render(); return; }
-    state.cursed.push({ r, c, owner: state.turn });
-    finishSpell(`${state.turn==="w"?"W":"B"}:Curse@${sqName(r,c)}`);
+    state.cursed.push({ r, c, owner: caster });
+    finishSpell(`${caster==="w"?"W":"B"}:Curse@${sqName(r,c)}`);
   } else if (tm.kind === "shield") {
     const p = state.board[r][c];
-    if (!p || p.color !== state.turn || isShielded(state, r, c)) { render(); return; }
-    state.shielded.push({ r, c, owner: state.turn, rem: 2 });
-    finishSpell(`${state.turn==="w"?"W":"B"}:Shield@${sqName(r,c)}`);
+    if (!p || (!god && p.color !== state.turn) || isShielded(state, r, c)) { render(); return; }
+    state.shielded.push({ r, c, owner: caster, rem: 2 });
+    finishSpell(`${caster==="w"?"W":"B"}:Shield@${sqName(r,c)}`);
   } else if (tm.kind === "swap") {
     // First pick of the Swap spell: remember it and switch to the second pick.
     const p = state.board[r][c];
-    if (!p || p.color !== state.turn || p.type === "K") { render(); return; }
+    if (!p || (!god && p.color !== state.turn) || p.type === "K") { render(); return; }
     state.swapSel = { r, c };
     state.targetMode = { kind: "swap2", spellId: tm.spellId };
     render();
@@ -4341,7 +4918,8 @@ function handleTargetClick(r, c) {
     const a = state.swapSel;
     if (!a) { render(); return; }
     const pA = state.board[a.r][a.c], pB = state.board[r][c];
-    if (!pA || !pB || pA.color !== state.turn || pB.color !== state.turn ||
+    const badOwner = !god && (pA.color !== state.turn || pB.color !== state.turn);
+    if (!pA || !pB || badOwner ||
         pA.type === "K" || pB.type === "K" || (a.r===r && a.c===c)) { render(); return; }
     if (state.blocked.some(b => b.r===r && b.c===c)) { render(); return; }
     // Exchange the pieces.
@@ -4355,19 +4933,19 @@ function handleTargetClick(r, c) {
         else if (entry.r===r && entry.c===c) { entry.r = a.r; entry.c = a.c; }
       }
     }
-    state.swapLocked.push({ r: a.r, c: a.c, owner: state.turn, rem: 1 });
-    state.swapLocked.push({ r, c, owner: state.turn, rem: 1 });
+    state.swapLocked.push({ r: a.r, c: a.c, owner: caster, rem: 1 });
+    state.swapLocked.push({ r, c, owner: caster, rem: 1 });
     state.swapSel = null;
-    finishSpell(`${state.turn==="w"?"W":"B"}:Swap@${sqName(a.r,a.c)}⇄${sqName(r,c)}`);
+    finishSpell(`${caster==="w"?"W":"B"}:Swap@${sqName(a.r,a.c)}⇄${sqName(r,c)}`);
   } else if (tm.kind === "sacrifice") {
     const p = state.board[r][c];
-    if (!p || p.color !== state.turn || p.type === "K") { render(); return; }
+    if (!p || (!god && p.color !== state.turn) || p.type === "K") { render(); return; }
     const gain = SHOP_PRICE[p.type] !== undefined ? SHOP_PRICE[p.type] : PIECE_VALUE[p.type];
     applyBountyIfAny(p);
     state.board[r][c] = null;
     clearPieceEffects(r, c);
-    state.money[state.turn] += gain;
-    finishSpell(`${state.turn==="w"?"W":"B"}:Sacrifice@${sqName(r,c)}+$${gain}`);
+    state.money[caster] += gain;
+    finishSpell(`${caster==="w"?"W":"B"}:Sacrifice@${sqName(r,c)}+$${gain}`);
   } else if (tm.kind === "dispelable") {
     const blockedIdx = state.blocked.findIndex(b => b.r===r && b.c===c);
     const sleepIdx = state.sleeping.findIndex(s => s.r===r && s.c===c);
@@ -4387,7 +4965,7 @@ if (pirIdx >= 0) { state.piratify.splice(pirIdx,1); what = what ? what+"/piratif
     if (curIdx >= 0) { state.cursed.splice(curIdx,1); what = what ? what+"/curse" : "curse"; }
     if (shdIdx >= 0) { state.shielded.splice(shdIdx,1); what = what ? what+"/shield" : "shield"; }
     if (p && p.bounty) { p.bounty = null; what = what ? what+"/bounty" : "bounty"; }
-    finishSpell(`${state.turn==="w"?"W":"B"}:Dispel@${sqName(r,c)}(${what})`);
+    finishSpell(`${caster==="w"?"W":"B"}:Dispel@${sqName(r,c)}(${what})`);
   } else if (tm.kind === "pushable") {
     const p = state.board[r][c];
     if (!p) { render(); return; }
@@ -4412,7 +4990,7 @@ if (pirIdx >= 0) { state.piratify.splice(pirIdx,1); what = what ? what+"/piratif
     if (swi >= 0) state.swapLocked[swi].r = tr;
     state.board[tr][c] = p;
     state.board[r][c] = null;
-    finishSpell(`${state.turn==="w"?"W":"B"}:Push@${sqName(r,c)}?${sqName(tr,c)}`);
+    finishSpell(`${caster==="w"?"W":"B"}:Push@${sqName(r,c)}?${sqName(tr,c)}`);
   }
 }
 
@@ -4507,6 +5085,7 @@ function hideStaleTooltip() {
 }
 
 function cancelPlacement() {
+  state.godSpellColor = null;   // aborting a God spell drops its caster color
   if (state.targetMode) {
     // Cancel a targeting spell: refund the cost and restore the exact pre-cast
     // state (freeCast flag, spell shop, etc.) from the snapshot castSpell pushed.
@@ -5589,6 +6168,7 @@ document.getElementById("quitToMenuBtn").addEventListener("click", () => {
 function catPieceSpan(p) {
   const span = document.createElement("span");
   span.className = "piece" + (p.bounty ? " bounty" : "");
+  if (p.color === "w") span.classList.add("side-w");
   span.style.color = p.color === "w" ? "#ffffff" : "#1a1a1a";
   if (p.type === "H") {
     span.classList.add("centaur");
@@ -5910,6 +6490,7 @@ function buildGodRow(containerId, values, current, onPick) {
 function buildGodPanel() {
   buildGodRow("godPieceColors", GOD_PIECE_COLORS, godPieceColor, v => godPieceColor = v);
   buildGodRow("godPieceMods", GOD_PIECE_MODS, godPieceMod, v => godPieceMod = v);
+  buildGodRow("godSpellColors", GOD_PIECE_COLORS, godSpellColor, v => godSpellColor = v);
   buildGodRow("godSpellMods", GOD_SPELL_MODS, godSpellMod, v => godSpellMod = v);
   const pieces = document.getElementById("godPieces");
   if (!pieces.dataset.built) {
@@ -5937,6 +6518,7 @@ function buildGodPanel() {
 
 function openGod() {
   godSnipeMode = false;   // opening the panel ends any active snipe mode
+  godSpellColor = state.turn;   // default God spells to the side to move
   buildGodPanel();
   document.getElementById("godOverlay").style.display = "flex";
 }
@@ -6030,6 +6612,7 @@ function godCastSpell(id) {
   state.spells[0] = id;
   state.spellMods[0] = godSpellMod;
   state.godFreeSpell = id;
+  state.godSpellColor = godSpellColor;   // cast "as" the chosen side
   castSpell(0);
   state.godFreeSpell = null;
   if (state.history.length > histBefore) {
