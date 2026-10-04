@@ -29,6 +29,11 @@ Files:
 ## Ground rules
 
 - **Single file:** keep all game code inside `money-chess.html`. Do not split into multiple JS/CSS files.
+- **AI engine block:** the AI lives in its own `<script id="aiEngine">` block, before `<script id="mainScript">`.
+  It also runs in a Web Worker built from the page's own source (`aiWorkerSource()`), so it must not touch the DOM
+  at load time. Main-script code the AI calls must be a top-level `function` declaration or a top-level `const`/`let`
+  holding plain data (those are copied into the worker by name). After changing the AI, check that the worker still
+  starts (no "AI worker unavailable" warning in the console).
 - **No build step and no package manager.** Test by refreshing the page in a browser. Expect no unit-test framework.
 - **Determinism matters:** all in-game randomness goes through the seeded PRNG `gRng()` seeded by `SEED`
   (see Readme §11). When you add randomness, route it through `gRng()` so online games stay in sync
