@@ -1313,9 +1313,10 @@ function evaluate(s, aiColor) {
     const sq = r * SIZE + c;
     const sign = p.color === aiColor ? 1 : -1;
     let v = (PIECE_SCORE[p.type] || 100) + pstValue(p.type, p.color, r, c);
-    // bounty bonus: a bountied enemy piece is worth more to capture
-    if (p.bounty && p.color !== aiColor) v += 30;
-    if (p.bounty && p.color === aiColor) v -= 15; // my bountied piece is a liability
+    // Bounty: whoever placed it (p.bounty) collects $1 when the piece is
+    // captured, whichever side captures it. Its expected payout counts for the
+    // owner; a capture inside the search pays the full $1 (applyMoveIncome).
+    if (p.bounty) score += (p.bounty === aiColor ? 1 : -1) * AI_PARAMS.bountyEV;
     // Control effects matter: a slept/confused/hexed piece is worth much less to
     // its owner, so the search values spending a spell on it properly.
     const epv = Math.min(PIECE_SCORE[p.type] || 100, 1000);
@@ -2298,9 +2299,10 @@ function aiLevelBudget(level) {
 //   kingAttack   centipawns per square hit around a king (scaled by attackers).
 //                Off: in self-play it did not help (8 or 4 vs 0: 23-31 overall).
 //   oppModel     search the opponent's buys/spells on its first reply (level 3+)
+//   bountyEV     expected payout of a bounty still on the board (to its owner)
 //   *Margin      how much a buy / Tax / spell must beat the alternative by
 //   repPenalty   cost of steering back into a position we already had
-const AI_DEFAULT_PARAMS = { money: 100, kingAttack: 0, oppModel: true, buyMargin: 15, taxMargin: 15, spellMargin: 10, repPenalty: 25 };
+const AI_DEFAULT_PARAMS = { money: 100, kingAttack: 0, oppModel: true, bountyEV: 25, buyMargin: 15, taxMargin: 15, spellMargin: 10, repPenalty: 25 };
 let AI_PARAMS = { ...AI_DEFAULT_PARAMS };
 const AI_PROBE_MARGIN = 150;   // how far below the bar a shallow probe may score and still get a full search
 let AI_HEADLESS = false;   // aiSelfPlay: no rendering, sounds or timers
@@ -2510,7 +2512,11 @@ function aiFreeFollowUp(me, plan, D) {
     const c = { ...cand, id, slot, cost: 0 };
     let value, then = null;
     if (cand.instant) value = plan.value + cand.score;
-    else {
+    else if (cand.bounty) {
+      const res = aiBountyValue(me, 0, D, plan.value);
+      if (!res) continue;
+      value = res.value;
+    } else {
       const res = aiSpellValue(me, c, 0, D, Math.max(plan.value + AI_PARAMS.spellMargin, pick ? pick.value : -Infinity));
       if (!res) continue;
       value = res.value; then = res.then;
@@ -2680,7 +2686,8 @@ function aiTaxGainValue(me, D, floor) {
 // Spells are a free action, so the AI may cast one and still move. Each spell
 // offers a few heuristic targets; those that clear the spell's threshold are
 // searched ("spell, then best move") in heuristic order, as many as the level
-// allows. Lightning and Bounty (random effects) are scored by expectation.
+// allows. Bounty (random targets) is searched on sampled outcomes; Lightning
+// is scored by expectation.
 const AI_SPELL_MIN = 180;      // generic fallback floor
 const AI_SPELL_TARGETS = 3;    // heuristic candidates per spell
 const AI_SPELL_THRESHOLD = {
@@ -2998,10 +3005,15 @@ function aiSpellTargets(id, me) {
     case "piratify":  return aiMarkTargets(me, 2);
     case "thief":     return aiMarkTargets(me, 1);
     case "swap":      return aiSwapTargets(me);
-    case "killRandom":
-    case "bounty": {
+    case "killRandom": {
       const v = aiInstantScore(id, me);
       return v > 0 ? [{ instant: true, score: v }] : [];
+    }
+    // Bounty is search-valued on sampled outcomes (aiBountyValue); the score
+    // only gates and orders it.
+    case "bounty": {
+      const v = aiInstantScore(id, me);
+      return v > 0 ? [{ bounty: true, score: v }] : [];
     }
     // Echo is search-valued: its extra turn is modelled by applyMove/applySpellToSnapshot.
     case "echo": return [{ score: aiEchoScore(me) }];
@@ -3014,8 +3026,8 @@ function aiSpellThreshold(id) {
 }
 
 // Pick the best spell to cast this turn: targeted spells are valued by search
-// (spell, then the best move, at depth D — the same as the plain move), the
-// random ones by expectation less their price. Returns the candidate with
+// (spell, then the best move, at depth D — the same as the plain move), Bounty
+// by search on sampled outcomes, Lightning by expectation less its price. Returns the candidate with
 // {slot, id, value, then} or null.
 function aiBestSpell(me, planVal, D, level) {
   if (state.spellUsedThisTurn || state.placementMode || state.targetMode || state.taxSkipPending) return null;
@@ -3038,6 +3050,10 @@ function aiBestSpell(me, planVal, D, level) {
     let value, then = null;
     if (cand.instant) {
       value = planVal + cand.score - (moneyValue(money) - moneyValue(money - cand.cost));
+    } else if (cand.bounty) {
+      const res = aiBountyValue(me, cand.cost, D, planVal);
+      if (!res) continue;
+      value = res.value;
     } else {
       if (searched >= maxSearched) continue;
       searched++;
@@ -3048,6 +3064,72 @@ function aiBestSpell(me, planVal, D, level) {
     if (!best || value > best.value) best = { ...cand, value, then };
   }
   return best;
+}
+
+// ---- Bounty: search-valued on sampled outcomes ----
+// Bounty marks one of the caster's non-king pieces and two enemy ones at
+// random (unmarked pieces first, as pickBountyTargets does), so it is valued by
+// searching a few sampled outcomes. The samples need exact values (they are
+// averaged), so they are full-window searches; to keep that cheap they run two
+// plies shallower than the plain move, next to a baseline (no Bounty) at that
+// same depth, and their average gain over the baseline is added to the plain
+// move's full-depth value.
+const AI_BOUNTY_SAMPLES = 3;
+
+// Targets [own, enemy, enemy] for sample k, or null when Bounty would fizzle.
+// The draw is a hash of the position (no gRng: thinking must not consume the
+// seeded game stream).
+function aiBountyOutcome(snap, me, k) {
+  const mine = [], foe = [];
+  for (let r = 0; r < SIZE; r++) for (let c = 0; c < SIZE; c++) {
+    const p = snap.board[r][c];
+    if (p && p.type !== "K") (p.color === me ? mine : foe).push({ r, c, fresh: !p.bounty });
+  }
+  if (!mine.length || foe.length < 2) return null;
+  let h = mix32((positionHash(snap).h1 ^ Math.imul(k + 1, 0x9E3779B1)) >>> 0);
+  const rnd = () => { h = mix32((h + 0x6D2B79F5) >>> 0); return h / 4294967296; };
+  const pick = (cands, n) => {
+    const fresh = cands.filter(x => x.fresh), rest = cands.filter(x => !x.fresh), out = [];
+    while (out.length < n && fresh.length) out.push(fresh.splice(Math.floor(rnd() * fresh.length), 1)[0]);
+    while (out.length < n && rest.length) out.push(rest.splice(Math.floor(rnd() * rest.length), 1)[0]);
+    return out;
+  };
+  return pick(mine, 1).concat(pick(foe, 2));
+}
+
+// `snap` with Bounty (owned by `me`) on the given squares; the caster still moves.
+function applyBountyToSnapshot(snap, me, targets) {
+  const board = cloneBoardRows(snap.board, [...new Set(targets.map(t => t.r))]);
+  for (const t of targets) board[t.r][t.c] = { ...board[t.r][t.c], bounty: me };
+  return { ...snap, board, money: { ...snap.money } };
+}
+
+// Value of casting Bounty for `cost`, comparable with the plain move's value
+// `planVal` (found at depth D). Returns {value, then: null} or null (Bounty
+// would fizzle, or out of budget). `then` is null: the real targets are only
+// known once cast, so the AI decides its move afterwards.
+function aiBountyValue(me, cost, D, planVal) {
+  const root = snapshotFromState(state);
+  const dS = D > 2 ? D - 2 : D;
+  const base = aiRootSearch(root, me, { depth: dS, fixedDepth: true });
+  if (!base) return null;
+  const saved = AI_CTX.oppSpells;
+  AI_CTX.oppSpells = AI_CTX.oppSpellsAfterCast;   // casting refills the spell bar
+  try {
+    let sum = 0;
+    for (let k = 0; k < AI_BOUNTY_SAMPLES; k++) {
+      const targets = aiBountyOutcome(root, me, k);
+      if (!targets) return null;
+      const child = applyBountyToSnapshot(root, me, targets);
+      child.money[me] -= cost;
+      const res = aiRootSearch(child, me, { depth: dS, fixedDepth: true });
+      if (!res) return null;
+      sum += res.value;
+    }
+    return { value: planVal + sum / AI_BOUNTY_SAMPLES - base.value, then: null };
+  } finally {
+    AI_CTX.oppSpells = saved;
+  }
 }
 
 // Value of casting a targeted spell and then playing the best follow-up move,
