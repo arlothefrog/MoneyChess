@@ -1402,14 +1402,14 @@ function kingDanger(hits, attackers) {
   return hits * AI_PARAMS.kingAttack * KING_ATTACK_SCALE[attackers > 6 ? 6 : attackers];
 }
 
-// Value of a bank balance in centipawns. Money buys material (shop price is
-// roughly $1 per 100) but only by spending a turn on it, so each dollar is worth
-// AI_PARAMS.money; beyond moneyCap (enough for the priciest buy) the extra has
-// no immediate use and counts half.
+// Value of a bank balance in centipawns: what it buys in the shop (about 100
+// a dollar). It must be close to that rate. If a dollar were worth less than the
+// material it buys, every purchase would look like a free gain, so "the
+// opponent buys a piece" would put the same floor under every line of the
+// search and hide real losses (the AI then hung pieces); and the AI would shop
+// compulsively. Flat, with no cap, for the same reason.
 function moneyValue(m) {
-  const v = AI_PARAMS.money, cap = AI_PARAMS.moneyCap;
-  if (m <= 0) return 0;
-  return m <= cap ? m * v : cap * v + (m - cap) * v * 0.5;
+  return m > 0 ? m * AI_PARAMS.money : 0;
 }
 
 // Shallow-copy a square-keyed effect list so snapshots are self-contained.
@@ -2234,14 +2234,14 @@ function aiLevelBudget(level) {
 }
 
 // Evaluation/decision weights (aiSelfPlay can pit two sets against each other).
-//   money        centipawns per $ of bank balance (up to moneyCap $). Self-play
-//                at level 3: 50 beat 8 (the old value) 16-8 and beat 25 15-9.
+//   money        centipawns per $ of bank balance. Self-play at level 4: 100
+//                beat 50-capped-at-$12 20-4 (and earlier 50 beat 25 and 8).
 //   kingAttack   centipawns per square hit around a king (scaled by attackers).
 //                Off: in self-play it did not help (8 or 4 vs 0: 23-31 overall).
 //   oppModel     search the opponent's buys/spells on its first reply (level 3+)
 //   *Margin      how much a buy / Tax / spell must beat the alternative by
 //   repPenalty   cost of steering back into a position we already had
-const AI_DEFAULT_PARAMS = { money: 50, moneyCap: 12, kingAttack: 0, oppModel: true, buyMargin: 15, taxMargin: 15, spellMargin: 10, repPenalty: 25 };
+const AI_DEFAULT_PARAMS = { money: 100, kingAttack: 0, oppModel: true, buyMargin: 15, taxMargin: 15, spellMargin: 10, repPenalty: 25 };
 let AI_PARAMS = { ...AI_DEFAULT_PARAMS };
 const AI_PROBE_MARGIN = 150;   // how far below the bar a shallow probe may score and still get a full search
 let AI_HEADLESS = false;   // aiSelfPlay: no rendering, sounds or timers
@@ -3260,7 +3260,7 @@ function aiCastTargeted(slot, cand) {
 // Place the bought piece on the square the decision chose (or, if that is no
 // longer free, the best heuristic square on our half).
 function aiFinishPlacement(a) {
-  const me = state.aiColor || state.turn;
+  const me = state.turn;   // the side placing (the AI, or either side in self-play)
   if (!state.placementMode) { aiThinking = false; if (!AI_HEADLESS) render(); return; }
   const lo = me === "w" ? Math.ceil(SIZE / 2) : 0;
   const hi = me === "w" ? SIZE - 1 : Math.floor(SIZE / 2) - 1;

@@ -368,8 +368,10 @@
       <span class="mono">kingDanger</span>; its weight <span class="mono">AI_PARAMS.kingAttack</span> is 0 by default because it did not help
       in self-play), king shelter, doubled/isolated and passed pawns, bishop pair, rooks/queens on open files,
       endgame king activity and king hunting, control effects (slept −30%, confused −22%, cursed −12%, shielded +10%), loot markers, bounties,
-      and <strong>money</strong> at <span class="mono">AI_PARAMS.money</span> (50) centipawns per $ up to $12, half that beyond
-      (<span class="mono">moneyValue</span>) &mdash; roughly what money buys in the shop, less the turn spent buying.</li>
+      and <strong>money</strong> at <span class="mono">AI_PARAMS.money</span> (100) centipawns per $, flat
+      (<span class="mono">moneyValue</span>) &mdash; what money buys in the shop. This rate matters: when a dollar was worth less than the
+      material it buys, every purchase looked like a free gain, so the opponent model's "they buy a piece" reply put the same floor under
+      every line and hid real losses (the AI hung pieces against a player holding cash). Self-play: 100 beat 50 (capped at $12) 20&ndash;4.</li>
     <li>The search mirrors the live capture economy: <span class="mono">applyMove</span> credits half the victim&rsquo;s value, the bounty
       payout, Plunder +$2, Thief&rsquo;s $1 steal, golden +$1, platinum +$3 and the $1 cursed-mover toll
       (<span class="mono">applyMoveIncome</span>), and carries Piratify/Thief/Curse/Shield markers with a moving piece.</li>
