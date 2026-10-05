@@ -1247,28 +1247,35 @@ const CUSTOM_MOB = new Set(["C","G","D","S","H","M","T","X","F"]);   // fastMobi
 // king's zone (the king's square and its 8 neighbours) into MOB_ZONE, so the
 // evaluation gets king-attack pressure from the same pass.
 let MOB_ZONE = 0;
+// `blk` is a SIZE*SIZE grid, non-zero on walled/shielded squares.
+let MOB_N_COUNT = 0, MOB_BOARD = null, MOB_BLK = null, MOB_OWN = null, MOB_KZ = null;
+function mobVisit(rr, cc) {
+  if (rr < 0 || rr >= SIZE || cc < 0 || cc >= SIZE) return false;
+  if (MOB_BLK[rr * SIZE + cc]) return false;
+  const q = MOB_BOARD[rr][cc];
+  if (q && q.color === MOB_OWN) return false;
+  MOB_N_COUNT++;
+  const kz = MOB_KZ;
+  if (kz && Math.abs(rr - kz.r) <= 1 && Math.abs(cc - kz.c) <= 1) MOB_ZONE++;
+  return !q;   // a capture ends the ray
+}
+function mobRays(r, c, dirs) {
+  for (let i = 0; i < dirs.length; i++) {
+    const dr = dirs[i][0], dc = dirs[i][1];
+    let rr = r, cc = c;
+    while (mobVisit(rr + dr, cc + dc)) { rr += dr; cc += dc; }
+  }
+}
 function fastMobility(s, r, c, blk, kz) {
   const p = s.board[r][c];
-  const t = p.type, own = p.color;
-  let n = 0;
-  MOB_ZONE = 0;
-  const visit = (rr, cc) => {
-    if (rr < 0 || rr >= SIZE || cc < 0 || cc >= SIZE) return false;
-    if (blk.has(rr * SIZE + cc)) return false;
-    const q = s.board[rr][cc];
-    if (q && q.color === own) return false;
-    n++;
-    if (kz && Math.abs(rr - kz.r) <= 1 && Math.abs(cc - kz.c) <= 1) MOB_ZONE++;
-    return !q;   // a capture ends the ray
-  };
-  if (t === "N") { for (const d of MOB_N) visit(r+d[0], c+d[1]); }
-  else if (t === "K") { for (const d of MOB_K) visit(r+d[0], c+d[1]); }
-  else if (t === "A") { for (const d of MOB_N) visit(r+d[0], c+d[1]); for (const d of MOB_Q) { let rr=r, cc=c; while (visit(rr+d[0], cc+d[1])) { rr+=d[0]; cc+=d[1]; } } }
-  else if (t === "R" || t === "B" || t === "Q") {
-    const dirs = t === "R" ? MOB_R : t === "B" ? MOB_B : MOB_Q;
-    for (const d of dirs) { let rr=r, cc=c; while (visit(rr+d[0], cc+d[1])) { rr+=d[0]; cc+=d[1]; } }
-  }
-  return n;
+  const t = p.type;
+  MOB_N_COUNT = 0; MOB_ZONE = 0;
+  MOB_BOARD = s.board; MOB_BLK = blk; MOB_OWN = p.color; MOB_KZ = kz;
+  if (t === "N") { for (let i = 0; i < 8; i++) mobVisit(r + MOB_N[i][0], c + MOB_N[i][1]); }
+  else if (t === "K") { for (let i = 0; i < 8; i++) mobVisit(r + MOB_K[i][0], c + MOB_K[i][1]); }
+  else if (t === "A") { for (let i = 0; i < 8; i++) mobVisit(r + MOB_N[i][0], c + MOB_N[i][1]); mobRays(r, c, MOB_Q); }
+  else if (t === "R" || t === "B" || t === "Q") mobRays(r, c, t === "R" ? MOB_R : t === "B" ? MOB_B : MOB_Q);
+  return MOB_N_COUNT;
 }
 
 // Reused evaluation buffers (evaluate runs at every quiescence leaf, so it must
@@ -1276,7 +1283,9 @@ function fastMobility(s, r, c, blk, kz) {
 const EVAL_MAXSQ = 15 * 15;
 const EVAL_EFF = new Int16Array(EVAL_MAXSQ);
 const EVAL_PFW = new Int16Array(15), EVAL_PFB = new Int16Array(15);
-const EVAL_MOB_BLK = new Set();
+const EVAL_MOB_BLK = new Uint8Array(EVAL_MAXSQ);
+const EVAL_PIECES = new Int16Array(EVAL_MAXSQ);   // occupied squares, board order
+const EVAL_COLORS = ["w", "b"];
 const EG_SLEEP = 1, EG_CONF = 2, EG_CURSE = 4, EG_SHIELD = 8, EG_PIR = 16, EG_THIEF = 32;
 
 function evaluate(s, aiColor) {
@@ -1299,9 +1308,14 @@ function evaluate(s, aiColor) {
   for (let i = 0; i < th.length; i++) eg[th[i].r * SIZE + th[i].c] |= EG_THIEF;
 
   let score = 0;
+  // The occupied squares in board order: the later passes walk only these, in
+  // the same order as a full scan (so the score adds up identically).
+  const plist = EVAL_PIECES;
+  let np = 0;
   for (let r=0;r<SIZE;r++) for (let c=0;c<SIZE;c++) {
     const p = s.board[r][c];
     if (!p) continue;
+    plist[np++] = r * SIZE + c;
     if (p.type==="K") {
       if (p.color==="w") { wKing=true; wKingPos={r,c}; } else { bKing=true; bKingPos={r,c}; }
     }
@@ -1342,9 +1356,10 @@ function evaluate(s, aiColor) {
   for (let i = 0; i < th.length; i++) eg[th[i].r * SIZE + th[i].c] = 0;
   // Second pass: rooks/queens like open files (no friendly pawn on that file),
   // now that every pawn has been counted.
-  for (let r=0;r<SIZE;r++) for (let c=0;c<SIZE;c++) {
+  for (let i = 0; i < np; i++) {
+    const r = (plist[i] / SIZE) | 0, c = plist[i] % SIZE;
     const p = s.board[r][c];
-    if (!p || (p.type !== "R" && p.type !== "Q")) continue;
+    if (p.type !== "R" && p.type !== "Q") continue;
     const filePawns = p.color === "w" ? pfW[c] : pfB[c];
     if (filePawns === 0) {
       score += (p.color === aiColor ? 1 : -1) * (p.type === "R" ? 8 : 4);
@@ -1355,17 +1370,17 @@ function evaluate(s, aiColor) {
 
   const me = aiColor, foe = opp(aiColor);
   // Mobility: approximate a piece's activity by its reachable-square count.
-  const mobBlk = EVAL_MOB_BLK; mobBlk.clear();
-  for (const b of s.blocked) mobBlk.add(b.r * SIZE + b.c);
-  for (let i = 0; i < sh.length; i++) mobBlk.add(sh[i].r * SIZE + sh[i].c);
+  const mobBlk = EVAL_MOB_BLK;   // all zero between calls
+  for (const b of s.blocked) mobBlk[b.r * SIZE + b.c] = 1;
+  for (let i = 0; i < sh.length; i++) mobBlk[sh[i].r * SIZE + sh[i].c] = 1;
   // The same pass counts king-zone pressure: how many squares around each king
   // the other side reaches, and with how many pieces. In a king-capture game
   // that pressure is what wins, so it is scored separately below.
   let strBlk = null, mobMe = 0, mobFoe = 0;
   let zoneHitsMe = 0, zoneAttMe = 0, zoneHitsFoe = 0, zoneAttFoe = 0;   // pressure on my king / on theirs
-  for (let r=0;r<SIZE;r++) for (let c=0;c<SIZE;c++) {
+  for (let i = 0; i < np; i++) {
+    const r = (plist[i] / SIZE) | 0, c = plist[i] % SIZE;
     const p = s.board[r][c];
-    if (!p) continue;
     const ek = p.color === "w" ? bKingPos : wKingPos;   // the king this piece attacks
     let m = fastMobility(s, r, c, mobBlk, p.type === "K" ? null : ek);
     let zone = MOB_ZONE;
@@ -1393,6 +1408,8 @@ function evaluate(s, aiColor) {
     if (m > 16) m = 16;
     if (p.color === aiColor) mobMe += m; else mobFoe += m;
   }
+  for (const b of s.blocked) mobBlk[b.r * SIZE + b.c] = 0;
+  for (let i = 0; i < sh.length; i++) mobBlk[sh[i].r * SIZE + sh[i].c] = 0;
   score += (mobMe - mobFoe);
   score += kingDanger(zoneHitsFoe, zoneAttFoe) - kingDanger(zoneHitsMe, zoneAttMe);
   // Bishop pair
@@ -1400,7 +1417,7 @@ function evaluate(s, aiColor) {
   const foeBishops = foe === "w" ? bishopsW : bishopsB;
   score += (meBishops >= 2 ? 30 : 0) - (foeBishops >= 2 ? 30 : 0);
   // Pawn structure: doubled and isolated pawns are weaker.
-  for (const col of ["w", "b"]) {
+  for (const col of EVAL_COLORS) {
     const sgn = col === me ? 1 : -1;
     const pf = col === "w" ? pfW : pfB;
     for (let c = 0; c < SIZE; c++) {
@@ -1423,9 +1440,10 @@ function evaluate(s, aiColor) {
   // Passed pawns: no enemy pawn on the file or either adjacent file ahead of it.
   // D/S promote straight to an Amazon, so a runner is worth a lot. Allocation
   // free (this runs at every quiescence leaf).
-  for (let r = 0; r < SIZE; r++) for (let c = 0; c < SIZE; c++) {
+  for (let i = 0; i < np; i++) {
+    const r = (plist[i] / SIZE) | 0, c = plist[i] % SIZE;
     const p = s.board[r][c];
-    if (!p || (p.type !== "P" && p.type !== "D" && p.type !== "S")) continue;
+    if (p.type !== "P" && p.type !== "D" && p.type !== "S") continue;
     const fdir = p.color === "w" ? -1 : 1;
     let passed = true;
     for (let dc = -1; dc <= 1 && passed; dc++) {
@@ -1570,9 +1588,17 @@ function expireSnapEffects(eff) {
   }
 }
 
+// cloneBoardRows for the (at most two) rows a move touches, without the list.
+function cloneBoardRows2(b, r1, r2) {
+  const out = b.slice();
+  out[r1] = b[r1].slice();
+  if (r2 !== r1) out[r2] = b[r2].slice();
+  return out;
+}
+
 // Apply a move onto a snapshot, returning a new snapshot
 function applyMove(snap, fr, fc, move, promoteTo) {
-  const board = cloneBoardRows(snap.board, [fr, move.r]);
+  const board = cloneBoardRows2(snap.board, fr, move.r);
   const p = board[fr][fc];
   const castling = {...snap.castling};
   const money = { w: snap.money.w, b: snap.money.b };
@@ -1592,8 +1618,9 @@ function applyMove(snap, fr, fc, move, promoteTo) {
   if (move.enpassant) board[fr][move.c] = null;
   // A captured piece takes its square-keyed markers with it.
   if (captured) {
-    for (const key of ["blocked","sleeping","shielded","confused","piratify","thief","cursed","swapLocked"]) {
-      if (eff[key]) eff[key] = eff[key].filter(e => !(e.r === vr && e.c === vc));
+    for (let k = 0; k < SNAP_EFFECT_KEYS.length; k++) {
+      const key = SNAP_EFFECT_KEYS[k];
+      if (eff[key] && eff[key].length) eff[key] = eff[key].filter(e => !(e.r === vr && e.c === vc));
     }
   }
   // Shooter firing: target is destroyed, shooter stays put.
@@ -1601,7 +1628,7 @@ function applyMove(snap, fr, fc, move, promoteTo) {
     board[move.r][move.c] = null;
     applyMoveIncome(snap, money, p, fr, fc, captured, move);
     expireSnapEffects(eff);
-    return { board, castling, epTarget, turn: turnAfter, ...eff, money, ...tickSpellBar(snap) };
+    return snapAfterTurn(snap, board, castling, epTarget, turnAfter, eff, money);
   }
   board[fr][fc] = null;
   board[move.r][move.c] = move.promotion && promoteTo
@@ -1619,14 +1646,30 @@ const kingCol = SIZE >> 1;
   if (tr===SIZE-1&&tc===0) castling.wQ=false; if (tr===SIZE-1&&tc===SIZE-1) castling.wK=false;
   if (tr===0&&tc===0) castling.bQ=false; if (tr===0&&tc===SIZE-1) castling.bK=false;
   // Plunder/Thief/Curse/Shield markers travel with the mover; confusion is spent.
-  if (eff.confused) eff.confused = eff.confused.filter(e => !(e.r === fr && e.c === fc));
-  for (const key of ["piratify","thief","cursed","shielded"]) {
-    if (eff[key]) for (const e of eff[key]) if (e.r === fr && e.c === fc) { e.r = move.r; e.c = move.c; }
+  if (eff.confused && eff.confused.length) eff.confused = eff.confused.filter(e => !(e.r === fr && e.c === fc));
+  for (let k = 0; k < MOVER_EFFECT_KEYS.length; k++) {
+    const list = eff[MOVER_EFFECT_KEYS[k]];
+    if (list) for (let i = 0; i < list.length; i++) { const e = list[i]; if (e.r === fr && e.c === fc) { e.r = move.r; e.c = move.c; } }
   }
   if (move.doubleStep) epTarget = {r:(fr+move.r)/2, c:fc};
   applyMoveIncome(snap, money, p, fr, fc, captured, move);
   expireSnapEffects(eff);
-  return { board, castling, epTarget, turn: turnAfter, ...eff, money, ...tickSpellBar(snap) };
+  return snapAfterTurn(snap, board, castling, epTarget, turnAfter, eff, money);
+}
+
+const SNAP_EFFECT_KEYS = ["blocked","sleeping","shielded","confused","piratify","thief","cursed","swapLocked"];
+const MOVER_EFFECT_KEYS = ["piratify","thief","cursed","shielded"];
+// The snapshot after a move: the given parts plus the spell bar's turn-end tick.
+function snapAfterTurn(snap, board, castling, epTarget, turn, eff, money) {
+  let spellQ = snap.spellQ || 0, spellT = (snap.spellT || 0) + 1;
+  if (spellT >= 4) { spellQ += 3; spellT = 0; }
+  return {
+    board, castling, epTarget, turn,
+    blocked: eff.blocked, sleeping: eff.sleeping, shielded: eff.shielded, confused: eff.confused,
+    piratify: eff.piratify, thief: eff.thief, cursed: eff.cursed, swapLocked: eff.swapLocked,
+    noCapture: eff.noCapture, extraTurns: eff.extraTurns,
+    money, spellQ, spellT,
+  };
 }
 
 // Apply a shop placement onto a snapshot: put `piece` (type, with its golden /
@@ -1649,10 +1692,10 @@ function applyPlacement(snap, piece, color, r, c, mod, cost) {
 // `blk`, `inCheckNow` and `king` are optional cached values supplied by allMoves
 // (they are identical for every piece of the side to move, so recomputing them
 // per piece was a large waste).
-function snapLegal(snap, r, c, blk, inCheckNow, king, ab) {
+function snapLegal(snap, r, c, blk, inCheckNow, king, ab, capturesOnly) {
   if (!snap.board[r][c] || snap.board[r][c].color !== snap.turn) return [];
   if (isSleeping(snap, r, c)) return [];
-  if (snap.swapLocked && snap.swapLocked.some(x => x.r === r && x.c === c)) return []; // swapped this turn
+  if (snap.swapLocked && snap.swapLocked.length && snap.swapLocked.some(x => x.r === r && x.c === c)) return []; // swapped this turn
   const color = snap.turn;
   const p = snap.board[r][c];
   if (!blk) blk = blockedSet(snap);
@@ -1665,8 +1708,11 @@ function snapLegal(snap, r, c, blk, inCheckNow, king, ab) {
   if ((snap.noCapture && snap.noCapture[color] > 0) || isShielded(snap, r, c)) {
     pm = pm.filter(m => { const t = snap.board[m.r][m.c]; return !t && !m.enpassant && !m.shoot; });
   }
+  if (capturesOnly) pm = pm.filter(m => m.shoot || snap.board[m.r][m.c] || m.enpassant || m.promotion);
   if (inCheckNow === undefined) inCheckNow = snapInCheck(snap, color);
   const out = [];
+  // A pin depends only on the piece, not the move: work it out once.
+  const pin = (p.type === "K" || inCheckNow) ? null : snapPinRay(snap, color, r, c, king, ab);
   for (const m of pm) {
     if (p.type === "K") {
       // The king may not land on a square the enemy attacks (that just loses
@@ -1688,7 +1734,6 @@ function snapLegal(snap, r, c, blk, inCheckNow, king, ab) {
       out.push(m);
       continue;
     }
-    const pin = snapPinRay(snap, color, r, c, king, ab);
     if (!pin || snapMoveOnPin(pin, m)) out.push(m);
   }
   return out;
@@ -1728,8 +1773,8 @@ function snapAttackBoard(snap, attacker) {
 
 // Is `color`'s king attacked, as far as the search is concerned (see
 // snapAttackBoard)? A shielded king cannot be captured while its shield lasts.
-function snapInCheck(snap, color, ab) {
-  const k = findKing(snap.board, color);
+function snapInCheck(snap, color, ab, king) {
+  const k = king !== undefined ? king : findKing(snap.board, color);
   if (!k) return true;   // king removed; treat as lost
   const foe = opp(color);
   const sh = snap.shielded;
@@ -1788,17 +1833,20 @@ function snapMoveOnPin(pin, m) {
   return g <= pin.dist;
 }
 
-function allMoves(snap) {
+// `capturesOnly`: just captures, shots, en passant and promotions (what
+// quiescence searches), skipping the legality work for quiet moves. `pre`:
+// {king, ab, inCheck} already worked out by the caller.
+function allMoves(snap, capturesOnly, pre) {
   const out = [];
   // Compute the side-to-move invariants once instead of per piece.
   const blk = blockedSet(snap);
-  const king = findKing(snap.board, snap.turn);
-  const ab = snapAttackBoard(snap, opp(snap.turn));
-  const inCheckNow = snapInCheck(snap, snap.turn, ab);
+  const king = pre && pre.king !== undefined ? pre.king : findKing(snap.board, snap.turn);
+  const ab = pre && pre.ab ? pre.ab : snapAttackBoard(snap, opp(snap.turn));
+  const inCheckNow = pre && pre.inCheck !== undefined ? pre.inCheck : snapInCheck(snap, snap.turn, ab, king);
   for (let r=0;r<SIZE;r++) for (let c=0;c<SIZE;c++) {
     const p = snap.board[r][c];
-    if (p && p.color === snap.turn && !isSleeping(snap, r, c)) {
-      for (const m of snapLegal(snap, r, c, blk, inCheckNow, king, ab)) out.push({fr:r, fc:c, move:m});
+    if (p && p.color === snap.turn) {   // (snapLegal skips sleeping pieces)
+      for (const m of snapLegal(snap, r, c, blk, inCheckNow, king, ab, capturesOnly)) out.push({fr:r, fc:c, move:m});
     }
   }
   return out;
@@ -1807,10 +1855,10 @@ function allMoves(snap) {
 // Search effort tables: per-ply killers (two per ply) and a global history
 // heuristic, both fed by the current game only.
 const KILLERS_TBL = [];
-const HISTORY_TBL = {};
+// History scores by move, indexed by from/to coordinates (boards are at most 15x15).
+const HISTORY_TBL = new Int32Array(225 * 225);
+function historyIndex(fr, fc, r, c) { return (fr * 15 + fc) * 225 + r * 15 + c; }
 const QDEPTH = 8;   // max capture-search plies after the horizon
-
-function moveKey(fr, fc, r, c) { return fr + "," + fc + "," + r + "," + c; }
 
 function addKiller(ply, mv) {
   const e = { fr: mv.fr, fc: mv.fc, r: mv.move.r, c: mv.move.c };
@@ -1822,9 +1870,9 @@ function addKiller(ply, mv) {
 }
 
 function historyUpdate(mv, depth) {
-  const key = moveKey(mv.fr, mv.fc, mv.move.r, mv.move.c);
-  HISTORY_TBL[key] = (HISTORY_TBL[key] || 0) + depth * depth;
-  if (HISTORY_TBL[key] > 20000) for (const k2 in HISTORY_TBL) HISTORY_TBL[k2] >>= 1;
+  const key = historyIndex(mv.fr, mv.fc, mv.move.r, mv.move.c);
+  HISTORY_TBL[key] += depth * depth;
+  if (HISTORY_TBL[key] > 20000) for (let i = 0; i < HISTORY_TBL.length; i++) HISTORY_TBL[i] >>= 1;
 }
 
 // ---- Transposition table (Zobrist-ish) ----
@@ -1837,13 +1885,14 @@ const Z_TYPE = { P:1,N:2,B:3,R:4,Q:5,C:6,G:7,D:8,A:9,S:10,H:11,K:12,F:13,X:14,M:
 const Z_EFF = { blocked:1, sleeping:2, shielded:3, confused:4, piratify:5, thief:6, cursed:7, swapLocked:8 };
 // `ignoreBar`: leave out the spell-bar position (for repetition and the
 // post-spell fingerprint, where only the board and effects matter).
+let ZH1 = 0, ZH2 = 0;   // positionHash's two accumulators (no per-call closure)
+function mix(x) {
+  x |= 0;
+  ZH1 = Math.imul(ZH1 ^ x, 0x01000193);
+  ZH2 = Math.imul(ZH2 ^ x, 0x85ebca6b);
+}
 function positionHash(snap, ignoreBar) {
-  let h1 = 0x811c9dc5 | 0, h2 = 0x9e3779b9 | 0;
-  const mix = (x) => {
-    x |= 0;
-    h1 = Math.imul(h1 ^ x, 0x01000193);
-    h2 = Math.imul(h2 ^ x, 0x85ebca6b);
-  };
+  ZH1 = 0x811c9dc5 | 0; ZH2 = 0x9e3779b9 | 0;
   for (let r = 0; r < SIZE; r++) {
     const row = snap.board[r];
     for (let c = 0; c < SIZE; c++) {
@@ -1882,7 +1931,7 @@ function positionHash(snap, ignoreBar) {
   }
   mix(0x54000000 ^ (snap.money.w & 0xffff));
   mix(0x55000000 ^ (snap.money.b & 0xffff));
-  return { h1: h1 >>> 0, h2: h2 >>> 0 };
+  return { h1: ZH1 >>> 0, h2: ZH2 >>> 0 };
 }
 
 const TT = new Map();
@@ -1906,23 +1955,29 @@ function ttStore(h1, h2, depth, score, flag, move) {
 
 // Order moves: TT best move first, then MVV-LVA captures, promotions, killer
 // moves and history-found good moves — all so alpha-beta prunes much harder.
+// Returns a sorted copy (the caller's list keeps its order: the root reuses it,
+// and the stable sort breaks ties by that order).
+function byOrderScore(a, b) { return b._s - a._s; }
 function orderMoves(snap, moves, ply, ttMove) {
-  const killers = KILLERS_TBL[ply] || [];
-  const scored = moves.map(mv => {
-    const t = snap.board[mv.move.r][mv.move.c];
+  const killers = KILLERS_TBL[ply];
+  const k0 = killers ? killers[0] : null, k1 = killers ? killers[1] : null;
+  const board = snap.board;
+  const scored = moves.slice();
+  for (let i = 0; i < scored.length; i++) {
+    const mv = scored[i], m = mv.move;
+    const t = board[m.r][m.c];
     let s = 0;
-    if (ttMove && mv.fr === ttMove.fr && mv.fc === ttMove.fc && mv.move.r === ttMove.r && mv.move.c === ttMove.c) s += 20000;
-    if (mv.move.shoot) s += 15000;
-    if (t) s += 10000 + (PIECE_SCORE[t.type] || 100) * 10 - (PIECE_SCORE[snap.board[mv.fr][mv.fc].type] || 100); // MVV-LVA
-    else if (mv.move.enpassant) s += 9000;
-    if (mv.move.promotion) s += 8000 + (PIECE_SCORE.A || 1400);
-    if (killers[0] && killers[0].fr === mv.fr && killers[0].fc === mv.fc && killers[0].r === mv.move.r && killers[0].c === mv.move.c) s += 5000;
-    else if (killers[1] && killers[1].fr === mv.fr && killers[1].fc === mv.fc && killers[1].r === mv.move.r && killers[1].c === mv.move.c) s += 4500;
-    s += HISTORY_TBL[moveKey(mv.fr, mv.fc, mv.move.r, mv.move.c)] || 0;
+    if (ttMove && mv.fr === ttMove.fr && mv.fc === ttMove.fc && m.r === ttMove.r && m.c === ttMove.c) s += 20000;
+    if (m.shoot) s += 15000;
+    if (t) s += 10000 + (PIECE_SCORE[t.type] || 100) * 10 - (PIECE_SCORE[board[mv.fr][mv.fc].type] || 100); // MVV-LVA
+    else if (m.enpassant) s += 9000;
+    if (m.promotion) s += 8000 + (PIECE_SCORE.A || 1400);
+    if (k0 && k0.fr === mv.fr && k0.fc === mv.fc && k0.r === m.r && k0.c === m.c) s += 5000;
+    else if (k1 && k1.fr === mv.fr && k1.fc === mv.fc && k1.r === m.r && k1.c === m.c) s += 4500;
+    s += HISTORY_TBL[historyIndex(mv.fr, mv.fc, m.r, m.c)];
     mv._s = s;
-    return mv;
-  });
-  return scored.sort((a, b) => b._s - a._s);
+  }
+  return scored.sort(byOrderScore);
 }
 
 // ---- Search limits and per-decision context ----
@@ -1945,7 +2000,25 @@ const MATE = 100000;
 //   noise      blur (centipawns) added to root scores on the easiest levels
 let AI_CTX = { oppModel: false, oppMaxPly: Infinity, ownMaxPly: 0, oppShop: [], spellQueue: [], repSet: null, noise: 0 };
 
-// Which kings are still on the board: bit 1 = White, bit 2 = Black.
+// Which kings are still on the board (bit 1 = White, bit 2 = Black), noting
+// where they stand in KS_W / KS_B for the caller.
+let KS_W = null, KS_B = null;
+function kingScan(board) {
+  let k = 0;
+  KS_W = null; KS_B = null;
+  for (let r = 0; r < SIZE; r++) {
+    const row = board[r];
+    for (let c = 0; c < SIZE; c++) {
+      const p = row[c];
+      if (p && p.type === "K") {
+        if (p.color === "w") { if (!(k & 1)) KS_W = { r, c }; k |= 1; }
+        else { if (!(k & 2)) KS_B = { r, c }; k |= 2; }
+        if (k === 3) return 3;
+      }
+    }
+  }
+  return k;
+}
 function kingsPresent(board) {
   let k = 0;
   for (let r = 0; r < SIZE; r++) {
@@ -2037,7 +2110,8 @@ function chanceValue(snap, group, depth, aiColor, ply) {
 function minimax(snap, depth, alpha, beta, aiColor, ply) {
   if (++SEARCH_NODES > SEARCH_LIMIT) throw SEARCH_ABORT;
   // Terminal: a king has been captured
-  const kings = kingsPresent(snap.board);
+  const kings = kingScan(snap.board);
+  const myKing = snap.turn === "w" ? KS_W : KS_B;   // (first one found, as findKing)
   const foeBit = aiColor === "w" ? 2 : 1;
   if (!(kings & foeBit)) return MATE + depth;
   if (!(kings & (3 ^ foeBit))) return -MATE - depth;
@@ -2073,7 +2147,7 @@ function minimax(snap, depth, alpha, beta, aiColor, ply) {
   }
 
   const alphaOrig = alpha, betaOrig = beta;
-  const split = splitConfused(snap, orderMoves(snap, allMoves(snap), ply, ttMove));
+  const split = splitConfused(snap, orderMoves(snap, allMoves(snap, false, { king: myKing }), ply, ttMove));
   const moves = split.moves, chance = split.chance;
   const extras = oppNode ? aiOppExtras(snap, aiColor) : ownNode ? aiOwnExtras(snap, aiColor) : null;
   // No move the search allows: a "mated" or "stalemated" side must still make a
@@ -2141,7 +2215,9 @@ function minimax(snap, depth, alpha, beta, aiColor, ply) {
 function quiesce(snap, alpha, beta, aiColor, qdepth) {
   if (++SEARCH_NODES > SEARCH_LIMIT) throw SEARCH_ABORT;
   const mine = snap.turn === aiColor;
-  const inChk = snapInCheck(snap, snap.turn);
+  const king = findKing(snap.board, snap.turn);
+  const ab = snapAttackBoard(snap, opp(snap.turn));
+  const inChk = snapInCheck(snap, snap.turn, ab, king);
   let best, stand = 0;
   if (inChk) {
     best = mine ? -Infinity : Infinity;
@@ -2160,12 +2236,11 @@ function quiesce(snap, alpha, beta, aiColor, qdepth) {
   if (qdepth <= 0) return inChk ? evaluate(snap, aiColor) : best;
   let cands;
   if (inChk) {
-    cands = allMoves(snap);                       // all legal evasions
+    cands = allMoves(snap, false, { king, ab, inCheck: true });   // all legal evasions
     if (!cands.length) return noMoveScore(snap, aiColor, 0);   // forced to lose the king
   } else {
     cands = [];
-    for (const mv of allMoves(snap)) {
-      if (!(mv.move.shoot || snap.board[mv.move.r][mv.move.c] || mv.move.enpassant || mv.move.promotion)) continue;
+    for (const mv of allMoves(snap, true, { king, ab, inCheck: false })) {
       if (isConfusedSq(snap, mv.fr, mv.fc)) continue;
       cands.push(mv);
     }
@@ -2417,9 +2492,9 @@ function aiOwnExtras(snap, aiColor) {
 // ---- Difficulty and tunable weights ----
 // AI_LEVEL (1..11, Settings slider) sets a node budget per decision rather
 // than a time limit, so a level always plays the same way on any machine.
-// Level 11 takes about 5 s on the reference machine (measured in the worker on
-// eight 8x8 middlegames: about 2-9 s, depth 6-7; level 6 about 0.2 s); each
-// level below needs roughly half the effort. The easiest levels also cap the depth and blur the
+// Level 11 takes about 2.5 s on the reference machine (measured in the worker
+// on seven 8x8 middlegames: about 0.6-4 s, depth 5-8; level 6 under 0.1 s);
+// each level below needs roughly half the effort. The easiest levels also cap the depth and blur the
 // root scores so they make human-sized mistakes.
 const AI_LEVEL_MIN = 1, AI_LEVEL_MAX = 11, AI_LEVEL_DEFAULT = 6;
 let AI_LEVEL = AI_LEVEL_DEFAULT;
@@ -4208,8 +4283,9 @@ function cloneStateForReview() {
 function inBounds(r,c){ return r>=0&&r<SIZE&&c>=0&&c<SIZE; }
 function opp(color){ return color === "w" ? "b" : "w"; }
 
+const EMPTY_SET = new Set();
 function blockedSet(s){ const set = new Set(); for (const b of s.blocked) set.add(b.r+","+b.c); for (const sh of (s.shielded||[])) set.add(sh.r+","+sh.c); return set; }
-function isSleeping(s, r, c){ return s.sleeping.some(x => x.r===r && x.c===c); }
+function isSleeping(s, r, c){ return s.sleeping.length > 0 && s.sleeping.some(x => x.r===r && x.c===c); }
 function isShielded(s, r, c){ return s.shielded && s.shielded.some(x => x.r===r && x.c===c); }
 
 // Generate pseudo-legal moves from (r,c) on board, respecting castling rights & ep.
@@ -4256,17 +4332,19 @@ function fakeKnightReach(br, bc, board, blk) {
 }
 
 function pseudoMoves(board, r, c, castling, epTarget, blocked) {
-  const blk = blocked || new Set();
+  const blk = blocked || EMPTY_SET;
   const p = board[r][c];
   if (!p) return [];
   const moves = [];
   const color = p.color;
-  const add = (rr,cc,spec={}) => {
+  // Walls/shields are rare: skip the "r,c" key lookups when there are none.
+  const anyBlk = blk.size > 0;
+  const add = (rr,cc) => {
     if (!inBounds(rr,cc)) return;
-    if (blk.has(rr+","+cc)) return;
+    if (anyBlk && blk.has(rr+","+cc)) return;
     const t = board[rr][cc];
     if (t && t.color === color) return;
-    moves.push({r:rr, c:cc, ...spec});
+    moves.push({r:rr, c:cc});
   };
 
 if (p.type === "P") {
@@ -4274,11 +4352,11 @@ if (p.type === "P") {
     const startRow = color === "w" ? SIZE - 2 : 1;
     const promoRow = color === "w" ? 0 : SIZE - 1;
     // forward one
-    if (inBounds(r+dir,c) && !board[r+dir][c] && !blk.has((r+dir)+","+c)) {
+    if (inBounds(r+dir,c) && !board[r+dir][c] && !(anyBlk && blk.has((r+dir)+","+c))) {
       const promo = (r+dir === promoRow);
       moves.push({r:r+dir, c, promotion: promo});
       // forward two
-      if (r === startRow && !board[r+2*dir][c] && !blk.has((r+2*dir)+","+c)) {
+      if (r === startRow && !board[r+2*dir][c] && !(anyBlk && blk.has((r+2*dir)+","+c))) {
         moves.push({r:r+2*dir, c, doubleStep:true});
       }
     }
@@ -4286,7 +4364,7 @@ if (p.type === "P") {
     for (const dc of [-1,1]) {
       const rr = r+dir, cc = c+dc;
       if (!inBounds(rr,cc)) continue;
-      if (blk.has(rr+","+cc)) continue;
+      if (anyBlk && blk.has(rr+","+cc)) continue;
       const t = board[rr][cc];
       if (t && t.color !== color) {
         moves.push({r:rr, c:cc, promotion: rr===promoRow});
@@ -4311,13 +4389,13 @@ const dir = color === "w" ? -1 : 1;
     for (const dc of [-1,1]) {
       const rr = r+dir, cc = c+dc;
       if (!inBounds(rr,cc)) continue;
-      if (blk.has(rr+","+cc)) continue;
+      if (anyBlk && blk.has(rr+","+cc)) continue;
       const t = board[rr][cc];
       if (!t) moves.push({r:rr, c:cc, promotion: rr===promoRow, promoteTo:"A"});   // diagonal move
     }
     // capture straight forward
     const pr = r+dir, pc = c;
-    if (inBounds(pr,pc) && !blk.has(pr+","+pc)) {
+    if (inBounds(pr,pc) && !(anyBlk && blk.has(pr+","+pc))) {
       const t = board[pr][pc];
       if (t && t.color !== color) moves.push({r:pr, c:pc, promotion: pr===promoRow, promoteTo:"A"});
     }
@@ -4325,7 +4403,7 @@ const dir = color === "w" ? -1 : 1;
     for (const dc of [-1,1]) {
       const rr = r-dir, cc = c+dc;
       if (!inBounds(rr,cc)) continue;
-      if (blk.has(rr+","+cc)) continue;
+      if (anyBlk && blk.has(rr+","+cc)) continue;
       if (!board[rr][cc]) moves.push({r:rr, c:cc, promotion: rr===promoRow, promoteTo:"A"});
     }
   }
@@ -4336,7 +4414,7 @@ const dir = color === "w" ? -1 : 1;
 const dir = color === "w" ? -1 : 1;
     const promoRow = color === "w" ? 0 : SIZE - 1;
     const fr = r + dir, fc = c;
-    if (inBounds(fr, fc) && !blk.has(fr+","+fc)) {
+    if (inBounds(fr, fc) && !(anyBlk && blk.has(fr+","+fc))) {
       const t = board[fr][fc];
       if (!t || t.color !== color) moves.push({r:fr, c:fc, promotion: fr===promoRow, promoteTo:"A"});
     }
@@ -4344,16 +4422,37 @@ const dir = color === "w" ? -1 : 1;
     for (const dc of [-1,1]) {
       const sr = r, sc = c + dc;
       if (!inBounds(sr, sc)) continue;
-      if (blk.has(sr+","+sc)) continue;
+      if (anyBlk && blk.has(sr+","+sc)) continue;
       if (!board[sr][sc]) moves.push({r:sr, c:sc, promotion: sr===promoRow, promoteTo:"A"});
     }
   }
 else if (p.type === "F") {
     // Fake Knight: 1-2 straight in any cardinal direction, or 2 straight then
     // 1 sideways; can move or capture anywhere on its path (cannot jump).
-    for (const sq of fakeKnightReach(r, c, board, blk)) {
-      const [pr, pc] = sq.split(",");
-      moves.push({r:+pr, c:+pc});
+    // (Same squares and order as fakeKnightReach, without its string Set.)
+    for (const [dr, dc] of ORTH_DIRS) {
+      let rr = r, cc = c;
+      for (let k = 1; k <= 2; k++) {
+        rr += dr; cc += dc;
+        if (!inBounds(rr, cc)) break;
+        if (anyBlk && blk.has(rr + "," + cc)) break;
+        const t = board[rr][cc];
+        if (t && t.color === color) break;
+        moves.push({r:rr, c:cc});
+        if (t) break;
+      }
+      const r1 = r + dr, c1 = c + dc, r2 = r + 2 * dr, c2 = c + 2 * dc;
+      if (inBounds(r1, c1) && !board[r1][c1] && !(anyBlk && blk.has(r1 + "," + c1)) &&
+          inBounds(r2, c2) && !board[r2][c2] && !(anyBlk && blk.has(r2 + "," + c2))) {
+        for (const [pr, pc] of [[dc, dr], [-dc, -dr]]) {
+          const tr = r2 + pr, tc = c2 + pc;
+          if (!inBounds(tr, tc)) continue;
+          if (anyBlk && blk.has(tr + "," + tc)) continue;
+          const t = board[tr][tc];
+          if (t && t.color === color) continue;
+          moves.push({r:tr, c:tc});
+        }
+      }
     }
   }
   else if (p.type === "X") {
@@ -4363,7 +4462,7 @@ else if (p.type === "F") {
       if (dr===0 && dc===0) continue;
       const rr = r+dr, cc = c+dc;
       if (!inBounds(rr,cc)) continue;
-      if (blk.has(rr+","+cc)) continue;
+      if (anyBlk && blk.has(rr+","+cc)) continue;
       if (!board[rr][cc]) moves.push({r:rr, c:cc});
     }
     // Shoot: capture any single enemy in the 5x5 ring around the shooter
@@ -4372,22 +4471,20 @@ else if (p.type === "F") {
       if (Math.max(Math.abs(dr), Math.abs(dc)) !== 2) continue;
       const rr = r+dr, cc = c+dc;
       if (!inBounds(rr,cc)) continue;
-      if (blk.has(rr+","+cc)) continue;
+      if (anyBlk && blk.has(rr+","+cc)) continue;
       const t = board[rr][cc];
       if (t && t.color !== color) moves.push({r:rr, c:cc, shoot:true});
     }
   }
   else if (p.type === "N") {
-    const off = [[-2,-1],[-2,1],[-1,-2],[-1,2],[1,-2],[1,2],[2,-1],[2,1]];
-    for (const [dr,dc] of off) add(r+dr,c+dc);
+    for (const [dr,dc] of KNIGHT_OFFS) add(r+dr,c+dc);
   }
   else if (p.type === "A") {
     // Amazon: queen + knight moves
-    const dirs = [[-1,-1],[-1,1],[1,-1],[1,1],[-1,0],[1,0],[0,-1],[0,1]];
-    for (const [dr,dc] of dirs) {
+    for (const [dr,dc] of ALL_DIRS) {
       let rr=r+dr, cc=c+dc;
       while (inBounds(rr,cc)) {
-        if (blk.has(rr+","+cc)) { break; }
+        if (anyBlk && blk.has(rr+","+cc)) { break; }
         const t = board[rr][cc];
         if (t && t.color === color) break;
         moves.push({r:rr, c:cc});
@@ -4395,13 +4492,11 @@ else if (p.type === "F") {
         rr+=dr; cc+=dc;
       }
     }
-    const knight = [[-2,-1],[-2,1],[-1,-2],[-1,2],[1,-2],[1,2],[2,-1],[2,1]];
-    for (const [dr,dc] of knight) add(r+dr,c+dc);
+    for (const [dr,dc] of KNIGHT_OFFS) add(r+dr,c+dc);
   }
   else if (p.type === "C") {
     // Camel: moves like a knight but 1 square more G— (3,1) leaper
-    const off = [[-3,-1],[-3,1],[-1,-3],[-1,3],[1,-3],[1,3],[3,-1],[3,1]];
-    for (const [dr,dc] of off) add(r+dr,c+dc);
+    for (const [dr,dc] of CAMEL_OFFS) add(r+dr,c+dc);
   }
   else if (p.type === "G") {
     // Cricket/grasshopper: can move 1 square diagonally (never captures) and
@@ -4411,15 +4506,12 @@ else if (p.type === "F") {
       const t = board[rr][cc];
       if (!t) moves.push({r:rr, c:cc});   // 1-step diagonal: move only, no capture
     };
-    const off1 = [[-1,-1],[-1,1],[1,-1],[1,1]];
-    for (const [dr,dc] of off1) add01(r+dr, c+dc);
-    const off2 = [[-2,-2],[-2,2],[2,-2],[2,2]];
-    for (const [dr,dc] of off2) add(r+dr, c+dc);  // 2-step: full move/capture via add()
+    for (const [dr,dc] of DIAG_DIRS) add01(r+dr, c+dc);
+    for (const [dr,dc] of GRASS_OFFS) add(r+dr, c+dc);  // 2-step: full move/capture via add()
   }
   else if (p.type === "H") {
     // Centaur: combines knight and king moves.
-    const off = [[-2,-1],[-2,1],[-1,-2],[-1,2],[1,-2],[1,2],[2,-1],[2,1]];
-    for (const [dr,dc] of off) add(r+dr,c+dc);
+    for (const [dr,dc] of KNIGHT_OFFS) add(r+dr,c+dc);
     for (let dr=-1; dr<=1; dr++) for (let dc=-1; dc<=1; dc++) {
       if (dr===0&&dc===0) continue;
       add(r+dr,c+dc);
@@ -4429,18 +4521,16 @@ else if (p.type === "F") {
     // Cat: moves 1 square in any of the 8 directions, can capture an enemy
     // up to 2 squares away in those directions (leaps), and can capture on
     // knight squares (but cannot move there).
-    const dirs = [[-1,-1],[-1,1],[1,-1],[1,1],[-1,0],[1,0],[0,-1],[0,1]];
-    for (const [dr,dc] of dirs) {
+    for (const [dr,dc] of ALL_DIRS) {
       add(r+dr, c+dc);
       const rr = r+dr*2, cc = c+dc*2;
-      if (!inBounds(rr,cc) || blk.has(rr+","+cc)) continue;
+      if (!inBounds(rr,cc) || anyBlk && blk.has(rr+","+cc)) continue;
       const t = board[rr][cc];
       if (t && t.color !== color) moves.push({r:rr, c:cc});
     }
-    const noff = [[-2,-1],[-2,1],[-1,-2],[-1,2],[1,-2],[1,2],[2,-1],[2,1]];
-    for (const [dr,dc] of noff) {
+    for (const [dr,dc] of KNIGHT_OFFS) {
       const rr = r+dr, cc = c+dc;
-      if (!inBounds(rr,cc) || blk.has(rr+","+cc)) continue;
+      if (!inBounds(rr,cc) || anyBlk && blk.has(rr+","+cc)) continue;
       const t = board[rr][cc];
       if (t && t.color !== color) moves.push({r:rr, c:cc});
     }
@@ -4448,11 +4538,10 @@ else if (p.type === "F") {
   else if (p.type === "M") {
     // Rat: moves up to 2 squares horizontally, vertically, or diagonally
     // (a short-range slider like a mini-queen). Cannot jump over pieces.
-    const dirs = [[-1,-1],[-1,1],[1,-1],[1,1],[-1,0],[1,0],[0,-1],[0,1]];
-    for (const [dr,dc] of dirs) {
+    for (const [dr,dc] of ALL_DIRS) {
       for (let step=1; step<=2; step++) {
         const rr=r+dr*step, cc=c+dc*step;
-        if (!inBounds(rr,cc) || blk.has(rr+","+cc)) break;
+        if (!inBounds(rr,cc) || anyBlk && blk.has(rr+","+cc)) break;
         const t = board[rr][cc];
         if (!t) { moves.push({r:rr,c:cc}); }
         else { if (t.color!==color) moves.push({r:rr,c:cc}); break; }
@@ -4460,13 +4549,11 @@ else if (p.type === "F") {
     }
   }
   else if (p.type === "B" || p.type === "R" || p.type === "Q") {
-    const dirs = [];
-    if (p.type !== "R") dirs.push([-1,-1],[-1,1],[1,-1],[1,1]);
-    if (p.type !== "B") dirs.push([-1,0],[1,0],[0,-1],[0,1]);
+    const dirs = p.type === "R" ? ORTH_DIRS : p.type === "B" ? DIAG_DIRS : ALL_DIRS;
     for (const [dr,dc] of dirs) {
       let rr=r+dr, cc=c+dc;
       while (inBounds(rr,cc)) {
-        if (blk.has(rr+","+cc)) { break; }
+        if (anyBlk && blk.has(rr+","+cc)) { break; }
         const t = board[rr][cc];
         if (!t) { moves.push({r:rr,c:cc}); }
         else { if (t.color!==color) moves.push({r:rr,c:cc}); break; }
@@ -4488,7 +4575,7 @@ else if (p.type === "F") {
       const qRight = color==="w" ? castling.wQ : castling.bQ;
       // King side: kingCol+1, kingCol+2 empty, rook at SIZE-1
       if (kRight && !board[rank][kingCol+1] && !board[rank][kingCol+2] &&
-          !blk.has(rank+","+(kingCol+1)) && !blk.has(rank+","+(kingCol+2)) &&
+          !(anyBlk && blk.has(rank+","+(kingCol+1))) && !(anyBlk && blk.has(rank+","+(kingCol+2))) &&
           board[rank][SIZE-1] && board[rank][SIZE-1].type==="R" && board[rank][SIZE-1].color===color) {
         if (!squareAttacked(board, rank, kingCol, opp(color)) &&
             !squareAttacked(board, rank, kingCol+1, opp(color)) &&
@@ -4499,7 +4586,7 @@ else if (p.type === "F") {
       // Queen side: squares 1..kingCol-1 empty, rook at 0
       let qEmpty = true;
       for (let i = 1; i < kingCol; i++) {
-        if (board[rank][i] || blk.has(rank+","+i)) { qEmpty = false; break; }
+        if (board[rank][i] || anyBlk && blk.has(rank+","+i)) { qEmpty = false; break; }
       }
       if (qRight && qEmpty && board[rank][0] && board[rank][0].type==="R" && board[rank][0].color===color) {
         if (!squareAttacked(board, rank, kingCol, opp(color)) &&
@@ -4514,135 +4601,103 @@ else if (p.type === "F") {
   return moves;
 }
 
+// Square offsets shared by move generation and the attack test (allocated once).
+const KNIGHT_OFFS = [[-2,-1],[-2,1],[-1,-2],[-1,2],[1,-2],[1,2],[2,-1],[2,1]];
+const CAMEL_OFFS = [[-3,-1],[-3,1],[-1,-3],[-1,3],[1,-3],[1,3],[3,-1],[3,1]];
+const GRASS_OFFS = [[-2,-2],[-2,2],[2,-2],[2,2]];
+const DIAG_DIRS = [[-1,-1],[-1,1],[1,-1],[1,1]];
+const ORTH_DIRS = [[-1,0],[1,0],[0,-1],[0,1]];
+const ALL_DIRS = DIAG_DIRS.concat(ORTH_DIRS);
+const RING2_OFFS = [];   // Chebyshev distance exactly 2 (the Shooter's ring)
+for (let dr = -2; dr <= 2; dr++) for (let dc = -2; dc <= 2; dc++) {
+  if (Math.max(Math.abs(dr), Math.abs(dc)) === 2) RING2_OFFS.push([dr, dc]);
+}
+
 // Is square (r,c) attacked by color attackerColor (ignoring castling)?
+// Hot: the AI calls this for every check, pin and king-move test, so it walks
+// each attack pattern once with no allocation. (Cat and Rat attacks stop at
+// the first piece in a direction; a Fake Knight never covers a square held by
+// its own side.)
 function squareAttacked(board, r, c, attackerColor) {
-  // Pawn attacks
-  const dir = attackerColor === "w" ? -1 : 1; // pawn of attackerColor moves in dir; attacks diagonally forward
-  // A pawn of attackerColor at (r - dir? ) ... Let's think: pawn at (pr, pc) attacks (pr+dir, pcÂ±1).
-  // We want squares attacked BY attackerColor's pawns hitting (r,c): so pawn at r - dir, cÂ±1.
-  for (const dc of [-1,1]) {
-    const pr = r - dir, pc = c + dc;
-    if (inBounds(pr,pc)) {
-      const t = board[pr][pc];
-      if (t && t.color===attackerColor && t.type==="P") return true;
+  const n = SIZE;
+  // Pawn (diagonal forward); Soldier and D-Pawn (straight forward, one square)
+  const pr = r - (attackerColor === "w" ? -1 : 1);
+  if (pr >= 0 && pr < n) {
+    const row = board[pr];
+    let t;
+    if (c > 0 && (t = row[c - 1]) && t.color === attackerColor && t.type === "P") return true;
+    if (c < n - 1 && (t = row[c + 1]) && t.color === attackerColor && t.type === "P") return true;
+    if ((t = row[c]) && t.color === attackerColor && (t.type === "S" || t.type === "D")) return true;
+  }
+  // Knight squares: Knight, Amazon, Centaur, and the Cat's capture-only hop
+  for (let i = 0; i < 8; i++) {
+    const rr = r + KNIGHT_OFFS[i][0], cc = c + KNIGHT_OFFS[i][1];
+    if (rr < 0 || rr >= n || cc < 0 || cc >= n) continue;
+    const t = board[rr][cc];
+    if (t && t.color === attackerColor && (t.type === "N" || t.type === "A" || t.type === "H" || t.type === "T")) return true;
+  }
+  // Camel (3,1) and Grasshopper (2,2) leapers
+  for (let i = 0; i < 8; i++) {
+    const rr = r + CAMEL_OFFS[i][0], cc = c + CAMEL_OFFS[i][1];
+    if (rr < 0 || rr >= n || cc < 0 || cc >= n) continue;
+    const t = board[rr][cc];
+    if (t && t.color === attackerColor && t.type === "C") return true;
+  }
+  for (let i = 0; i < 4; i++) {
+    const rr = r + GRASS_OFFS[i][0], cc = c + GRASS_OFFS[i][1];
+    if (rr < 0 || rr >= n || cc < 0 || cc >= n) continue;
+    const t = board[rr][cc];
+    if (t && t.color === attackerColor && t.type === "G") return true;
+  }
+  // Shooter: the 5x5 ring around itself (not the 3x3 next to it)
+  for (let i = 0; i < 16; i++) {
+    const rr = r + RING2_OFFS[i][0], cc = c + RING2_OFFS[i][1];
+    if (rr < 0 || rr >= n || cc < 0 || cc >= n) continue;
+    const t = board[rr][cc];
+    if (t && t.color === attackerColor && t.type === "X") return true;
+  }
+  // Each of the 8 directions: the adjacent square (King, Centaur), the first
+  // piece within two squares (Cat, Rat), and the first piece on the ray
+  // (Bishop/Queen/Amazon diagonally, Rook/Queen/Amazon straight).
+  for (let i = 0; i < 8; i++) {
+    const dr = ALL_DIRS[i][0], dc = ALL_DIRS[i][1];
+    const diag = i < 4;
+    let rr = r + dr, cc = c + dc, step = 1;
+    while (rr >= 0 && rr < n && cc >= 0 && cc < n) {
+      const t = board[rr][cc];
+      if (t) {
+        if (t.color === attackerColor) {
+          const ty = t.type;
+          if (step === 1 && (ty === "K" || ty === "H")) return true;
+          if (step <= 2 && (ty === "T" || ty === "M")) return true;
+          if (ty === "Q" || ty === "A" || (diag ? ty === "B" : ty === "R")) return true;
+        }
+        break;
+      }
+      rr += dr; cc += dc; step++;
     }
   }
-  // Soldier and D-Pawn: both capture only straight forward, one square
-  const sr = r - dir, sc = c;
-  if (inBounds(sr, sc)) {
-    const st = board[sr][sc];
-    if (st && st.color===attackerColor && (st.type==="S" || st.type==="D")) return true;
-  }
-  // Knight
-  const noff = [[-2,-1],[-2,1],[-1,-2],[-1,2],[1,-2],[1,2],[2,-1],[2,1]];
-  for (const [dr,dc] of noff) {
-    const rr=r+dr, cc=c+dc;
-    if (inBounds(rr,cc)) {
-      const t=board[rr][cc];
-      if (t && t.color===attackerColor && (t.type==="N" || t.type==="A")) return true;   // Amazon hops like a knight too
-    }
-  }
-  // Camel
-  const coff = [[-3,-1],[-3,1],[-1,-3],[-1,3],[1,-3],[1,3],[3,-1],[3,1]];
-  for (const [dr,dc] of coff) {
-    const rr=r+dr, cc=c+dc;
-    if (inBounds(rr,cc)) {
-      const t=board[rr][cc];
-      if (t && t.color===attackerColor && t.type==="C") return true;
-    }
-  }
-  // Fake Knight: threatens any square it can reach (1-2 straight, or 2-then-side)
-  // from anywhere on the board.
-  for (let rr=0;rr<SIZE;rr++) for (let cc=0;cc<SIZE;cc++) {
-    const t=board[rr][cc];
-    if (t && t.color===attackerColor && t.type==="F" && fakeKnightReach(rr, cc, board).has(r+","+c)) return true;
-  }
-  // Shooter: threatens the 5x5 ring around itself (Chebyshev distance 2;
-  // the 3x3 immediately around it is NOT threatened).
-  for (let dr=-2;dr<=2;dr++) for (let dc=-2;dc<=2;dc++) {
-    if (Math.max(Math.abs(dr), Math.abs(dc)) !== 2) continue;
-    const rr=r+dr, cc=c+dc;
-    if (inBounds(rr,cc)) {
-      const t=board[rr][cc];
-      if (t && t.color===attackerColor && t.type==="X") return true;
-    }
-  }
-  // Grasshopper (2,2 diagonal leaper, jumps over pieces)
-  const goff = [[-2,-2],[-2,2],[2,-2],[2,2]];
-  for (const [dr,dc] of goff) {
-    const rr=r+dr, cc=c+dc;
-    if (inBounds(rr,cc)) {
-      const t=board[rr][cc];
-      if (t && t.color===attackerColor && t.type==="G") return true;
-    }
-  }
-  // Centaur (knight + king)
-  for (const [dr,dc] of [[-2,-1],[-2,1],[-1,-2],[-1,2],[1,-2],[1,2],[2,-1],[2,1]]) {
-    const rr=r+dr, cc=c+dc;
-    if (inBounds(rr,cc)) {
-      const t=board[rr][cc];
-      if (t && t.color===attackerColor && t.type==="H") return true;
-    }
-  }
-  for (let dr=-1;dr<=1;dr++) for (let dc=-1;dc<=1;dc++) {
-    if (dr===0&&dc===0) continue;
-    const rr=r+dr,cc=c+dc;
-    if (inBounds(rr,cc)) {
-      const t=board[rr][cc];
-      if (t && t.color===attackerColor && t.type==="H") return true;
-    }
-  }
-  // King
-  for (let dr=-1;dr<=1;dr++) for (let dc=-1;dc<=1;dc++) {
-    if (dr===0&&dc===0) continue;
-    const rr=r+dr,cc=c+dc;
-    if (inBounds(rr,cc)) {
-      const t=board[rr][cc];
-      if (t && t.color===attackerColor && t.type==="K") return true;
-    }
-  }
-  // Sliding: bishop/queen/Amazon diagonal, rook/queen/Amazon straight
-  const diag=[[-1,-1],[-1,1],[1,-1],[1,1]];
-  for (const [dr,dc] of diag) {
-    let rr=r+dr,cc=c+dc;
-    while (inBounds(rr,cc)) {
-      const t=board[rr][cc];
-      if (t) { if (t.color===attackerColor && (t.type==="B"||t.type==="Q"||t.type==="A")) return true; break; }
-      rr+=dr; cc+=dc;
-    }
-  }
-  const orth=[[-1,0],[1,0],[0,-1],[0,1]];
-  for (const [dr,dc] of orth) {
-    let rr=r+dr,cc=c+dc;
-    while (inBounds(rr,cc)) {
-      const t=board[rr][cc];
-      if (t) { if (t.color===attackerColor && (t.type==="R"||t.type==="Q"||t.type==="A")) return true; break; }
-      rr+=dr; cc+=dc;
-    }
-  }
-  // Cat: attacks 1 or 2 squares in each of the 8 directions (leaps over
-  // the intervening square), plus attacks knight squares (capture-only reach).
-  for (const [dr,dc] of [[-1,-1],[-1,1],[1,-1],[1,1],[-1,0],[1,0],[0,-1],[0,1]]) {
-    for (let step=1; step<=2; step++) {
-      const rr=r+dr*step, cc=c+dc*step;
-      if (!inBounds(rr,cc)) break;
-      const t=board[rr][cc];
-      if (t) { if (t.color===attackerColor && t.type==="T") return true; break; }
-    }
-  }
-  for (const [dr,dc] of [[-2,-1],[-2,1],[-1,-2],[-1,2],[1,-2],[1,2],[2,-1],[2,1]]) {
-    const rr=r+dr, cc=c+dc;
-    if (!inBounds(rr,cc)) continue;
-    const t=board[rr][cc];
-    if (t && t.color===attackerColor && t.type==="T") return true;
-  }
-  // Rat: attacks up to 2 squares in any of the 8 directions (cannot jump).
-  for (const [dr,dc] of [[-1,-1],[-1,1],[1,-1],[1,1],[-1,0],[1,0],[0,-1],[0,1]]) {
-    for (let step=1; step<=2; step++) {
-      const rr=r+dr*step, cc=c+dc*step;
-      if (!inBounds(rr,cc)) break;
-      const t=board[rr][cc];
-      if (t) { if (t.color===attackerColor && t.type==="M") return true; break; }
+  // Fake Knight: 1-2 squares straight (the first must be empty for 2), or 2
+  // straight then 1 sideways (both straight squares empty). Checked in reverse:
+  // where could a Fake Knight stand to reach (r,c)?
+  const tgt = board[r][c];
+  if (!(tgt && tgt.color === attackerColor)) {
+    const isF = (rr, cc) => {
+      if (rr < 0 || rr >= n || cc < 0 || cc >= n) return false;
+      const t = board[rr][cc];
+      return !!t && t.color === attackerColor && t.type === "F";
+    };
+    const empty = (rr, cc) => rr >= 0 && rr < n && cc >= 0 && cc < n && !board[rr][cc];
+    for (let i = 0; i < 4; i++) {
+      const dr = ORTH_DIRS[i][0], dc = ORTH_DIRS[i][1];
+      if (isF(r - dr, c - dc)) return true;
+      if (empty(r - dr, c - dc) && isF(r - 2 * dr, c - 2 * dc)) return true;
+      // sideways finish: the Fake Knight went 2 along (dr,dc) from (r,c)-p-2d
+      for (let s = -1; s <= 1; s += 2) {
+        const pr2 = s * dc, pc2 = s * dr;   // perpendicular to (dr,dc)
+        const er = r - pr2, ec = c - pc2;   // the second straight square
+        if (empty(er, ec) && empty(er - dr, ec - dc) && isF(er - 2 * dr, ec - 2 * dc)) return true;
+      }
     }
   }
   return false;

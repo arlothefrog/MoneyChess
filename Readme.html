@@ -309,8 +309,8 @@
     <li><strong>Difficulty is a node budget, not a time limit</strong> (<span class="mono">AI_LEVEL_NODES</span>,
       <span class="mono">aiLevelBudget</span>): every <span class="mono">minimax</span>/<span class="mono">quiesce</span> call counts a node,
       so a level always plays the same way on any machine. Each level needs roughly half the effort of the next. Level 11 takes
-      about 5 s a move on the reference machine (8x8 middlegames: about 2&ndash;9 s depending on the position, depth 6&ndash;7), level 6
-      about 0.2 s (depth 3&ndash;6). Bigger boards get a budget scaled down by board area. Levels 1&ndash;3 also cap the depth (1/2/3), levels 1&ndash;4 blur
+      about 2.5 s a move on the reference machine (8x8 middlegames: about 0.6&ndash;4 s depending on the position, depth 5&ndash;8), level 6
+      under 0.1 s (depth 3&ndash;4). Bigger boards get a budget scaled down by board area. Levels 1&ndash;3 also cap the depth (1/2/3), levels 1&ndash;4 blur
       the root scores (<span class="mono">AI_LEVEL_NOISE</span>, a deterministic hash, no RNG draw) so they make human-sized mistakes,
       and levels 1&ndash;2 skip the opponent model (below).</li>
     <li><strong>Thinking happens in a Web Worker</strong>, so a long search never freezes the page or the music. The AI engine is its own
@@ -326,6 +326,15 @@
       abandons one that overruns (<span class="mono">SEARCH_ABORT</span>), keeping the last finished depth (or a better move already
       proven in the cut-short iteration). Quiescence resolves captures, shots and promotions with delta pruning, and tries every evasion
       when in check.</li>
+    <li><strong>Speed</strong> (no change in behaviour: identical node counts, scores and decisions): <span class="mono">squareAttacked</span>
+      walks each attack pattern once with shared offset tables and finds Fake Knights by a reverse lookup of the 16 squares they could
+      attack from (it used to scan the whole board and build a string Set per Fake Knight, over half of all search time);
+      <span class="mono">pseudoMoves</span> skips the wall-key lookups when there are no walls or shields and generates Fake Knight
+      moves directly; quiescence generates captures only (<span class="mono">allMoves(snap, true)</span>) and reuses the king square and
+      attack board it already has; the pin test runs once per piece; move ordering uses a numeric history table
+      (<span class="mono">HISTORY_TBL</span>, an <span class="mono">Int32Array</span>); <span class="mono">evaluate</span> walks a list of the
+      occupied squares. Together about 2&times; faster on typical positions and up to ~9&times; on positions with Fake Knights. The
+      <span class="mono">perf</span> harness used to check this ran the page's two scripts under Node and compared search fingerprints.</li>
     <li>Search nodes avoid allocation: <span class="mono">cloneBoardRows</span> shallow-copies only the rows a move touches and
       shares unchanged piece objects (pieces are never edited in place during the search), empty effect lists are shared, the
       side-to-move invariants (blocked set, king square, in-check flag) are computed once per <span class="mono">allMoves</span>, and
@@ -485,6 +494,11 @@
         Wall (<span class="mono">pseudoMoves</span>) but the attack test still sees a slider's line through it, and a sleeping piece
         (which cannot capture next turn) still counts as attacking. So "Check!" and castling legality can be too cautious around Walls
         and Sleep. (The AI's search uses its own corrected test, <span class="mono">snapAttackBoard</span>.)</li>
+      <li><strong><span class="mono">squareAttacked</span> disagrees with move generation for two custom pieces.</strong> The Cat's
+        two-square capture leaps over the square in between (<span class="mono">pseudoMoves</span>), but the attack test stops at a piece
+        there, so such an attack is missed by "Check!", castling and the AI's check/pin tests. And a Fake Knight never counts as
+        guarding a square held by its own side (its reach excludes own pieces), while every other piece does &mdash; so the AI treats a
+        piece defended only by a Fake Knight as undefended. Both were kept as they are by the speed-up; decide and fix together.</li>
     </ol>
   </div>
 
