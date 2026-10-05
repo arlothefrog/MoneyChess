@@ -1508,7 +1508,20 @@ function snapshotFromState(s) {
     turn: s.turn,
     ...snapEffects(s),
     money: { w: s.money.w, b: s.money.b },
+    // The shared spell bar, as a position in AI_CTX.spellQueue (the bar now,
+    // then the NEXT queue) plus the refresh timer: see aiBarAt / tickSpellBar.
+    spellQ: 0,
+    spellT: s.spellTurns || 0,
   };
+}
+
+// The spell bar is shared by both players. It refills with the next three
+// queued spells whenever someone casts, and every 4 turn-ends
+// (tickShopRefresh). The search tracks it per line so each side sees the bar
+// it would really have. A turn end:
+function tickSpellBar(snap) {
+  const t = (snap.spellT || 0) + 1;
+  return t >= 4 ? { spellQ: (snap.spellQ || 0) + 3, spellT: 0 } : { spellQ: snap.spellQ || 0, spellT: t };
 }
 
 // Capture income mirrored from makeMove: half the victim's value, the bounty
@@ -1588,7 +1601,7 @@ function applyMove(snap, fr, fc, move, promoteTo) {
     board[move.r][move.c] = null;
     applyMoveIncome(snap, money, p, fr, fc, captured, move);
     expireSnapEffects(eff);
-    return { board, castling, epTarget, turn: turnAfter, ...eff, money };
+    return { board, castling, epTarget, turn: turnAfter, ...eff, money, ...tickSpellBar(snap) };
   }
   board[fr][fc] = null;
   board[move.r][move.c] = move.promotion && promoteTo
@@ -1613,7 +1626,7 @@ const kingCol = SIZE >> 1;
   if (move.doubleStep) epTarget = {r:(fr+move.r)/2, c:fc};
   applyMoveIncome(snap, money, p, fr, fc, captured, move);
   expireSnapEffects(eff);
-  return { board, castling, epTarget, turn: turnAfter, ...eff, money };
+  return { board, castling, epTarget, turn: turnAfter, ...eff, money, ...tickSpellBar(snap) };
 }
 
 // Apply a shop placement onto a snapshot: put `piece` (type, with its golden /
@@ -1630,7 +1643,7 @@ function applyPlacement(snap, piece, color, r, c, mod, cost) {
   eff.noCapture[color] = Math.max(0, eff.noCapture[color] - 1);
   const money = { w: snap.money.w, b: snap.money.b };
   if (cost) money[color] -= cost;
-  return { board, castling: {...snap.castling}, epTarget: null, turn, ...eff, money };
+  return { board, castling: {...snap.castling}, epTarget: null, turn, ...eff, money, ...tickSpellBar(snap) };
 }
 
 // `blk`, `inCheckNow` and `king` are optional cached values supplied by allMoves
@@ -1822,7 +1835,9 @@ function historyUpdate(mv, depth) {
 // so a 32-bit collision cannot return a wrong result.
 const Z_TYPE = { P:1,N:2,B:3,R:4,Q:5,C:6,G:7,D:8,A:9,S:10,H:11,K:12,F:13,X:14,M:15,T:16 };
 const Z_EFF = { blocked:1, sleeping:2, shielded:3, confused:4, piratify:5, thief:6, cursed:7, swapLocked:8 };
-function positionHash(snap) {
+// `ignoreBar`: leave out the spell-bar position (for repetition and the
+// post-spell fingerprint, where only the board and effects matter).
+function positionHash(snap, ignoreBar) {
   let h1 = 0x811c9dc5 | 0, h2 = 0x9e3779b9 | 0;
   const mix = (x) => {
     x |= 0;
@@ -1849,7 +1864,8 @@ function positionHash(snap) {
       mix((Z_EFF[key] * 0x01000000) ^ (rem << 16) ^ (list[i].r * SIZE + list[i].c));
     }
   }
-  if (snap.oppSpellUsed) mix(0x57000000);
+  if (snap.spellUsed) mix(0x57000000);
+  if (!ignoreBar) mix(0x58000000 ^ (((snap.spellQ || 0) & 0xff) << 4) ^ ((snap.spellT || 0) & 15));
   if (snap.turn === "b") mix(0x50000000);
   if (snap.castling.wK) mix(0x51000001);
   if (snap.castling.wQ) mix(0x51000002);
@@ -1923,10 +1939,11 @@ const MATE = 100000;
 //   oppModel   search the opponent's shop buys and spells on its replies
 //   oppMaxPly  ...up to this ply (from AI_PARAMS.oppReplies)
 //   oppShop    [{type, cost, mod}] what it could buy then
-//   oppSpells  [{id, cost}] what it could cast then (modelled spells only)
+//   spellQueue [{id, mod}] the spell bar now, then the NEXT queue (aiBarAt)
+//   ownMaxPly  the AI's own spells are tried at its moves up to this ply
 //   repSet     Map(position hash -> times seen) of positions after our moves
 //   noise      blur (centipawns) added to root scores on the easiest levels
-let AI_CTX = { oppModel: false, oppMaxPly: Infinity, oppShop: [], oppSpells: [], oppSpellsNow: [], oppSpellsAfterCast: [], repSet: null, noise: 0 };
+let AI_CTX = { oppModel: false, oppMaxPly: Infinity, ownMaxPly: 0, oppShop: [], spellQueue: [], repSet: null, noise: 0 };
 
 // Which kings are still on the board: bit 1 = White, bit 2 = Black.
 function kingsPresent(board) {
@@ -2033,13 +2050,17 @@ function minimax(snap, depth, alpha, beta, aiColor, ply) {
   // a hanging piece, when in reality it takes the piece now and buys next turn;
   // so a strong buy threat masked real losses.) Such a node is keyed apart in
   // the transposition table: its value includes those options.
-  const oppNode = !isMax && AI_CTX.oppModel && !snap.oppSpellUsed && ply <= AI_CTX.oppMaxPly;
+  const oppNode = !isMax && AI_CTX.oppModel && !snap.spellUsed && ply <= AI_CTX.oppMaxPly;
+  // Likewise the AI's own spells on its next turn(s): the bar it will have
+  // then (aiBarAt) may set up a capture, e.g. Snipe Pawn on a defending pawn.
+  const ownNode = isMax && ply >= 2 && ply <= AI_CTX.ownMaxPly && !snap.spellUsed;
 
   // Transposition table: reuse a stored result (and its best move for ordering).
   let ttMove = null, hash = null;
   if (AI_USE_TT) {
     hash = positionHash(snap);
     if (oppNode) { hash.h1 = (hash.h1 ^ 0x5bd1e995) >>> 0; hash.h2 = (hash.h2 ^ 0x27d4eb2f) >>> 0; }
+    else if (ownNode) { hash.h1 = (hash.h1 ^ 0x1b873593) >>> 0; hash.h2 = (hash.h2 ^ 0x165667b1) >>> 0; }
     const ent = TT.get(hash.h1);
     if (ent && ent.h2 === hash.h2) {
       ttMove = ent.move;
@@ -2054,7 +2075,7 @@ function minimax(snap, depth, alpha, beta, aiColor, ply) {
   const alphaOrig = alpha, betaOrig = beta;
   const split = splitConfused(snap, orderMoves(snap, allMoves(snap), ply, ttMove));
   const moves = split.moves, chance = split.chance;
-  const extras = oppNode ? aiOppExtras(snap, aiColor) : null;
+  const extras = oppNode ? aiOppExtras(snap, aiColor) : ownNode ? aiOwnExtras(snap, aiColor) : null;
   // No move the search allows: a "mated" or "stalemated" side must still make a
   // (losing) move in this king-capture game; only a side that cannot move at
   // all is a draw.
@@ -2099,7 +2120,7 @@ function minimax(snap, depth, alpha, beta, aiColor, ply) {
   if (alpha < beta && extras) {
     for (const ex of extras) {
       // A spell is a free action (same side still to move, same depth); a buy
-      // ends the turn like a move.
+      // ends the turn like a move. (Either side's options.)
       const v = ex.sameTurn
         ? minimax(ex.child, depth, alpha, beta, aiColor, ply)
         : minimax(ex.child, depth - 1, alpha, beta, aiColor, ply + 1);
@@ -2180,7 +2201,9 @@ function quiesce(snap, alpha, beta, aiColor, qdepth) {
 }
 
 // ---- The opponent's shop buys and spells ----
-const OPP_SPELLS = new Set(["sleep", "confuse", "push", "killPawn", "shield", "block", "dispel"]);
+// Spells the search can cast inside a line (either side); the rest are only
+// considered by the AI at the root (aiBestSpell).
+const SEARCH_SPELLS = new Set(["sleep", "confuse", "push", "killPawn", "shield", "block", "dispel"]);
 
 // `attacker`'s pieces ranked by the most valuable thing each can capture now
 // (capturing the king tops everything). Sleeping pieces are skipped.
@@ -2229,43 +2252,107 @@ function checkBlockSquares(board, king, attacker) {
   return out;
 }
 
-// Candidate targets for a spell the opponent (`foe`) might cast against us.
-function aiOppSpellTargets(id, snap, foe, aiColor, threats, checkLine) {
+// Pieces of `caster`'s enemy whose removal (mode "snipe") or sleep (mode
+// "sleep": it stays on its square but cannot recapture next turn) would leave
+// another enemy piece that `caster` attacks undefended: [{r, c, gain}], gain =
+// the value of the best piece exposed. `full` also counts lines a removed
+// piece was blocking (costlier; used at the root, not inside the search).
+function aiExposers(snap, caster, mode, full) {
+  const enemy = opp(caster), board = snap.board;
+  const victims = [], cands = [];
+  for (let r = 0; r < SIZE; r++) for (let c = 0; c < SIZE; c++) {
+    const p = board[r][c];
+    if (!p || p.color !== enemy || p.type === "K") continue;
+    if (mode !== "snipe" || p.type === "P" || p.type === "D" || p.type === "S") cands.push({ r, c });
+    // Already defended targets are the ones a removed defender can expose
+    // (or, with `full`, any piece: a removed blocker can open a line to it).
+    if (full || (squareAttacked(board, r, c, caster) && squareAttacked(board, r, c, enemy))) {
+      victims.push({ r, c, v: PIECE_SCORE[p.type] || 100 });
+    }
+  }
+  if (!victims.length) return [];
   const out = [];
+  for (const e of cands) {
+    const b = cloneBoardRows(board, [e.r]);
+    b[e.r][e.c] = mode === "snipe" ? null : SEARCH_BLOCKER;
+    let gain = 0;
+    for (const x of victims) {
+      if (x.v <= gain || (x.r === e.r && x.c === e.c)) continue;
+      if (squareAttacked(b, x.r, x.c, caster) && !squareAttacked(b, x.r, x.c, enemy)
+          && !(full && squareAttacked(board, x.r, x.c, caster) && !squareAttacked(board, x.r, x.c, enemy))) gain = x.v;
+    }
+    if (gain > 0) out.push({ r: e.r, c: e.c, gain });
+  }
+  out.sort((a, b) => b.gain - a.gain);
+  return out;
+}
+
+// Candidate targets for a spell `caster` might cast inside the search:
+// aimed at the enemy pieces that threaten it most, or (Sleep, Snipe Pawn) at
+// the defender whose loss exposes a piece to capture; Shield/Dispel/Wall help
+// its own pieces or king. `ctx` caches the threat list and check line.
+function aiSnapSpellTargets(id, snap, caster, ctx) {
+  const enemy = opp(caster);
+  const out = [];
+  const add = (t) => { if (t && !out.some(o => o.r === t.r && o.c === t.c)) out.push({ r: t.r, c: t.c }); };
   if (id === "sleep" || id === "confuse" || id === "push") {
-    for (const t of threats) {
-      if (out.length >= (id === "sleep" ? 2 : 1)) break;
+    for (const t of ctx.threats) {
+      if (out.length >= 1) break;
+      if (id === "sleep" && isSleeping(snap, t.r, t.c)) continue;
       if (id === "confuse" && isConfusedSq(snap, t.r, t.c)) continue;
       if (id === "push") {
-        const nr = t.r + (aiColor === "w" ? 1 : -1);
+        const nr = t.r + (enemy === "w" ? 1 : -1);
         if (nr < 0 || nr >= SIZE || snap.board[nr][t.c] || snap.blocked.some(b => b.r === nr && b.c === t.c)) continue;
       }
-      out.push({ r: t.r, c: t.c });
+      add(t);
     }
+    if (id === "sleep") add(aiExposers(snap, caster, "sleep", false).find(t => !isSleeping(snap, t.r, t.c)));
   } else if (id === "killPawn") {
-    const t = threats.find(x => x.type === "P" || x.type === "D" || x.type === "S");
-    if (t) out.push({ r: t.r, c: t.c });
+    add(ctx.threats.find(x => x.type === "P" || x.type === "D" || x.type === "S"));
+    add(aiExposers(snap, caster, "snipe", false)[0]);
   } else if (id === "block") {
-    if (checkLine) { const sq = checkLine.values().next().value; out.push({ r: Math.floor(sq / SIZE), c: sq % SIZE }); }
+    if (ctx.checkLine) { const sq = ctx.checkLine.values().next().value; add({ r: Math.floor(sq / SIZE), c: sq % SIZE }); }
   } else if (id === "shield" || id === "dispel") {
     let best = null;
     for (let r = 0; r < SIZE; r++) for (let c = 0; c < SIZE; c++) {
       const p = snap.board[r][c];
-      if (!p || p.color !== foe || p.type === "K") continue;
-      if (id === "shield" && (isShielded(snap, r, c) || !squareAttacked(snap.board, r, c, aiColor))) continue;
+      if (!p || p.color !== caster || p.type === "K") continue;
+      if (id === "shield" && (isShielded(snap, r, c) || !squareAttacked(snap.board, r, c, enemy))) continue;
       if (id === "dispel" && !isSleeping(snap, r, c) && !isConfusedSq(snap, r, c)) continue;
       const v = PIECE_SCORE[p.type] || 100;
       if (!best || v > best.v) best = { r, c, v };
     }
-    if (best) out.push({ r: best.r, c: best.c });
+    add(best);
+  }
+  return out;
+}
+
+// Spell options for the side to move (`caster`) inside the search, from the
+// bar it would have at this point of the line (aiBarAt): [{child, sameTurn}].
+// A spell is a free action, so the caster still moves (sameTurn).
+function aiSpellExtras(snap, caster, ctx) {
+  const out = [];
+  const bar = aiBarAt(snap);
+  if (!bar.length) return out;
+  const money = snap.money[caster] || 0;
+  const seen = new Set();
+  for (const sp of bar) {
+    if (sp.cost > money || seen.has(sp.id)) continue;
+    seen.add(sp.id);
+    for (const t of aiSnapSpellTargets(sp.id, snap, caster, ctx)) {
+      const child = applySpellToSnapshot(snap, sp.id, t.r, t.c, caster);
+      if (!child) continue;
+      child.money[caster] -= sp.cost;
+      child.spellUsed = true;   // one spell a turn, and no buying after a cast
+      out.push({ child, sameTurn: true });
+    }
   }
   return out;
 }
 
 // The opponent's extra options on one of its replies: a few shop drops onto its
-// half (blocking a check, or hitting our pieces) and the spells on the bar
-// aimed at the pieces that do it the most damage. Each entry is
-// {child, sameTurn}: a spell leaves it to move (sameTurn), a buy ends its turn.
+// half (blocking a check, or hitting our pieces) and the spells on its bar.
+// Each entry is {child, sameTurn}: a spell leaves it to move, a buy ends its turn.
 function aiOppExtras(snap, aiColor) {
   // This scan costs about as much as six search nodes; charge it, so a node
   // budget keeps tracking thinking time.
@@ -2308,21 +2395,21 @@ function aiOppExtras(snap, aiColor) {
       }
     }
   }
-  if (AI_CTX.oppSpells && AI_CTX.oppSpells.length) {
-    const seen = new Set();
-    for (const sp of AI_CTX.oppSpells) {
-      if (sp.cost > money || seen.has(sp.id)) continue;
-      seen.add(sp.id);
-      for (const t of aiOppSpellTargets(sp.id, snap, foe, aiColor, threats, checkLine)) {
-        const child = applySpellToSnapshot(snap, sp.id, t.r, t.c, foe);
-        if (!child) continue;
-        child.money[foe] -= sp.cost;
-        child.oppSpellUsed = true;   // casting blocks buying, and one spell per turn
-        out.push({ child, sameTurn: true });
-      }
-    }
-  }
+  for (const x of aiSpellExtras(snap, foe, { threats, checkLine })) out.push(x);
   return out;
+}
+
+// The AI's own spells on its next turn inside the search (ply 2): the spell it
+// will have then may set up a capture (Snipe Pawn on a defending pawn, Sleep
+// on a defender) — or is worth keeping rather than spending a weaker one now.
+function aiOwnExtras(snap, aiColor) {
+  if (!aiBarAt(snap).length) return null;
+  SEARCH_NODES += 4;   // charge the scan (see aiOppExtras)
+  const foe = opp(aiColor);
+  const king = findKing(snap.board, aiColor);
+  const checkLine = (king && snapInCheck(snap, aiColor))
+    ? checkBlockSquares(snapAttackBoard(snap, foe), king, foe) : null;
+  return aiSpellExtras(snap, aiColor, { threats: aiThreatList(snap, foe), checkLine });
 }
 
 // ======== Decision layer ========
@@ -2354,10 +2441,12 @@ function aiLevelBudget(level) {
 //   oppReplies   ... on this many of its replies (2: it can take a piece now
 //                and still buy next turn). Self-play at level 5: two replies vs
 //                first-reply-only 11-9; every reply 8-12 (it costs depth).
+//   ownSpellTurns  the AI's own spells are searched on this many of its next
+//                turns (the bar it will have then, incl. the NEXT queue)
 //   bountyEV     expected payout of a bounty still on the board (to its owner)
 //   *Margin      how much a buy / Tax / spell must beat the alternative by
 //   repPenalty   cost of steering back into a position we already had
-const AI_DEFAULT_PARAMS = { money: 100, kingAttack: 0, oppModel: true, oppReplies: 2, bountyEV: 25, buyMargin: 15, taxMargin: 15, spellMargin: 10, repPenalty: 25 };
+const AI_DEFAULT_PARAMS = { money: 100, kingAttack: 0, oppModel: true, oppReplies: 2, ownSpellTurns: 1, bountyEV: 25, buyMargin: 15, taxMargin: 15, spellMargin: 10, repPenalty: 25 };
 let AI_PARAMS = { ...AI_DEFAULT_PARAMS };
 const AI_PROBE_MARGIN = 150;   // how far below the bar a shallow probe may score and still get a full search
 let AI_HEADLESS = false;   // aiSelfPlay: no rendering, sounds or timers
@@ -2369,11 +2458,12 @@ function aiShopOffers(shop) {
   for (const e of shop || []) if (e && e.p) out.push({ type: e.p, cost: shopPrice(e), mod: e.mod || "normal" });
   return out;
 }
-function aiSpellOffers(ids, mods) {
-  const out = [];
-  for (let i = 0; i < (ids || []).length; i++) {
-    const id = ids[i];
-    if (id && OPP_SPELLS.has(id)) out.push({ id, cost: spellEffCost(id, (mods && mods[i]) || "normal") });
+// The modelled spells [{id, cost}] on the bar a snapshot's side to move has.
+function aiBarAt(snap) {
+  const q = snap.spellQ || 0, out = [];
+  for (let i = q; i < q + 3 && i < AI_CTX.spellQueue.length; i++) {
+    const e = AI_CTX.spellQueue[i];
+    if (e.id && SEARCH_SPELLS.has(e.id)) out.push({ id: e.id, cost: spellEffCost(e.id, e.mod) });
   }
   return out;
 }
@@ -2384,23 +2474,23 @@ function aiRepetitionHashes(me) {
   const out = [];
   for (const h of state.history || []) {
     if (!h || !h.board || h.turn === me) continue;
-    try { out.push(positionHash(snapshotFromState(h)).h1); } catch (e) {}
+    try { out.push(positionHash(snapshotFromState(h), true).h1); } catch (e) {}
   }
   return out;
 }
 function aiSetupContext(me, level, opts) {
   AI_CTX.oppModel = level >= 3 && AI_PARAMS.oppModel !== false;
   AI_CTX.oppMaxPly = 2 * Math.max(1, AI_PARAMS.oppReplies || 1) - 1;   // its replies are plies 1, 3, 5...
+  AI_CTX.ownMaxPly = AI_CTX.oppModel ? 2 * (AI_PARAMS.ownSpellTurns || 0) : 0;      // our next turns are plies 2, 4...
   AI_CTX.noise = AI_LEVEL_NOISE[level] || 0;
   AI_CTX.oppShop = aiShopOffers(state.shop);
-  // The bar the opponent will see: the current one (or the one stashed behind a
-  // free follow-up card) — or, once we cast, the refilled one from the queue.
-  AI_CTX.oppSpellsNow = (state.freeSpellId && state.stashSpells)
-    ? aiSpellOffers(state.stashSpells, state.stashSpellMods)
-    : aiSpellOffers(state.spells, state.spellMods);
-  const nx = (state.nextSpells || []).slice(0, 3);
-  AI_CTX.oppSpellsAfterCast = nx.length === 3 ? aiSpellOffers(nx.map(x => x.id), nx.map(x => x.mod)) : AI_CTX.oppSpellsNow;
-  AI_CTX.oppSpells = AI_CTX.oppSpellsNow;
+  // The shared bar as the search sees it: the bar now (or the one stashed
+  // behind a free follow-up card), then the visible NEXT queue. Snapshots
+  // index into it (spellQ); past its end the bar is unknown and not modelled.
+  const ids = (state.freeSpellId && state.stashSpells) ? state.stashSpells : state.spells;
+  const mods = (state.freeSpellId && state.stashSpells) ? state.stashSpellMods : state.spellMods;
+  AI_CTX.spellQueue = [0, 1, 2].map(i => ({ id: ids[i] || null, mod: (mods && mods[i]) || "normal" }))
+    .concat((state.nextSpells || []).map(x => ({ id: x.id, mod: x.mod || "normal" })));
   const rep = new Map();
   for (const h of (opts && opts.repHashes) || aiRepetitionHashes(me)) rep.set(h, (rep.get(h) || 0) + 1);
   AI_CTX.repSet = rep.size ? rep : null;
@@ -2449,7 +2539,7 @@ function aiRootSearch(start, me, opt) {
         const child = applyMove(start, mv.fr, mv.fc, mv.move, promo);
         let v = minimax(child, d - 1, alpha, Infinity, me, 1);
         if (AI_CTX.repSet && child.turn !== me) {
-          const seen = AI_CTX.repSet.get(positionHash(child).h1);
+          const seen = AI_CTX.repSet.get(positionHash(child, true).h1);
           if (seen) v -= AI_PARAMS.repPenalty * seen;
         }
         if (AI_CTX.noise) v += aiNoise(rootHash, mv, v);
@@ -2726,15 +2816,13 @@ function aiTaxGainValue(me, D, floor) {
   snap.noCapture[me] = Math.max(0, snap.noCapture[me] - 1);
   snap.epTarget = null;
   snap.turn = opp(me);
-  const saved = AI_CTX.oppSpells;
-  AI_CTX.oppSpells = AI_CTX.oppSpellsAfterCast;   // casting refills the spell bar
+  snap.spellQ += 3;   // casting refills the bar; the skipped turn only advances its timer
+  snap.spellT = 1;
   try {
     return { slot, value: minimax(snap, D - 1, floor, Infinity, me, 1) };
   } catch (err) {
     if (err !== SEARCH_ABORT) throw err;
     return null;
-  } finally {
-    AI_CTX.oppSpells = saved;
   }
 }
 
@@ -2772,8 +2860,12 @@ function aiPieceThreatensUs(r, c, me) {
   return false;
 }
 
-// Put one of the enemy's most valuable active pieces to sleep.
+// Put one of the enemy's most valuable active pieces to sleep — or a defender:
+// a sleeping piece cannot recapture, so whatever it alone was guarding (and we
+// attack) is exposed; that piece's value counts too.
 function aiSleepTargets(me) {
+  const exposed = new Map();
+  for (const e of aiExposers(snapshotFromState(state), me, "sleep", false)) exposed.set(e.r * SIZE + e.c, e.gain);
   const out = [];
   for (let r = 0; r < SIZE; r++) for (let c = 0; c < SIZE; c++) {
     const p = state.board[r][c];
@@ -2781,6 +2873,7 @@ function aiSleepTargets(me) {
     if (isSleeping(state, r, c)) continue;
     let v = PIECE_SCORE[p.type] || 300;
     if (aiPieceThreatensUs(r, c, me)) v += 60;
+    v += exposed.get(r * SIZE + c) || 0;
     out.push({ r, c, score: v });
   }
   return aiTop(out);
@@ -2878,8 +2971,12 @@ function aiSacrificeTargets(me) {
   return aiTop(out, 2);
 }
 
-// Snipe an enemy pawn, preferring one that threatens us or is near our side.
+// Snipe an enemy pawn: one that threatens us or is near our side — or one
+// whose removal exposes a piece we attack (it was the only defender, or it
+// blocked our line), worth that piece's value. Up to four are searched.
 function aiSnipeTargets(me) {
+  const exposed = new Map();
+  for (const e of aiExposers(snapshotFromState(state), me, "snipe", true)) exposed.set(e.r * SIZE + e.c, e.gain);
   const out = [];
   for (let r = 0; r < SIZE; r++) for (let c = 0; c < SIZE; c++) {
     const p = state.board[r][c];
@@ -2889,9 +2986,10 @@ function aiSnipeTargets(me) {
     if (aiPieceThreatensUs(r, c, me)) v += 120;
     const depth = me === "w" ? (SIZE - 1 - r) : r;   // rows into our own half
     if (depth <= 1) v += 60;
+    v += exposed.get(r * SIZE + c) || 0;
     out.push({ r, c, score: v });
   }
-  return aiTop(out);
+  return aiTop(out, 4);
 }
 
 // Is (r,c) on an open ray between `me`'s king and an enemy slider? A wall
@@ -3157,7 +3255,7 @@ function aiBountyOutcome(snap, me, k) {
 function applyBountyToSnapshot(snap, me, targets) {
   const board = cloneBoardRows(snap.board, [...new Set(targets.map(t => t.r))]);
   for (const t of targets) board[t.r][t.c] = { ...board[t.r][t.c], bounty: me };
-  return { ...snap, board, money: { ...snap.money } };
+  return { ...snap, board, money: { ...snap.money }, spellQ: (snap.spellQ || 0) + 3, spellT: 0 };
 }
 
 // Value of casting Bounty for `cost`, comparable with the plain move's value
@@ -3169,9 +3267,7 @@ function aiBountyValue(me, cost, D, planVal) {
   const dS = D > 2 ? D - 2 : D;
   const base = aiRootSearch(root, me, { depth: dS, fixedDepth: true });
   if (!base) return null;
-  const saved = AI_CTX.oppSpells;
-  AI_CTX.oppSpells = AI_CTX.oppSpellsAfterCast;   // casting refills the spell bar
-  try {
+  {
     let sum = 0;
     for (let k = 0; k < AI_BOUNTY_SAMPLES; k++) {
       const targets = aiBountyOutcome(root, me, k);
@@ -3183,8 +3279,6 @@ function aiBountyValue(me, cost, D, planVal) {
       sum += res.value;
     }
     return { value: planVal + sum / AI_BOUNTY_SAMPLES - base.value, then: null };
-  } finally {
-    AI_CTX.oppSpells = saved;
   }
 }
 
@@ -3195,9 +3289,7 @@ function aiSpellValue(me, cand, cost, D, floor) {
   const applied = applySpellToSnapshot(snapshotFromState(state), cand.id, cand.r, cand.c, me, cand.r2, cand.c2);
   if (!applied) return null;
   applied.money[me] -= cost;
-  const saved = AI_CTX.oppSpells;
-  AI_CTX.oppSpells = AI_CTX.oppSpellsAfterCast;   // casting refills the spell bar
-  try {
+  {
     // Cheap probe first (two plies shallower): skip a spell clearly below the bar.
     if (D >= 3) {
       const probe = aiRootSearch(applied, me, { depth: D - 2, fixedDepth: true, alphaFloor: floor - AI_PROBE_MARGIN });
@@ -3206,9 +3298,7 @@ function aiSpellValue(me, cand, cost, D, floor) {
     const res = aiRootSearch(applied, me, { depth: D, fixedDepth: true, alphaFloor: floor });
     // `expect` fingerprints the modelled position: the follow-up move is only
     // played if the real cast produced exactly this position (aiAfterCast).
-    return res && res.best ? { value: res.value, then: res.best, expect: positionHash(applied).h1 } : null;
-  } finally {
-    AI_CTX.oppSpells = saved;
+    return res && res.best ? { value: res.value, then: res.best, expect: positionHash(applied, true).h1 } : null;
   }
 }
 
@@ -3217,7 +3307,8 @@ function aiSpellValue(me, cand, cost, D, floor) {
 // modified snapshot or null when the spell can't be modeled here.
 function applySpellToSnapshot(snap, id, r, c, me, r2, c2) {
   const board = cloneBoard(snap.board);
-  const out = { ...snap, board, money: { ...snap.money } };
+  // Casting refills the shared spell bar and restarts its refresh timer.
+  const out = { ...snap, board, money: { ...snap.money }, spellQ: (snap.spellQ || 0) + 3, spellT: 0 };
   out.blocked = snap.blocked.map(b=>({...b}));
   out.sleeping = (snap.sleeping||[]).map(b=>({...b}));
   out.shielded = (snap.shielded||[]).map(b=>({...b}));
@@ -3387,7 +3478,7 @@ function aiAfterCast(me, then, sync, expect) {
   const playable = () => !!then && !state.gameOver && state.turn === me && !state.targetMode
     && !state.placementMode && !state.taxSkipPending
     && !(state.freeSpellId && state.followUpOwner === me)
-    && (expect == null || positionHash(snapshotFromState(state)).h1 === expect)
+    && (expect == null || positionHash(snapshotFromState(state), true).h1 === expect)
     && aiMoveIsLegal(then);
   if (sync) {
     if (playable()) aiPlayMove(me, then);
