@@ -494,11 +494,6 @@
         Wall (<span class="mono">pseudoMoves</span>) but the attack test still sees a slider's line through it, and a sleeping piece
         (which cannot capture next turn) still counts as attacking. So "Check!" and castling legality can be too cautious around Walls
         and Sleep. (The AI's search uses its own corrected test, <span class="mono">snapAttackBoard</span>.)</li>
-      <li><strong><span class="mono">squareAttacked</span> disagrees with move generation for two custom pieces.</strong> The Cat's
-        two-square capture leaps over the square in between (<span class="mono">pseudoMoves</span>), but the attack test stops at a piece
-        there, so such an attack is missed by "Check!", castling and the AI's check/pin tests. And a Fake Knight never counts as
-        guarding a square held by its own side (its reach excludes own pieces), while every other piece does &mdash; so the AI treats a
-        piece defended only by a Fake Knight as undefended. Both were kept as they are by the speed-up; decide and fix together.</li>
     </ol>
   </div>
 

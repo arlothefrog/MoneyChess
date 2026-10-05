@@ -4294,43 +4294,6 @@ function isShielded(s, r, c){ return s.shielded && s.shielded.some(x => x.r===r 
 // side (both straight squares must be clear). It can move or capture at ANY
 // square along the path, so it cannot jump: the deeper squares need the earlier
 // ones empty.
-function fakeKnightReach(br, bc, board, blk) {
-  const s = new Set();
-  const p = board[br][bc];
-  if (!p) return s;
-  const card = [[-1,0],[1,0],[0,-1],[0,1]];
-  for (const [dr, dc] of card) {
-    // Slide up to 2 squares straight along the cardinal direction; can capture
-    // on any of them but stops there (cannot jump).
-    let rr = br, cc = bc;
-    for (let k = 1; k <= 2; k++) {
-      rr += dr; cc += dc;
-      if (!inBounds(rr, cc)) break;
-      if (blk && blk.has(rr + "," + cc)) break;
-      const t = board[rr][cc];
-      if (t && t.color === p.color) break;
-      s.add(rr + "," + cc);
-      if (t) break;            // captured here; can't continue
-    }
-    // 2-straight-then-1-side squares need both straight squares clear first
-    // (blocked/walls/friendly pieces in between stop the maneuver).
-    const e1 = br + dr, e2 = br + 2 * dr;
-    const c1 = bc + dc, c2 = bc + 2 * dc;
-    const clear = (r, c) => inBounds(r, c) && !board[r][c] && !(blk && blk.has(r + "," + c));
-    if (clear(e1, c1) && clear(e2, c2)) {
-      for (const [pr, pc] of [[dc, dr], [-dc, -dr]]) {
-        const rr = e2 + pr, cc = c2 + pc;
-        if (!inBounds(rr, cc)) continue;
-        if (blk && blk.has(rr + "," + cc)) continue;
-        const t = board[rr][cc];
-        if (t && t.color === p.color) continue;
-        s.add(rr + "," + cc);
-      }
-    }
-  }
-  return s;
-}
-
 function pseudoMoves(board, r, c, castling, epTarget, blocked) {
   const blk = blocked || EMPTY_SET;
   const p = board[r][c];
@@ -4429,7 +4392,6 @@ const dir = color === "w" ? -1 : 1;
 else if (p.type === "F") {
     // Fake Knight: 1-2 straight in any cardinal direction, or 2 straight then
     // 1 sideways; can move or capture anywhere on its path (cannot jump).
-    // (Same squares and order as fakeKnightReach, without its string Set.)
     for (const [dr, dc] of ORTH_DIRS) {
       let rr = r, cc = c;
       for (let k = 1; k <= 2; k++) {
@@ -4613,11 +4575,10 @@ for (let dr = -2; dr <= 2; dr++) for (let dc = -2; dc <= 2; dc++) {
   if (Math.max(Math.abs(dr), Math.abs(dc)) === 2) RING2_OFFS.push([dr, dc]);
 }
 
-// Is square (r,c) attacked by color attackerColor (ignoring castling)?
+// Is square (r,c) attacked by color attackerColor (ignoring castling)? A
+// square held by attackerColor's own piece counts too (it is guarded).
 // Hot: the AI calls this for every check, pin and king-move test, so it walks
-// each attack pattern once with no allocation. (Cat and Rat attacks stop at
-// the first piece in a direction; a Fake Knight never covers a square held by
-// its own side.)
+// each attack pattern once with no allocation.
 function squareAttacked(board, r, c, attackerColor) {
   const n = SIZE;
   // Pawn (diagonal forward); Soldier and D-Pawn (straight forward, one square)
@@ -4656,20 +4617,27 @@ function squareAttacked(board, r, c, attackerColor) {
     const t = board[rr][cc];
     if (t && t.color === attackerColor && t.type === "X") return true;
   }
-  // Each of the 8 directions: the adjacent square (King, Centaur), the first
-  // piece within two squares (Cat, Rat), and the first piece on the ray
-  // (Bishop/Queen/Amazon diagonally, Rook/Queen/Amazon straight).
+  // Each of the 8 directions: the adjacent square (King, Centaur, Cat), the
+  // Cat's two-square capture (a leap: a piece in between does not stop it, as
+  // in pseudoMoves), the first piece within two squares (Rat, which cannot
+  // jump), and the first piece on the ray (Bishop/Queen/Amazon diagonally,
+  // Rook/Queen/Amazon straight).
   for (let i = 0; i < 8; i++) {
     const dr = ALL_DIRS[i][0], dc = ALL_DIRS[i][1];
     const diag = i < 4;
+    const lr = r + 2 * dr, lc = c + 2 * dc;
+    if (lr >= 0 && lr < n && lc >= 0 && lc < n) {
+      const t = board[lr][lc];
+      if (t && t.color === attackerColor && t.type === "T") return true;
+    }
     let rr = r + dr, cc = c + dc, step = 1;
     while (rr >= 0 && rr < n && cc >= 0 && cc < n) {
       const t = board[rr][cc];
       if (t) {
         if (t.color === attackerColor) {
           const ty = t.type;
-          if (step === 1 && (ty === "K" || ty === "H")) return true;
-          if (step <= 2 && (ty === "T" || ty === "M")) return true;
+          if (step === 1 && (ty === "K" || ty === "H" || ty === "T")) return true;
+          if (step <= 2 && ty === "M") return true;
           if (ty === "Q" || ty === "A" || (diag ? ty === "B" : ty === "R")) return true;
         }
         break;
@@ -4679,9 +4647,9 @@ function squareAttacked(board, r, c, attackerColor) {
   }
   // Fake Knight: 1-2 squares straight (the first must be empty for 2), or 2
   // straight then 1 sideways (both straight squares empty). Checked in reverse:
-  // where could a Fake Knight stand to reach (r,c)?
-  const tgt = board[r][c];
-  if (!(tgt && tgt.color === attackerColor)) {
+  // where could a Fake Knight stand to reach (r,c)? Like every other piece it
+  // also guards a square its own side holds.
+  {
     const isF = (rr, cc) => {
       if (rr < 0 || rr >= n || cc < 0 || cc >= n) return false;
       const t = board[rr][cc];
