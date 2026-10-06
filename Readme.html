@@ -309,8 +309,8 @@
     <li><strong>Difficulty is a node budget, not a time limit</strong> (<span class="mono">AI_LEVEL_NODES</span>,
       <span class="mono">aiLevelBudget</span>): every <span class="mono">minimax</span>/<span class="mono">quiesce</span> call counts a node,
       so a level always plays the same way on any machine. Each level needs roughly half the effort of the next. Level 11 takes
-      about 5 s a move on the reference machine (8x8 middlegames: 2&ndash;11 s depending on the position, depth 6&ndash;9), level 6
-      about 0.2 s (depth 3&ndash;6). Bigger boards get a budget scaled down by board area. Levels 1&ndash;3 also cap the depth (1/2/3), levels 1&ndash;4 blur
+      about 2.5 s a move on the reference machine (8x8 middlegames: about 0.6&ndash;4 s depending on the position, depth 5&ndash;8), level 6
+      under 0.1 s (depth 3&ndash;4). Bigger boards get a budget scaled down by board area. Levels 1&ndash;3 also cap the depth (1/2/3), levels 1&ndash;4 blur
       the root scores (<span class="mono">AI_LEVEL_NOISE</span>, a deterministic hash, no RNG draw) so they make human-sized mistakes,
       and levels 1&ndash;2 skip the opponent model (below).</li>
     <li><strong>Thinking happens in a Web Worker</strong>, so a long search never freezes the page or the music. The AI engine is its own
@@ -326,6 +326,15 @@
       abandons one that overruns (<span class="mono">SEARCH_ABORT</span>), keeping the last finished depth (or a better move already
       proven in the cut-short iteration). Quiescence resolves captures, shots and promotions with delta pruning, and tries every evasion
       when in check.</li>
+    <li><strong>Speed</strong> (no change in behaviour: identical node counts, scores and decisions): <span class="mono">squareAttacked</span>
+      walks each attack pattern once with shared offset tables and finds Fake Knights by a reverse lookup of the 16 squares they could
+      attack from (it used to scan the whole board and build a string Set per Fake Knight, over half of all search time);
+      <span class="mono">pseudoMoves</span> skips the wall-key lookups when there are no walls or shields and generates Fake Knight
+      moves directly; quiescence generates captures only (<span class="mono">allMoves(snap, true)</span>) and reuses the king square and
+      attack board it already has; the pin test runs once per piece; move ordering uses a numeric history table
+      (<span class="mono">HISTORY_TBL</span>, an <span class="mono">Int32Array</span>); <span class="mono">evaluate</span> walks a list of the
+      occupied squares. Together about 2&times; faster on typical positions and up to ~9&times; on positions with Fake Knights. The
+      <span class="mono">perf</span> harness used to check this ran the page's two scripts under Node and compared search fingerprints.</li>
     <li>Search nodes avoid allocation: <span class="mono">cloneBoardRows</span> shallow-copies only the rows a move touches and
       shares unchanged piece objects (pieces are never edited in place during the search), empty effect lists are shared, the
       side-to-move invariants (blocked set, king square, in-check flag) are computed once per <span class="mono">allMoves</span>, and
@@ -334,17 +343,42 @@
       attacked (that just loses it), testing king moves with the king lifted off its square so it cannot hide behind itself on a checking
       line. A side with no such move is <em>not</em> drawn: under the live rules it must still move and lose its king, so the position
       is scored as lost (<span class="mono">noMoveScore</span>). Only a side with no legal move at all is a draw. Checkmate and
-      stalemate are therefore both wins for the attacker.</li>
+      stalemate are therefore both wins for the attacker.
+      The search's check and pin tests use <span class="mono">snapAttackBoard</span>, not the live <span class="mono">squareAttacked</span>
+      board: a Wall blocks the line, and an attacker that will still be asleep on its next turn, or is curse-frozen (owner at $0; a Shooter
+      still shoots), only blocks lines. A king whose Shield lasts through the opponent's turn is not in check
+      (<span class="mono">snapInCheck</span>). Otherwise such a phantom check would limit the side to move to "evasions" &mdash; e.g. a
+      bishop forced to block a check that is not real, where the queen simply takes it. Timed effects count down at every turn end, so
+      while the defender is to move only those with two or more turns left still count.</li>
     <li><strong>The search follows the live rules for effects</strong>: Walls, Sleep, Shield and swap locks count down at the end of every
       turn exactly as <span class="mono">expireEffectsAtTurnEnd()</span> does (<span class="mono">expireSnapEffects</span>), and
       placements and Tax pass the turn the way <span class="mono">placePiece</span>/<span class="mono">spellEndTurnSkip</span> do. A
       <strong>confused</strong> piece's moves are a chance option worth their average (<span class="mono">splitConfused</span>,
       <span class="mono">chanceValue</span>), not a free choice; quiescence ignores its captures.</li>
-    <li><strong>Opponent model</strong> (<span class="mono">aiOppExtras</span>, level 3+, <span class="mono">AI_PARAMS.oppModel</span>): on the human's first reply the search also tries
+    <li><strong>Opponent model</strong> (<span class="mono">aiOppExtras</span>, level 3+, <span class="mono">AI_PARAMS.oppModel</span>): on the human's first two replies inside the search
+      (<span class="mono">AI_PARAMS.oppReplies</span>) it also tries
       a few <em>shop drops</em> (the two priciest affordable pieces on the squares that block a check or hit the most of our material,
-      paid from the snapshot wallet) and the <em>spells</em> on the bar the human will see (Sleep, Confusion, Push, Snipe Pawn, Shield,
-      Wall, Dispel) aimed at the AI pieces that threaten the most. The bar after an AI cast is the refilled one from
-      <span class="mono">state.nextSpells</span>, and after an AI buy the shop slot shows <span class="mono">state.nextShop[0]</span>.</li>
+      paid from the snapshot wallet) and the <em>spells</em> on the bar the human will have at that point (Sleep, Confusion, Push,
+      Snipe Pawn, Shield, Wall, Dispel; <span class="mono">aiSpellExtras</span>). After an AI buy the shop slot shows
+      <span class="mono">state.nextShop[0]</span>.
+      Modelling these on the first reply only let the human "choose" between a strong buy and taking a hanging piece, when in reality it
+      takes the piece now and buys next turn, so a buy threat hid real losses. (Modelling every reply cost more depth than it gained
+      in self-play.) Each such scan is charged as six search nodes so the level
+      budget still tracks thinking time.</li>
+    <li><strong>The AI's own future spells</strong> (<span class="mono">aiOwnExtras</span>, <span class="mono">AI_PARAMS.ownSpellTurns</span> = 1):
+      on its next turn inside the search (ply 2) the AI also tries the same spells from the bar it will have then &mdash; so it sees, say, that
+      a Snipe Pawn arriving with the next refresh will let it take a piece that pawn defends, and values keeping a good spell for later.</li>
+    <li><strong>The spell bar is tracked through the search.</strong> It is shared by both players and refills with the next three queued
+      spells whenever anyone casts and every 4 turn-ends (<span class="mono">tickShopRefresh</span>; Tax is a cast plus a turn end). Each
+      snapshot carries its position in <span class="mono">AI_CTX.spellQueue</span> (the bar now, then the visible NEXT queue) and the refresh
+      timer (<span class="mono">spellQ</span>/<span class="mono">spellT</span>, advanced by <span class="mono">tickSpellBar</span>, a cast in
+      <span class="mono">applySpellToSnapshot</span>), so each side sees the bar it would really have (<span class="mono">aiBarAt</span>);
+      past the known queue no spells are modelled. The transposition table keys on the bar position; repetition checks and the post-spell
+      fingerprint ignore it.</li>
+    <li><strong>Spell targets inside the search</strong> (<span class="mono">aiSnapSpellTargets</span>, both sides): Sleep, Confusion and Push
+      the enemy piece that threatens the most; Sleep and Snipe Pawn also the <em>defender</em> whose loss exposes a piece the caster attacks
+      (<span class="mono">aiExposers</span>: a sleeping piece cannot recapture, a sniped pawn is gone); Shield the caster's most valuable
+      attacked piece; Wall a check line; Dispel the caster's slept or confused piece.</li>
     <li><strong>One decision, compared at one depth</strong> (<span class="mono">aiDecide</span>): the plain move search sets the depth
       D; then targeted spells ("spell, then the best move", <span class="mono">aiSpellValue</span>), shop buys (each piece on its
       shortlisted squares, <span class="mono">aiBestBuy</span>/<span class="mono">aiBestPlacement</span>) and Tax Gain
@@ -352,14 +386,20 @@
       the current bar (searched with it as alpha), and a two-ply-shallower probe skips the clearly worse ones
       (<span class="mono">AI_PROBE_MARGIN</span>). A buy or Tax ends the turn, so it must beat the better of the move and the spell turn
       by <span class="mono">buyMargin</span>/<span class="mono">taxMargin</span>; a spell must beat the move by
-      <span class="mono">spellMargin</span>. The whole decision stops considering options at 2.5&times; the budget. After a spell the AI
-      plays the move found with it when it is still legal; otherwise (a random spell changed the board, a 2x/RND free card appeared) it
-      decides again.</li>
-    <li><strong>Spells</strong> (<span class="mono">aiSpellTargets</span>): each spell offers its top three heuristic targets
+      <span class="mono">spellMargin</span>. The plain move search abandons an iteration past 1.5&times; the budget, and the whole decision stops
+      considering options at 2&times;. After a spell the AI plays the move found with it only if the real cast produced exactly the position
+      it modelled (a position-hash fingerprint, <span class="mono">expect</span>) and the move is still legal; otherwise (a random spell
+      changed the board, the live spell differed from the model, a 2x/RND free card appeared) it decides again.</li>
+    <li><strong>Spells</strong> (<span class="mono">aiSpellTargets</span>): each spell offers its top three heuristic targets (Snipe Pawn four;
+      Snipe Pawn and Sleep add the value of the piece their target was alone in defending, or for Snipe was blocking a line to)
       (<span class="mono">aiSleepTargets</span>, <span class="mono">aiShieldTargets</span>, <span class="mono">aiBlockTargets</span>,
       <span class="mono">aiSwapTargets</span>, <span class="mono">aiMarkTargets</span>, &hellip;); those above the spell's threshold are searched in
-      heuristic order (2/4/8 searches at levels 1&ndash;3/4&ndash;6/7+). Lightning and Bounty have random effects and are scored by expectation
-      less the money they cost. Echo is searched (its extra, capture-free turn is modelled). Freecast is not modelled. A free 2x/RND
+      heuristic order (2/4/8 searches at levels 1&ndash;3/4&ndash;6/7+). Lightning has a random effect and is scored by expectation less its
+      price. <strong>Bounty</strong> is search-valued (<span class="mono">aiBountyValue</span>): its random targets are sampled
+      (<span class="mono">aiBountyOutcome</span>, mirroring <span class="mono">pickBountyTargets</span>' unmarked-first rule with a
+      position-hash draw, no <span class="mono">gRng</span>), each sample is applied (<span class="mono">applyBountyToSnapshot</span>) and
+      searched two plies shallower than the plain move next to a no-Bounty baseline at the same depth, and the average gain is added to the
+      plain move's value. The AI picks its move after the cast, once the real targets are known. Echo is searched (its extra, capture-free turn is modelled). Freecast is not modelled. A free 2x/RND
       follow-up is cast only when spell-then-move beats the plain move (<span class="mono">aiFreeFollowUp</span>).</li>
     <li><strong>Evaluation</strong> (<span class="mono">evaluate</span>): material (<span class="mono">PIECE_SCORE</span>; the custom pieces are set
       between their shop price and their measured reach on an empty board: Camel 230, Cricket 140, Centaur 650, Rat 450, Fake Knight 420,
@@ -368,7 +408,8 @@
       <strong>king-zone pressure</strong> (squares hit around each king, weighted up sharply by the number of attacking pieces,
       <span class="mono">kingDanger</span>; its weight <span class="mono">AI_PARAMS.kingAttack</span> is 0 by default because it did not help
       in self-play), king shelter, doubled/isolated and passed pawns, bishop pair, rooks/queens on open files,
-      endgame king activity and king hunting, control effects (slept −30%, confused −22%, cursed −12%, shielded +10%), loot markers, bounties,
+      endgame king activity and king hunting, control effects (slept −30%, confused −22%, cursed −12%, shielded +10%), loot markers, bounties (each worth
+      <span class="mono">AI_PARAMS.bountyEV</span> = 25 to the side that placed it &mdash; that side collects the $1 whichever side captures the piece),
       and <strong>money</strong> at <span class="mono">AI_PARAMS.money</span> (100) centipawns per $, flat
       (<span class="mono">moneyValue</span>) &mdash; what money buys in the shop. This rate matters: when a dollar was worth less than the
       material it buys, every purchase looked like a free gain, so the opponent model's "they buy a piece" reply put the same floor under
@@ -428,7 +469,7 @@
     <li><span class="mono">reviewBack() / reviewForward() / reviewShow() / reviewExit() / viewStartLive() / cloneStateForReview() / updateHistoryButtons()</span> â€” move review (the <span class="mono">â†</span> <span class="mono">current move</span> <span class="mono">â†’</span> buttons; <span class="mono">updateHistoryButtons()</span> also toggles the middle <span class="mono">current move</span> button, which calls <span class="mono">reviewExit()</span> + <span class="mono">render()</span> to jump straight to the current move). <span class="mono">reviewFrames[i]</span> holds a snapshot of the position after move i (index 0 = starting position, kept in step by <span class="mono">rebuildHistorySel()</span>); if a new move is recorded while <span class="mono">reviewPos &gt;= 0</span>, the review snaps back to the live board so the current position always shows; <span class="mono">render()</span> swaps the live <span class="mono">state</span> for a frame only for the duration of the draw (try/finally), and a document-level capture click handler ignores gameplay clicks while <span class="mono">reviewPos &gt;= 0</span>.</li>
     <li><span class="mono">openGod() / closeGod() / buildGodPanel() / godSpawnPiece(type) / godCastSpell(id) / godSnipePiece(r,c)</span> &mdash; the Sandbox God Mode panel. <span class="mono">godSpawnPiece</span> works like <span class="mono">buyPiece()</span> without cost/shop consumption; its placement (<span class="mono">state.placementGod</span>) accepts any empty square and any color (<span class="mono">godPieceColor</span>), and <span class="mono">godPlacePiece()</span> completes it without ending the turn or touching the move log. <span class="mono">godCastSpell</span> stages the chosen spell into slot 0 and waives cost/limits via a transient <span class="mono">state.godFreeSpell</span> flag honoured by canCast/castSpell; <span class="mono">godSnipePiece</span> destroys a piece with no capture money, driven by the <span class="mono">godSnipeMode</span> flag consulted in onSquareClick, and stays active until Cancel (any number of pieces).</li>
     <li><span class="mono">enableAI() / aiMove() / aiRequestDecision() / aiExecute() / aiDecide() / aiRootSearch() / minimax() / quiesce() / evaluate()</span> &mdash; AI turn flow: <span class="mono">aiMove</span> asks for a decision (worker or main thread), <span class="mono">aiDecide</span> chooses among move / spell / buy / Tax at one depth, <span class="mono">aiExecute</span> plays it.
-      Supporting pieces: <span class="mono">aiBestSpell() / aiSpellTargets() / aiSpellValue() / aiFreeFollowUp() / aiCastTargeted() / aiBestBuy() / aiBestPlacement() / aiPlacementSquares() / aiPlacementScore() / aiTaxGainValue() / aiOppExtras() / aiThreatList() / checkBlockSquares() / noMoveScore() / snapHasLiveMove() / splitConfused() / chanceValue() / expireSnapEffects() / kingDanger() / moneyValue() / pstValue() / buildGenericPst() / applyPlacement() / applyMoveIncome() / applySpellToSnapshot() / snapEffects() / cloneBoardRows() / positionHash() / ttStore()</span>;
+      Supporting pieces: <span class="mono">aiBestSpell() / aiSpellTargets() / aiSpellValue() / aiBountyValue() / aiBountyOutcome() / applyBountyToSnapshot() / aiFreeFollowUp() / aiCastTargeted() / aiBestBuy() / aiBestPlacement() / aiPlacementSquares() / aiPlacementScore() / aiTaxGainValue() / aiOppExtras() / aiThreatList() / checkBlockSquares() / noMoveScore() / snapHasLiveMove() / snapAttackBoard() / snapInCheck() / splitConfused() / chanceValue() / expireSnapEffects() / kingDanger() / moneyValue() / pstValue() / buildGenericPst() / applyPlacement() / applyMoveIncome() / applySpellToSnapshot() / aiSpellExtras() / aiOwnExtras() / aiSnapSpellTargets() / aiExposers() / aiBarAt() / tickSpellBar() / snapEffects() / cloneBoardRows() / positionHash() / ttStore()</span>;
       difficulty <span class="mono">AI_LEVEL / AI_LEVEL_NODES / aiLevelBudget()</span>; weights <span class="mono">AI_PARAMS / AI_DEFAULT_PARAMS</span>;
       worker <span class="mono">aiWorkerSource() / aiGetWorker() / aiCancelThinking()</span>; tuning <span class="mono">aiSelfPlay()</span>.</li>
     <li><span class="mono">netStartHost() / netJoin() / netOnData() / netAdopt()</span> â€” online multiplayer.</li>
@@ -449,10 +490,10 @@
       <li><strong>Forced self-stalemate under Echo:</strong> Echo's no-capture filter (<span class="mono">noCapture</span>) can
         leave a player with zero legal moves; <span class="mono">endTurnChecks()</span> then records an instant
         "Stalemate â€” Draw". A player could be forced into a draw purely by having only capturing moves. Reconsider.</li>
-      <li><strong><span class="mono">squareAttacked</span> ignores Walls and sleeping attackers.</strong> Movement stops at a Wall
-        (<span class="mono">pseudoMoves</span>) but the attack test still sees a slider's line through it, and a sleeping piece
-        (which cannot capture next turn) still counts as attacking. So "Check!", castling legality and the AI's king-safety tests can
-        be too cautious around Walls and Sleep.</li>
+      <li><strong>The live <span class="mono">squareAttacked</span> ignores Walls and sleeping attackers.</strong> Movement stops at a
+        Wall (<span class="mono">pseudoMoves</span>) but the attack test still sees a slider's line through it, and a sleeping piece
+        (which cannot capture next turn) still counts as attacking. So "Check!" and castling legality can be too cautious around Walls
+        and Sleep. (The AI's search uses its own corrected test, <span class="mono">snapAttackBoard</span>.)</li>
     </ol>
   </div>
 
